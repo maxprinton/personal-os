@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { botToken, HELP, sendMessage, tg, webhookSecret } from "@/lib/telegram";
 import { parseMessage, saveParsed, undoSaved, userContext } from "@/lib/capture";
+import { logHabitFromBot } from "@/lib/reminders";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +27,25 @@ export async function POST(req: Request) {
   const update = (await req.json().catch(() => ({}))) as TgUpdate;
 
   // ---- "Undo" button --------------------------------------------------
+  // ---- Habit buttons (evening check-in): hd = done, hs = skip ----------
+  const habitBtn = /^(hd|hs):([0-9a-f-]{36}):(\d{4}-\d{2}-\d{2})$/.exec(update.callback_query?.data ?? "");
+  if (update.callback_query && habitBtn) {
+    const cq = update.callback_query;
+    const chatId = cq.message?.chat.id;
+    let text = "Could not log that.";
+    if (chatId) {
+      const { data: s } = await admin.from("user_settings").select("user_id").eq("telegram_chat_id", chatId).maybeSingle();
+      if (s) {
+        const status = habitBtn[1] === "hd" ? "completed" : "skipped";
+        const title = await logHabitFromBot(admin, s.user_id, habitBtn[2], habitBtn[3], status);
+        if (title) text = status === "completed" ? `✓ ${title} logged` : `${title} skipped (streak kept)`;
+      }
+    }
+    await tg("answerCallbackQuery", { callback_query_id: cq.id, text });
+    if (chatId && text !== "Could not log that.") await sendMessage(chatId, text);
+    return ok();
+  }
+
   if (update.callback_query) {
     const cq = update.callback_query;
     const chatId = cq.message?.chat.id;

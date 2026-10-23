@@ -5,6 +5,7 @@ import { createLinkCode, deleteTag, deleteUnusedTags, generateInsightsNow, unlin
 import Nav from "@/components/Nav";
 import { liveTagLinks } from "@/lib/tags";
 import ConnectBotButton from "@/components/ConnectBotButton";
+import ReminderSettings from "@/components/ReminderSettings";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export default async function SettingsPage() {
   } = await supabase.auth.getUser();
   const { data: s } = await supabase
     .from("user_settings")
-    .select("timezone,currency,locale,telegram_chat_id,telegram_link_code,telegram_link_expires")
+    .select("timezone,currency,locale,telegram_chat_id,telegram_link_code,telegram_link_expires,reminder_morning_enabled,reminder_morning_time,reminder_evening_enabled,reminder_evening_time,reminder_before_minutes,reminder_insights")
     .maybeSingle();
 
   const hasToken = Boolean(botToken());
@@ -95,6 +96,19 @@ export default async function SettingsPage() {
             </form>
           )}
         </section>
+
+        {s?.telegram_chat_id && (
+          <ReminderSettings
+            values={{
+              morningOn: s.reminder_morning_enabled ?? true,
+              morningTime: String(s.reminder_morning_time ?? "07:00").slice(0, 5),
+              eveningOn: s.reminder_evening_enabled ?? true,
+              eveningTime: String(s.reminder_evening_time ?? "21:00").slice(0, 5),
+              before: s.reminder_before_minutes ?? 10,
+              insightsOn: s.reminder_insights ?? true,
+            }}
+          />
+        )}
 
         <section className="space-y-3 rounded-lg border border-neutral-200 p-4">
           <h2 className="font-medium">Weekly insights</h2>

@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/server";
 import { botToken, tg, webhookSecret } from "@/lib/telegram";
 import type { ActionState } from "@/app/actions";
 import { liveTagLinks } from "@/lib/tags";
+import { dayData, morningText } from "@/lib/reminders";
+import { localNow } from "@/lib/time";
 
 /** One-time code the user sends to the bot: /link CODE (valid 15 minutes). */
 export async function createLinkCode() {
@@ -102,4 +104,48 @@ export async function deleteUnusedTags() {
     await supabase.from("tags").update({ deleted_at: now }).in("id", unused);
   }
   revalidatePath("/settings");
+}
+
+export async function saveReminders(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  const time = (v: FormDataEntryValue | null, fallback: string) => {
+    const s = String(v ?? "");
+    return /^\d{2}:\d{2}$/.test(s) ? s : fallback;
+  };
+  const before = Number(form.get("before") ?? 10);
+  const { error } = await supabase
+    .from("user_settings")
+    .update({
+      reminder_morning_enabled: form.get("morning_on") === "on",
+      reminder_morning_time: time(form.get("morning_time"), "07:00"),
+      reminder_evening_enabled: form.get("evening_on") === "on",
+      reminder_evening_time: time(form.get("evening_time"), "21:00"),
+      reminder_before_minutes: [0, 5, 10, 15, 30, 60].includes(before) ? before : 10,
+      reminder_insights: form.get("insights_on") === "on",
+    })
+    .eq("user_id", user.id);
+  if (error) return { error: error.message };
+  revalidatePath("/settings");
+  return { ok: true, at: Date.now() };
+}
+
+/** Sends today's morning summary right now, to check that reminders reach Telegram. */
+export async function sendTestReminder(_prev: ActionState): Promise<ActionState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  const { data: s } = await supabase.from("user_settings").select("timezone,telegram_chat_id").eq("user_id", user.id).maybeSingle();
+  if (!s?.telegram_chat_id) return { error: "Link your Telegram chat first." };
+  const timezone = (s.timezone as string) ?? "America/Guayaquil";
+  const date = localNow(timezone).date;
+  const day = await dayData(supabase, { user_id: user.id, timezone }, date);
+  const res = await tg("sendMessage", { chat_id: s.telegram_chat_id, text: `(Test)\n${morningText(date, day)}` });
+  if (!res?.ok) return { error: `Telegram said: ${res?.description ?? "no answer"}` };
+  return { ok: true, at: Date.now() };
 }
