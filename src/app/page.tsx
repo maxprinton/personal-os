@@ -10,6 +10,8 @@ import { getTagsFor } from "@/lib/tags";
 import { getHabitSummaries, getMetrics } from "@/lib/habits";
 import HabitControls from "@/components/HabitControls";
 import MetricWidget from "@/components/MetricWidget";
+import QuickCapture from "@/components/QuickCapture";
+import { markInsightRead } from "@/app/settings-actions";
 import { getFinance } from "@/lib/finance";
 import { budgetUsage, formatUSD, inRange, monthRange, totals } from "@/lib/money";
 
@@ -53,6 +55,14 @@ export default async function CommandCenter() {
     getMetrics(supabase, now.date, 1),
   ]);
   const habitsToday = habits.filter((h) => h.dueToday);
+  const { data: insightData } = await supabase
+    .from("system_insights")
+    .select("id,insight_type,message")
+    .eq("is_read", false)
+    .is("deleted_at", null)
+    .order("generated_at", { ascending: false })
+    .limit(5);
+  const insights = (insightData ?? []) as { id: string; insight_type: string; message: string }[];
   const finance = await getFinance(supabase, timezone);
   const monthSums = totals(finance.txns.filter((t) => inRange(t, monthRange(now.date))));
   const monthlyBudgets = finance.budgets.filter((b) => b.period === "monthly");
@@ -82,6 +92,28 @@ export default async function CommandCenter() {
           <h1 className="mt-2 text-3xl font-semibold">{headline}</h1>
           <p className="mt-1 text-neutral-300">{detail}</p>
         </section>
+
+        <QuickCapture />
+
+        {insights.length > 0 && (
+          <section className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <h2 className="text-sm font-medium text-amber-900">Chief of Staff</h2>
+            <ul className="space-y-2">
+              {insights.map((i) => (
+                <li key={i.id} className="flex items-start justify-between gap-3 text-sm">
+                  <span>
+                    <span className="mr-1 text-xs uppercase text-amber-700">{i.insight_type}</span>
+                    {i.message}
+                  </span>
+                  <form action={markInsightRead}>
+                    <input type="hidden" name="id" value={i.id} />
+                    <button className="shrink-0 text-xs text-amber-800 underline">Got it</button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {(contextTasks.length > 0 || context.notes.length > 0) && (
           <section className="space-y-2 rounded-xl border border-neutral-200 p-4">

@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/auth"];
+const PUBLIC_PATHS = ["/login", "/auth", "/api/telegram/webhook", "/sw.js", "/manifest.webmanifest", "/icons"];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -30,6 +30,9 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const isPublic = PUBLIC_PATHS.some((p) => request.nextUrl.pathname.startsWith(p));
+  if (!user && !isPublic && request.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  }
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
