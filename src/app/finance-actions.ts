@@ -145,3 +145,14 @@ export async function deleteBudget(form: FormData) {
   await supabase.from("budgets").update({ deleted_at: new Date().toISOString() }).eq("id", id);
   refresh();
 }
+
+export async function deleteCategory(form: FormData) {
+  const id = String(form.get("id") ?? "");
+  if (!id) return;
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+  await supabase.from("budgets").update({ deleted_at: now }).eq("category_id", id).is("deleted_at", null);
+  await supabase.from("transactions").update({ category_id: null }).eq("category_id", id);
+  await supabase.from("categories").update({ deleted_at: now }).eq("id", id);
+  refresh();
+}

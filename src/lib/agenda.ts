@@ -94,17 +94,18 @@ export async function getAgenda(supabase: Supabase, date: string, tz: string) {
   }
 
   const items: AgendaItem[] = [];
-  for (const b of blocks.filter((b) => occursOn(b, date))) {
-    items.push({
-      kind: "block",
-      id: b.id,
-      title: b.title,
-      start: timeToMinutes(b.start_time),
-      end: timeToMinutes(b.end_time),
-      color: b.color,
-      isHabit: b.is_habit,
-      fulfilledBy: fulfilledBy.get(b.id),
-    });
+  const yesterday = addDays(date, -1);
+  for (const b of blocks) {
+    const start = timeToMinutes(b.start_time);
+    const end = timeToMinutes(b.end_time);
+    const overnight = end < start; // e.g. 23:00 -> 01:00 ends the next day
+    const base = { kind: "block" as const, id: b.id, title: b.title, color: b.color, isHabit: b.is_habit };
+    if (occursOn(b, date)) {
+      items.push({ ...base, start, end: overnight ? 1440 : end, fulfilledBy: fulfilledBy.get(b.id) });
+    }
+    if (overnight && occursOn(b, yesterday)) {
+      items.push({ ...base, start: 0, end });
+    }
   }
   for (const e of events) {
     const s = utcToLocal(e.start_time, tz);

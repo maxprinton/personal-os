@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { botToken, tg } from "@/lib/telegram";
-import { createLinkCode, generateInsightsNow, unlinkTelegram } from "@/app/settings-actions";
+import { createLinkCode, deleteTag, deleteUnusedTags, generateInsightsNow, unlinkTelegram } from "@/app/settings-actions";
 import Nav from "@/components/Nav";
 import ConnectBotButton from "@/components/ConnectBotButton";
 
@@ -37,6 +37,15 @@ export default async function SettingsPage() {
     const info = await tg("getWebhookInfo", {});
     webhookOk = Boolean((info?.result as { url?: string } | undefined)?.url?.endsWith("/api/telegram/webhook"));
   }
+  const [{ data: tagRows }, { data: tagUse }] = await Promise.all([
+    supabase.from("tags").select("id,name").is("deleted_at", null).order("name"),
+    supabase.from("entity_tags").select("tag_id").is("deleted_at", null),
+  ]);
+  const useCount = new Map<string, number>();
+  for (const u of (tagUse ?? []) as { tag_id: string }[]) useCount.set(u.tag_id, (useCount.get(u.tag_id) ?? 0) + 1);
+  const tags = ((tagRows ?? []) as { id: string; name: string }[]).map((t) => ({ ...t, uses: useCount.get(t.id) ?? 0 }));
+  const unusedCount = tags.filter((t) => t.uses === 0).length;
+
   const codeValid =
     s?.telegram_link_code && s.telegram_link_expires && new Date(s.telegram_link_expires) > new Date();
 
@@ -95,6 +104,32 @@ export default async function SettingsPage() {
           <form action={generateInsightsNow}>
             <button className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm">Generate now</button>
           </form>
+        </section>
+
+        <section className="space-y-3 rounded-lg border border-neutral-200 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-medium">Tags</h2>
+            {unusedCount > 0 && (
+              <form action={deleteUnusedTags}>
+                <button className="rounded-md border border-neutral-300 px-3 py-1 text-sm">
+                  Remove {unusedCount} unused
+                </button>
+              </form>
+            )}
+          </div>
+          <ul className="flex flex-wrap gap-2">
+            {tags.map((t) => (
+              <li key={t.id} className="flex items-center gap-1 rounded-full bg-neutral-100 py-0.5 pl-3 pr-1 text-sm">
+                #{t.name}
+                <span className="text-xs text-neutral-400">{t.uses}</span>
+                <form action={deleteTag}>
+                  <input type="hidden" name="id" value={t.id} />
+                  <button aria-label={`Delete tag ${t.name}`} className="rounded-full px-1.5 text-neutral-400 hover:text-red-600">×</button>
+                </form>
+              </li>
+            ))}
+            {tags.length === 0 && <li className="text-sm text-neutral-500">No tags yet.</li>}
+          </ul>
         </section>
 
         <section className="space-y-3 rounded-lg border border-neutral-200 p-4">

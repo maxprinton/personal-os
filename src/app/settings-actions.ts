@@ -73,3 +73,30 @@ export async function markInsightRead(form: FormData) {
   await supabase.from("system_insights").update({ is_read: true }).eq("id", id);
   revalidatePath("/");
 }
+
+export async function deleteTag(form: FormData) {
+  const id = String(form.get("id") ?? "");
+  if (!id) return;
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+  await supabase.from("entity_tags").update({ deleted_at: now }).eq("tag_id", id).is("deleted_at", null);
+  await supabase.from("tags").update({ deleted_at: now }).eq("id", id);
+  revalidatePath("/settings");
+  revalidatePath("/tasks");
+  revalidatePath("/notes");
+}
+
+/** Removes every tag that is not used by any task, note, event or block. */
+export async function deleteUnusedTags() {
+  const supabase = await createClient();
+  const [{ data: tags }, { data: used }] = await Promise.all([
+    supabase.from("tags").select("id").is("deleted_at", null),
+    supabase.from("entity_tags").select("tag_id").is("deleted_at", null),
+  ]);
+  const inUse = new Set(((used ?? []) as { tag_id: string }[]).map((u) => u.tag_id));
+  const unused = ((tags ?? []) as { id: string }[]).map((t) => t.id).filter((id) => !inUse.has(id));
+  if (unused.length) {
+    await supabase.from("tags").update({ deleted_at: new Date().toISOString() }).in("id", unused);
+  }
+  revalidatePath("/settings");
+}

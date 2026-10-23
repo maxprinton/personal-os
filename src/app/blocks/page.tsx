@@ -27,7 +27,8 @@ export default async function BlocksPage() {
               <div className="flex-1">
                 <p className="font-medium">{b.title}</p>
                 <p className="text-sm text-neutral-500">
-                  {formatMinutes(timeToMinutes(b.start_time))} – {formatMinutes(timeToMinutes(b.end_time))} ·{" "}
+                  {formatMinutes(timeToMinutes(b.start_time))} – {formatMinutes(timeToMinutes(b.end_time))}
+                  {timeToMinutes(b.end_time) < timeToMinutes(b.start_time) ? " (next day)" : ""} ·{" "}
                   {describeDays(b.rrule)}
                   {b.is_habit ? " · Habit" : ""}
                 </p>

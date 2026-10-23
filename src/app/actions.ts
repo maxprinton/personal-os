@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/agenda";
-import { buildRRule, isWeekday, localNow, zonedToUtc } from "@/lib/time";
+import { addDays, buildRRule, isWeekday, localNow, zonedToUtc } from "@/lib/time";
 
 export type ActionState = { error?: string; ok?: boolean; at?: number };
 
@@ -19,7 +19,8 @@ export async function createBlock(_prev: ActionState, form: FormData): Promise<A
   const end = String(form.get("end") ?? "");
   const days = form.getAll("days").map(String).filter(isWeekday);
   if (!title) return { error: "Title is required." };
-  if (!start || !end || end <= start) return { error: "End time must be after start time." };
+  if (!start || !end) return { error: "Start and end are required." };
+  if (end === start) return { error: "Start and end cannot be the same time." };
   if (!days.length) return { error: "Pick at least one day." };
 
   const supabase = await createClient();
@@ -56,16 +57,18 @@ export async function createEvent(_prev: ActionState, form: FormData): Promise<A
   const fulfills = String(form.get("fulfills") ?? "");
   if (!title) return { error: "Title is required." };
   if (!date || !start || !end) return { error: "Date, start and end are required." };
-  if (end <= start) return { error: "End time must be after start time." };
+  if (end === start) return { error: "Start and end cannot be the same time." };
 
   const supabase = await createClient();
   const { timezone } = await getSettings(supabase);
+  // An end time earlier than the start means the event ends the next day
+  const endDate = end < start ? addDays(date, 1) : date;
   const { data, error } = await supabase
     .from("events")
     .insert({
       title,
       start_time: zonedToUtc(date, start, timezone).toISOString(),
-      end_time: zonedToUtc(date, end, timezone).toISOString(),
+      end_time: zonedToUtc(endDate, end, timezone).toISOString(),
       is_habit: form.get("is_habit") === "on",
     })
     .select("id")

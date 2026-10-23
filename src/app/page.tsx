@@ -210,7 +210,7 @@ export default async function CommandCenter() {
                 const past = i.end <= now.minutes;
                 return (
                   <li
-                    key={`${i.kind}-${i.id}`}
+                    key={`${i.kind}-${i.id}-${i.start}`}
                     className={`flex items-start gap-3 rounded-lg border p-3 ${
                       isNow ? "border-neutral-900" : "border-neutral-200"
                     } ${past ? "opacity-50" : ""}`}

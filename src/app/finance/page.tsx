@@ -15,6 +15,7 @@ import {
   addStarterCategories,
   deleteAccount,
   deleteBudget,
+  deleteCategory,
   deleteTransaction,
   updateBalance,
 } from "@/app/finance-actions";
@@ -193,9 +194,19 @@ export default async function FinancePage() {
 
         <section className="space-y-2">
           <h2 className="text-sm font-medium text-neutral-500">Categories</h2>
-          <p className="text-sm text-neutral-500">
-            {categories.map((c) => `${c.name} (${c.kind})`).join(" · ") || "None yet."}
-          </p>
+          <ul className="flex flex-wrap gap-2">
+            {categories.map((c) => (
+              <li key={c.id} className="flex items-center gap-1 rounded-full bg-neutral-100 py-0.5 pl-3 pr-1 text-sm">
+                {c.name}
+                <span className="text-xs text-neutral-400">{c.kind === "income" ? "income" : "expense"}</span>
+                <form action={deleteCategory}>
+                  <input type="hidden" name="id" value={c.id} />
+                  <button aria-label={`Delete ${c.name}`} title="Delete category (past transactions become Uncategorized)" className="rounded-full px-1.5 text-neutral-400 hover:text-red-600">×</button>
+                </form>
+              </li>
+            ))}
+            {categories.length === 0 && <li className="text-sm text-neutral-500">None yet.</li>}
+          </ul>
           <CategoryForm />
         </section>
       </main>

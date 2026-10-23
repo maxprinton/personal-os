@@ -10,6 +10,7 @@ import { removeLink } from "@/app/task-actions";
 import Nav from "@/components/Nav";
 import NoteEditor from "@/components/NoteEditor";
 import LinkForm from "@/components/LinkForm";
+import { renderMarkdown } from "@/lib/markdown";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,13 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
           content={note.content}
           tags={(tags.get(id) ?? []).map((t) => t.name).join(", ")}
         />
+        {note.content.trim() && (
+          <section className="space-y-2 rounded-lg border border-neutral-200 p-4">
+            <h2 className="text-sm font-medium text-neutral-500">Preview</h2>
+            <div className="space-y-3 text-[15px] leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMarkdown(note.content) }} />
+          </section>
+        )}
+
         <section className="space-y-2 rounded-lg border border-neutral-200 p-4">
           <h2 className="text-sm font-medium">Linked to</h2>
           <p className="text-xs text-neutral-500">
