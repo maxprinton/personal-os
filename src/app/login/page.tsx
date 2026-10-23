@@ -15,6 +15,23 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
 
+  async function onForgot() {
+    setError("");
+    setInfo("");
+    if (!email) {
+      setError("Type your email first, then click Forgot password.");
+      return;
+    }
+    setBusy(true);
+    const supabase = createClient();
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+    });
+    setBusy(false);
+    if (error) setError(error.message);
+    else setInfo("Check your email for a link to set a new password.");
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -87,6 +104,16 @@ export default function LoginPage() {
           {error && <p className="text-sm text-red-600">{error}</p>}
           {info && <p className="text-sm text-green-700">{info}</p>}
         </form>
+        {mode === "signin" && (
+          <button
+            type="button"
+            onClick={onForgot}
+            disabled={busy}
+            className="block text-sm text-neutral-500 underline"
+          >
+            Forgot password?
+          </button>
+        )}
         <button
           type="button"
           onClick={() => {
