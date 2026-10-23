@@ -1,55 +1,102 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
+type Mode = "signin" | "signup";
+
 export default function LoginPage() {
+  const router = useRouter();
+  const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setStatus("sending");
+    setBusy(true);
+    setError("");
+    setInfo("");
     const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOtp({
+
+    if (mode === "signin") {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        setError(error.message);
+        setBusy(false);
+        return;
+      }
+      router.replace("/");
+      router.refresh();
+      return;
+    }
+
+    const { data, error } = await supabase.auth.signUp({
       email,
+      password,
       options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
     });
+    setBusy(false);
     if (error) {
       setError(error.message);
-      setStatus("error");
+    } else if (data.session) {
+      router.replace("/");
+      router.refresh();
     } else {
-      setStatus("sent");
+      setInfo("Account created. Confirm your email once, then sign in with your password.");
+      setMode("signin");
     }
   }
 
   return (
     <main className="flex min-h-screen items-center justify-center p-4">
       <div className="w-full max-w-sm space-y-6">
-        <h1 className="text-2xl font-semibold">Sign in to Personal OS</h1>
-        {status === "sent" ? (
-          <p className="text-sm">Check your email for a sign-in link.</p>
-        ) : (
-          <form onSubmit={onSubmit} className="space-y-3">
-            <input
-              type="email"
-              required
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-md border border-neutral-300 px-3 py-2"
-            />
-            <button
-              type="submit"
-              disabled={status === "sending"}
-              className="w-full rounded-md bg-neutral-900 px-3 py-2 text-white disabled:opacity-50"
-            >
-              {status === "sending" ? "Sending..." : "Send magic link"}
-            </button>
-            {status === "error" && <p className="text-sm text-red-600">{error}</p>}
-          </form>
-        )}
+        <h1 className="text-2xl font-semibold">
+          {mode === "signin" ? "Sign in to Personal OS" : "Create your account"}
+        </h1>
+        <form onSubmit={onSubmit} className="space-y-3">
+          <input
+            type="email"
+            required
+            autoComplete="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full rounded-md border border-neutral-300 px-3 py-2"
+          />
+          <input
+            type="password"
+            required
+            minLength={8}
+            autoComplete={mode === "signin" ? "current-password" : "new-password"}
+            placeholder="Password (min. 8 characters)"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full rounded-md border border-neutral-300 px-3 py-2"
+          />
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full rounded-md bg-neutral-900 px-3 py-2 text-white disabled:opacity-50"
+          >
+            {busy ? "Please wait..." : mode === "signin" ? "Sign in" : "Create account"}
+          </button>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          {info && <p className="text-sm text-green-700">{info}</p>}
+        </form>
+        <button
+          type="button"
+          onClick={() => {
+            setMode(mode === "signin" ? "signup" : "signin");
+            setError("");
+          }}
+          className="text-sm text-neutral-500 underline"
+        >
+          {mode === "signin" ? "No account yet? Create one" : "Already have an account? Sign in"}
+        </button>
       </div>
     </main>
   );
