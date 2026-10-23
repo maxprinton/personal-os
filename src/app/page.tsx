@@ -7,6 +7,9 @@ import AutoRefresh from "@/components/AutoRefresh";
 import TaskRow, { type TaskRowData } from "@/components/TaskRow";
 import { getContextFor } from "@/lib/links";
 import { getTagsFor } from "@/lib/tags";
+import { getHabitSummaries, getMetrics } from "@/lib/habits";
+import HabitControls from "@/components/HabitControls";
+import MetricWidget from "@/components/MetricWidget";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +46,11 @@ export default async function CommandCenter() {
     .order("created_at");
   const todayTasks = (taskData ?? []) as TaskRowData[];
   const taskTags = await getTagsFor(supabase, "task", todayTasks.map((t) => t.id));
+  const [habits, { metrics, values }] = await Promise.all([
+    getHabitSummaries(supabase, now.date),
+    getMetrics(supabase, now.date, 1),
+  ]);
+  const habitsToday = habits.filter((h) => h.dueToday);
 
   let headline = "Free time";
   let detail = next ? `Next: ${next.title} at ${formatMinutes(next.start)}` : "Nothing else scheduled today.";
@@ -107,6 +115,37 @@ export default async function CommandCenter() {
             <p className="text-sm text-neutral-400">No tasks left for today.</p>
           )}
         </section>
+
+        {habitsToday.length > 0 && (
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium text-neutral-500">Habits today</h2>
+              <Link href="/habits" className="text-sm text-neutral-500 hover:text-neutral-900">Streaks →</Link>
+            </div>
+            <ul className="space-y-2">
+              {habitsToday.map((h) => (
+                <li key={h.block.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-200 p-3">
+                  <div>
+                    <p className="font-medium">{h.block.title}</p>
+                    <p className="text-xs text-neutral-500">Streak {h.current} · best {h.best}</p>
+                  </div>
+                  <HabitControls blockId={h.block.id} status={h.todayStatus} reason={h.todayReason} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {metrics.length > 0 && (
+          <section className="space-y-2">
+            <h2 className="text-sm font-medium text-neutral-500">Daily metrics</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {metrics.map((m) => (
+                <MetricWidget key={m.id} metric={m} value={values.get(m.id)?.get(now.date)} />
+              ))}
+            </div>
+          </section>
+        )}
 
         <section>
           <h2 className="mb-3 text-sm font-medium text-neutral-500">{formatDateLong(now.date)}</h2>

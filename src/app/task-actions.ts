@@ -6,6 +6,7 @@ import { getSettings } from "@/lib/agenda";
 import { parseTags, setTags, type EntityType } from "@/lib/tags";
 import { relationFor } from "@/lib/links";
 import { localNow } from "@/lib/time";
+import { clearActivity, setActivity } from "@/lib/habits";
 import type { ActionState } from "@/app/actions";
 
 const POLICIES = ["migrate", "backlog", "graveyard"] as const;
@@ -73,10 +74,22 @@ export async function updateTask(form: FormData) {
   const supabase = await createClient();
   const now = new Date().toISOString();
 
-  if (op === "complete") {
-    await supabase.from("tasks").update({ status: "completed", completed_at: now }).eq("id", id);
-  } else if (op === "reopen") {
-    await supabase.from("tasks").update({ status: "pending", completed_at: null }).eq("id", id);
+  if (op === "complete" || op === "reopen") {
+    const done = op === "complete";
+    const { data: task } = await supabase
+      .from("tasks")
+      .update({ status: done ? "completed" : "pending", completed_at: done ? now : null })
+      .eq("id", id)
+      .select("is_habit")
+      .maybeSingle();
+    if (task?.is_habit) {
+      // Habit tasks also write to the unified activity log (powers streaks)
+      const { timezone } = await getSettings(supabase);
+      const date = localNow(timezone).date;
+      if (done) await setActivity(supabase, "task", id, date, "completed");
+      else await clearActivity(supabase, "task", id, date);
+    }
+    revalidatePath("/habits");
   } else if (op === "backlog") {
     await supabase.from("tasks").update({ status: "backlog", completed_at: null }).eq("id", id);
   } else if (op === "today") {
