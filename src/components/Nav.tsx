@@ -2,14 +2,16 @@ import Link from "next/link";
 
 const links = [
   { href: "/", label: "Today" },
-  { href: "/blocks", label: "Time blocks" },
+  { href: "/tasks", label: "Tasks" },
+  { href: "/notes", label: "Notes" },
+  { href: "/blocks", label: "Blocks" },
   { href: "/events", label: "Events" },
 ];
 
 export default function Nav({ active }: { active: string }) {
   return (
     <header className="border-b border-neutral-200">
-      <nav className="mx-auto flex max-w-3xl items-center gap-4 px-4 py-3 text-sm">
+      <nav className="mx-auto flex max-w-3xl flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-sm">
         <span className="font-semibold">Personal OS</span>
         {links.map((l) => (
           <Link
