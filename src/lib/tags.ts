@@ -94,3 +94,27 @@ export async function allTagNames(supabase: Supabase) {
   const { data } = await supabase.from("tags").select("name").is("deleted_at", null).order("name");
   return ((data ?? []) as { name: string }[]).map((t) => t.name);
 }
+
+const ENTITY_TABLE: Record<EntityType, string> = {
+  task: "tasks",
+  note: "notes",
+  event: "events",
+  time_block: "time_blocks",
+};
+
+/** Tag links split into live ones and orphans (pointing at deleted items). */
+export async function liveTagLinks(supabase: Supabase) {
+  const { data } = await supabase.from("entity_tags").select("id,tag_id,entity_type,entity_id").is("deleted_at", null);
+  const links = (data ?? []) as { id: string; tag_id: string; entity_type: EntityType; entity_id: string }[];
+  const alive = new Set<string>();
+  for (const type of Object.keys(ENTITY_TABLE) as EntityType[]) {
+    const ids = [...new Set(links.filter((l) => l.entity_type === type).map((l) => l.entity_id))];
+    if (!ids.length) continue;
+    const { data: rows } = await supabase.from(ENTITY_TABLE[type]).select("id").in("id", ids).is("deleted_at", null);
+    for (const r of (rows ?? []) as { id: string }[]) alive.add(`${type}:${r.id}`);
+  }
+  return {
+    live: links.filter((l) => alive.has(`${l.entity_type}:${l.entity_id}`)),
+    orphans: links.filter((l) => !alive.has(`${l.entity_type}:${l.entity_id}`)),
+  };
+}

@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { botToken, tg, webhookSecret } from "@/lib/telegram";
 import type { ActionState } from "@/app/actions";
+import { liveTagLinks } from "@/lib/tags";
 
 /** One-time code the user sends to the bot: /link CODE (valid 15 minutes). */
 export async function createLinkCode() {
@@ -89,14 +90,16 @@ export async function deleteTag(form: FormData) {
 /** Removes every tag that is not used by any task, note, event or block. */
 export async function deleteUnusedTags() {
   const supabase = await createClient();
-  const [{ data: tags }, { data: used }] = await Promise.all([
-    supabase.from("tags").select("id").is("deleted_at", null),
-    supabase.from("entity_tags").select("tag_id").is("deleted_at", null),
-  ]);
-  const inUse = new Set(((used ?? []) as { tag_id: string }[]).map((u) => u.tag_id));
+  const now = new Date().toISOString();
+  const { live, orphans } = await liveTagLinks(supabase);
+  if (orphans.length) {
+    await supabase.from("entity_tags").update({ deleted_at: now }).in("id", orphans.map((o) => o.id));
+  }
+  const { data: tags } = await supabase.from("tags").select("id").is("deleted_at", null);
+  const inUse = new Set(live.map((u) => u.tag_id));
   const unused = ((tags ?? []) as { id: string }[]).map((t) => t.id).filter((id) => !inUse.has(id));
   if (unused.length) {
-    await supabase.from("tags").update({ deleted_at: new Date().toISOString() }).in("id", unused);
+    await supabase.from("tags").update({ deleted_at: now }).in("id", unused);
   }
   revalidatePath("/settings");
 }

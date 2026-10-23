@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { botToken, tg } from "@/lib/telegram";
 import { createLinkCode, deleteTag, deleteUnusedTags, generateInsightsNow, unlinkTelegram } from "@/app/settings-actions";
 import Nav from "@/components/Nav";
+import { liveTagLinks } from "@/lib/tags";
 import ConnectBotButton from "@/components/ConnectBotButton";
 
 export const dynamic = "force-dynamic";
@@ -37,12 +38,12 @@ export default async function SettingsPage() {
     const info = await tg("getWebhookInfo", {});
     webhookOk = Boolean((info?.result as { url?: string } | undefined)?.url?.endsWith("/api/telegram/webhook"));
   }
-  const [{ data: tagRows }, { data: tagUse }] = await Promise.all([
+  const [{ data: tagRows }, { live: tagUse }] = await Promise.all([
     supabase.from("tags").select("id,name").is("deleted_at", null).order("name"),
-    supabase.from("entity_tags").select("tag_id").is("deleted_at", null),
+    liveTagLinks(supabase),
   ]);
   const useCount = new Map<string, number>();
-  for (const u of (tagUse ?? []) as { tag_id: string }[]) useCount.set(u.tag_id, (useCount.get(u.tag_id) ?? 0) + 1);
+  for (const u of tagUse) useCount.set(u.tag_id, (useCount.get(u.tag_id) ?? 0) + 1);
   const tags = ((tagRows ?? []) as { id: string; name: string }[]).map((t) => ({ ...t, uses: useCount.get(t.id) ?? 0 }));
   const unusedCount = tags.filter((t) => t.uses === 0).length;
 

@@ -36,6 +36,7 @@ export async function deleteNote(form: FormData) {
   const supabase = await createClient();
   const now = new Date().toISOString();
   await supabase.from("entity_relations").update({ deleted_at: now }).eq("source_type", "note").eq("source_id", id);
+  await supabase.from("entity_tags").update({ deleted_at: now }).eq("entity_type", "note").eq("entity_id", id);
   await supabase.from("notes").update({ deleted_at: now }).eq("id", id);
   revalidatePath("/notes");
   redirect("/notes");

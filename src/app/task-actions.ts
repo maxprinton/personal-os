@@ -104,6 +104,7 @@ export async function updateTask(form: FormData) {
       .update({ deleted_at: now })
       .eq("source_type", "task")
       .eq("source_id", id);
+    await supabase.from("entity_tags").update({ deleted_at: now }).eq("entity_type", "task").eq("entity_id", id);
     await supabase.from("tasks").update({ deleted_at: now }).eq("id", id);
   }
   refresh();
