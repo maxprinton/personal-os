@@ -10,6 +10,8 @@ import { getTagsFor } from "@/lib/tags";
 import { getHabitSummaries, getMetrics } from "@/lib/habits";
 import HabitControls from "@/components/HabitControls";
 import MetricWidget from "@/components/MetricWidget";
+import { getFinance } from "@/lib/finance";
+import { budgetUsage, formatUSD, inRange, monthRange, totals } from "@/lib/money";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +53,11 @@ export default async function CommandCenter() {
     getMetrics(supabase, now.date, 1),
   ]);
   const habitsToday = habits.filter((h) => h.dueToday);
+  const finance = await getFinance(supabase, timezone);
+  const monthSums = totals(finance.txns.filter((t) => inRange(t, monthRange(now.date))));
+  const monthlyBudgets = finance.budgets.filter((b) => b.period === "monthly");
+  const budgetTotal = monthlyBudgets.reduce((s, b) => s + b.limit_amount, 0);
+  const budgetSpent = monthlyBudgets.reduce((s, b) => s + budgetUsage(b, finance.txns, now.date).spent, 0);
 
   let headline = "Free time";
   let detail = next ? `Next: ${next.title} at ${formatMinutes(next.start)}` : "Nothing else scheduled today.";
@@ -145,6 +152,17 @@ export default async function CommandCenter() {
               ))}
             </div>
           </section>
+        )}
+
+        {finance.txns.length + finance.accounts.length > 0 && (
+          <Link href="/finance" className="block rounded-lg border border-neutral-200 p-3 hover:border-neutral-400">
+            <p className="text-sm font-medium text-neutral-500">Finance this month</p>
+            <p className="text-sm">
+              Spent <strong>{formatUSD(monthSums.expense)}</strong>
+              {budgetTotal > 0 ? ` of ${formatUSD(budgetTotal)} budgeted (${formatUSD(budgetSpent)} in budgeted categories)` : ""}
+              {" · "}Net <strong className={monthSums.net >= 0 ? "text-green-700" : "text-red-600"}>{formatUSD(monthSums.net)}</strong>
+            </p>
+          </Link>
         )}
 
         <section>
