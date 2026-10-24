@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { editOccurrence, placeTask, toggleOccurrenceDone } from "@/app/calendar-actions";
 import { unassignedOn } from "@/lib/calendar/taskview";
 import UnassignedTray from "@/components/calendar/UnassignedTray";
+import FreeDayDialog from "@/components/calendar/FreeDayDialog";
 import { addDays, dateRange, isoWeekday, minutesToTime, ISO_DAY_SHORT } from "@/lib/time";
 import type { CalResult, EditScope } from "@/lib/calendar/types";
 import TimeGrid, { type MoveRequest } from "@/components/calendar/TimeGrid";
@@ -32,6 +33,8 @@ type Dialog =
   | { kind: "occurrence"; id: string }
   | { kind: "event"; id: string }
   | { kind: "move"; id: string; date: string; start: number; end: number }
+  | { kind: "new-free"; date: string }
+  | { kind: "free"; id: string }
   | null;
 
 export default function Calendar({ variant }: { variant: "dock" | "page" }) {
@@ -188,6 +191,14 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
               >
                 + Event
               </button>
+              <button
+                type="button"
+                onClick={() => setDialog({ kind: "new-free", date: view === "day" ? anchor : data.today })}
+                className="rounded-md border border-emerald-400 px-2 py-0.5 text-xs text-emerald-800"
+                title="Pause all blocks for a day or a trip"
+              >
+                🌴 Free day
+              </button>
             </>
           )}
           <div className="flex overflow-hidden rounded-md border border-neutral-300 text-xs">
@@ -259,6 +270,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
               onOpenEvent={(id) => setDialog({ kind: "event", id })}
               onMoveOccurrence={onMove}
               onToggleDone={(id) => run(() => toggleOccurrenceDone({ occurrenceId: id }))}
+              onOpenFreeDay={(id) => setDialog({ kind: "free", id })}
               onDropTask={(d) =>
                 run(() => placeTask({ taskId: d.taskId, occurrenceId: d.occurrenceId ?? null, eventId: d.eventId ?? null, date: d.date }))
               }
@@ -314,6 +326,18 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
       )}
       {data && dialog?.kind === "event" && ev && (
         <EventDialog event={ev} data={data} eventTypes={data.eventTypes} readOnly={readOnly} run={run} onClose={() => setDialog(null)} />
+      )}
+      {data && dialog?.kind === "new-free" && (
+        <FreeDayDialog date={dialog.date} run={run} readOnly={readOnly} onClose={() => setDialog(null)} />
+      )}
+      {data && dialog?.kind === "free" && data.freeDays.find((f) => f.id === dialog.id) && (
+        <FreeDayDialog
+          existing={data.freeDays.find((f) => f.id === dialog.id)}
+          date={data.today}
+          run={run}
+          readOnly={readOnly}
+          onClose={() => setDialog(null)}
+        />
       )}
       {data && dialog?.kind === "occurrence" && occ && (
         <OccurrenceDialog occ={occ} data={data} readOnly={readOnly} run={run} onClose={() => setDialog(null)} />

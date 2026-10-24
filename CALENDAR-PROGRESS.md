@@ -60,3 +60,10 @@ Rule for phases 1–9: code only, no tests or builds. Everything is tested in ph
 - Calendar: tasks listed inside blocks (draggable to another block), "Unassigned" tray above the grid — drag a task onto a block or onto an event's title to place it. Block and event dialogs have a Tasks section (tick, take out, add here, place an unassigned one).
 - Tasks page / Today: task form has **Home block** and "Or in an event"; rows show home, where it is placed, "unassigned", and the counter. "Do today" on a planned future task counts as a move.
 - **Telegram**: morning summary shows how many tasks still have no block and has ✓ buttons to complete tasks; **keeps insisting at 11:00 and 16:00** while some task has no block (toggle in Settings → Telegram reminders); "before block" alerts list the tasks placed in it with ✓ buttons; the evening check-in adds ✓ buttons for open tasks. Telegram can only mark habits and complete tasks (plus the existing quick capture).
+
+## Phase 6 — Free days
+
+- New migration `0011_free_days.sql` (NOT applied): `free_days` (from, to, task policy, note) and `tasks.hold_placement`.
+- **🌴 Free day** button in the calendar toolbar: pick one day or a range (+ optional note, e.g. "Trip to Cuenca") and what happens to the tasks of those days: **move to the day after**, **leave unassigned** (they wait in the Unassigned tray the day after and are not auto-placed), or **take them to their home block** (next date after the break where it exists). Moving tasks because of a free day never counts as a move.
+- Blocks in the range turn "free day" (dimmed). The end-of-day routine skips them: **no missed habits, streaks paused, skips not counted**; tasks put on a free day just wait for the next day without +1. Events (flights, hotel) stay visible. A 🌴 label under the day header opens the range, which can be removed (today's and future blocks come back; the past stays).
+- Telegram: the morning summary says it's a free day, and the "unassigned tasks" reminder stays quiet.

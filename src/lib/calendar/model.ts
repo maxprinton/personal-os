@@ -49,13 +49,30 @@ export async function getSlots(sb: SupabaseClient, userId: string, from?: string
   return (data ?? []) as Slot[];
 }
 
-/** Dates (YYYY-MM-DD) inside free-day ranges between from and to. Filled in by phase 6. */
+export type FreeDay = { id: string; from_date: string; to_date: string; task_policy: string; note: string | null };
+
+/** Free-day ranges that touch from..to. */
+export async function getFreeDays(sb: SupabaseClient, userId: string, from: string, to: string): Promise<FreeDay[]> {
+  const { data } = await sb
+    .from("free_days")
+    .select("id,from_date,to_date,task_policy,note")
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .lte("from_date", to)
+    .gte("to_date", from)
+    .order("from_date");
+  return (data ?? []) as FreeDay[];
+}
+
+/** Dates (YYYY-MM-DD) inside free-day ranges between from and to. */
 export async function freeDatesBetween(sb: SupabaseClient, userId: string, from: string, to: string) {
-  void sb;
-  void userId;
-  void from;
-  void to;
-  return new Set<string>();
+  const out = new Set<string>();
+  for (const f of await getFreeDays(sb, userId, from, to)) {
+    const a = f.from_date > from ? f.from_date : from;
+    const b = f.to_date < to ? f.to_date : to;
+    for (const d of dateRange(a, b)) out.add(d);
+  }
+  return out;
 }
 
 /**

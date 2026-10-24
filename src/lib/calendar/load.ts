@@ -4,7 +4,7 @@ import { addDays, localNow } from "@/lib/time";
 import { getChecks, getHabits } from "@/lib/calendar/habits";
 import { runMaintenance } from "@/lib/calendar/maintenance";
 import { getCalendarTasks } from "@/lib/calendar/tasks";
-import { getBlockTypes, getOccurrences, getSlots } from "@/lib/calendar/model";
+import { getBlockTypes, getFreeDays, getOccurrences, getSlots } from "@/lib/calendar/model";
 import { getEvents, getEventTypes } from "@/lib/calendar/events";
 import type { CalendarData } from "@/lib/calendar/types";
 
@@ -17,7 +17,7 @@ export async function loadCalendar(sb: SupabaseClient, userId: string, from: str
   const timezone = await userTimezone(sb, userId);
   await runMaintenance(sb, userId, timezone);
   const now = localNow(timezone);
-  const [blockTypes, slots, occurrences, eventTypes, events, habits, checks, { tasks, taskLogs }] = await Promise.all([
+  const [blockTypes, slots, occurrences, eventTypes, events, habits, checks, { tasks, taskLogs }, freeDays] = await Promise.all([
     getBlockTypes(sb, userId, { includeDeleted: true }),
     getSlots(sb, userId, from, to),
     getOccurrences(sb, userId, from, to),
@@ -26,6 +26,7 @@ export async function loadCalendar(sb: SupabaseClient, userId: string, from: str
     getHabits(sb, userId, { includeRemoved: true }),
     getChecks(sb, userId, addDays(from, -1), to),
     getCalendarTasks(sb, userId, from, to, now.date),
+    getFreeDays(sb, userId, from, to),
   ]);
   return {
     from,
@@ -42,5 +43,6 @@ export async function loadCalendar(sb: SupabaseClient, userId: string, from: str
     checks,
     tasks,
     taskLogs,
+    freeDays: freeDays as CalendarData["freeDays"],
   };
 }

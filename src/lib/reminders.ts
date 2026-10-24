@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatDateLong, formatMinutes, localNow, timeToMinutes } from "@/lib/time";
-import { getBlockTypes, getOccurrence, getOccurrences } from "@/lib/calendar/model";
+import { freeDatesBetween, getBlockTypes, getOccurrence, getOccurrences } from "@/lib/calendar/model";
 import { eventSpanOn, spanOn } from "@/lib/calendar/overlap";
 import { getEvents } from "@/lib/calendar/events";
 import { getChecks, getHabits, recomputeOccurrenceStatus, setHabitCheck } from "@/lib/calendar/habits";
@@ -41,7 +41,7 @@ export type DayHabit = {
 /** Today's schedule, open tasks and habits for one user (calendar v2 model). */
 export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "user_id" | "timezone">, date: string) {
   const tz = s.timezone;
-  const [types, occurrences, events, habits, checks, t] = await Promise.all([
+  const [types, occurrences, events, habits, checks, t, free] = await Promise.all([
     getBlockTypes(admin, s.user_id, { includeDeleted: true }),
     getOccurrences(admin, s.user_id, date, date),
     getEvents(admin, s.user_id, date, date, tz),
@@ -55,6 +55,7 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
       .eq("status", "pending")
       .lte("scheduled_for", date)
       .order("scheduled_for"),
+    freeDatesBetween(admin, s.user_id, date, date),
   ]);
   const typeName = new Map(types.map((x) => [x.id, x.name]));
 
@@ -94,6 +95,7 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
   return {
     items,
     dayNotes,
+    freeDay: free.has(date),
     tasks,
     unassigned: tasks.filter((x) => !x.occurrence_id && !x.event_id).length,
     habits: dayHabits,
@@ -107,6 +109,7 @@ const list = (titles: string[], max = 5) =>
 
 export function morningText(date: string, d: Day) {
   const parts = [`☀️ Good morning! ${formatDateLong(date)}`];
+  if (d.freeDay) parts.push("🌴 Free day: blocks are paused and streaks are on hold. Enjoy.");
   if (d.dayNotes.length) parts.push(`📌 ${d.dayNotes.join(" · ")}`);
   parts.push(
     d.items.length

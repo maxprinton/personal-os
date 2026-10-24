@@ -52,6 +52,7 @@ export default function MonthGrid({
               <span className={`inline-block rounded px-1 ${date === data.today ? "bg-neutral-900 text-white" : ""}`}>
                 {Number(date.slice(8))}
               </span>
+              {data.freeDays.some((f) => f.from_date <= date && date <= f.to_date) && <span className="ml-1">🌴</span>}
               {data.events
                 .filter((e) => eventSpanOn(e, date))
                 .slice(0, 2)

@@ -82,6 +82,11 @@ export type TaskLog = {
   event_id: string | null;
 };
 
+export type FreeDayPolicy = "move_next" | "unassigned" | "home_block";
+
+/** A range of paused dates (trip, holiday): blocks dimmed, streaks paused, no nagging. */
+export type FreeDayRange = { id: string; from_date: string; to_date: string; task_policy: FreeDayPolicy; note: string | null };
+
 /** Everything the calendar panel needs for one date range (JSON from /api/calendar). */
 export type CalendarData = {
   from: string;
@@ -98,6 +103,7 @@ export type CalendarData = {
   checks: HabitCheck[];
   tasks: CalTask[];
   taskLogs: TaskLog[];
+  freeDays: FreeDayRange[];
 };
 
 /** Result of every calendar server action. */

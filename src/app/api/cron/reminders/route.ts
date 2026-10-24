@@ -45,7 +45,7 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings) {
   }
 
   // Telegram keeps insisting while tasks have no block (11:00 and 16:00, if still true)
-  if (s.reminder_unassigned_nag && day.unassigned > 0) {
+  if (s.reminder_unassigned_nag && day.unassigned > 0 && !day.freeDay) {
     for (const at of [11 * 60, 16 * 60]) {
       if (now.minutes >= at && now.minutes < at + WINDOW && (await claim(admin, s.user_id, "unassigned", `${date}:${at}`))) {
         await send(s.telegram_chat_id, unassignedText(day.unassigned).trim());

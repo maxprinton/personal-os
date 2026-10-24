@@ -28,6 +28,7 @@ type Props = {
   onMoveOccurrence: (req: MoveRequest) => void;
   onToggleDone: (occurrenceId: string) => void;
   onDropTask: (drop: TaskDrop) => void;
+  onOpenFreeDay: (id: string) => void;
   onBlocked: (message: string) => void;
   onPickDay?: (date: string) => void;
 };
@@ -81,6 +82,7 @@ export default function TimeGrid({
   onMoveOccurrence,
   onToggleDone,
   onDropTask,
+  onOpenFreeDay,
   onBlocked,
   onPickDay,
 }: Props) {
@@ -287,6 +289,19 @@ export default function TimeGrid({
             >
               {dayLabel(date)}
             </button>
+            {(() => {
+              const free = data.freeDays.find((f) => f.from_date <= date && date <= f.to_date);
+              return free ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenFreeDay(free.id)}
+                  className="mx-0.5 mb-0.5 block w-[calc(100%-4px)] truncate rounded bg-emerald-100 px-1 text-[11px] text-emerald-800"
+                  title={free.note ?? "Free day"}
+                >
+                  🌴 {free.note ?? "Free day"}
+                </button>
+              ) : null;
+            })()}
             {(hasAllDay || !readOnly) && (
               <div
                 className={`flex min-h-5 flex-col gap-0.5 px-0.5 pb-1 ${readOnly ? "" : "cursor-cell"}`}

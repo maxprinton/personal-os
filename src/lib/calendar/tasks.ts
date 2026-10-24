@@ -4,7 +4,7 @@
 // that day; otherwise the morning ritual asks.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDays } from "@/lib/time";
-import { ensureOccurrences, getBlockTypes, getOccurrences, OCC_COLS } from "@/lib/calendar/model";
+import { ensureOccurrences, freeDatesBetween, getBlockTypes, getOccurrences, OCC_COLS } from "@/lib/calendar/model";
 import type { CalTask, Occurrence, TaskLog } from "@/lib/calendar/types";
 
 export const TASK_COLS =
@@ -133,12 +133,6 @@ export async function countMove(sb: SupabaseClient, userId: string, task: TaskDb
   }
 }
 
-/** Tasks that should not be auto-placed (filled in by phase 6: free-day "leave unassigned"). */
-async function heldTaskIds(sb: SupabaseClient, userId: string) {
-  void sb;
-  void userId;
-  return new Set<string>();
-}
 
 /**
  * Puts tasks that have a home block into that block, on their own day, when it exists that day.
@@ -155,10 +149,10 @@ export async function autoPlaceTasks(sb: SupabaseClient, userId: string, today: 
     .is("occurrence_id", null)
     .is("event_id", null)
     .not("home_block_type_id", "is", null)
+    .eq("hold_placement", false) // a free day said "leave them unassigned"
     .gte("scheduled_for", today)
     .lte("scheduled_for", until);
-  const held = await heldTaskIds(sb, userId);
-  const tasks = ((data ?? []) as TaskDb[]).filter((t) => !held.has(t.id));
+  const tasks = (data ?? []) as TaskDb[];
   if (!tasks.length) return 0;
   const dates = [...new Set(tasks.map((t) => t.scheduled_for!))].sort();
   const occs = await getOccurrences(sb, userId, dates[0], dates[dates.length - 1]);
@@ -190,6 +184,18 @@ export async function closeDayTasks(sb: SupabaseClient, userId: string, date: st
     .lte("scheduled_for", date);
   const tasks = (data ?? []) as TaskDb[];
   if (!tasks.length) return;
+  const next = addDays(date, 1);
+  // A free day pauses everything: its tasks just wait for the next day (no log, no +1)
+  if ((await freeDatesBetween(sb, userId, date, date)).has(date)) {
+    for (const t of tasks) {
+      await sb
+        .from("tasks")
+        .update({ scheduled_for: next, occurrence_id: null, event_id: null })
+        .eq("id", t.id)
+        .eq("user_id", userId);
+    }
+    return;
+  }
   const { data: logged } = await sb
     .from("task_day_log")
     .upsert(
@@ -205,7 +211,6 @@ export async function closeDayTasks(sb: SupabaseClient, userId: string, date: st
     )
     .select("task_id");
   const fresh = new Set(((logged ?? []) as { task_id: string }[]).map((r) => r.task_id));
-  const next = addDays(date, 1);
   for (const t of tasks) {
     await sb
       .from("tasks")
@@ -213,6 +218,7 @@ export async function closeDayTasks(sb: SupabaseClient, userId: string, date: st
         scheduled_for: next,
         occurrence_id: null,
         event_id: null,
+        hold_placement: false,
         ...(fresh.has(t.id) ? { rolled_over_count: t.rolled_over_count + 1 } : {}),
       })
       .eq("id", t.id)

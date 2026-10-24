@@ -20,7 +20,8 @@ import { userTimezone } from "@/lib/calendar/load";
 import { getChecks, getHabits, recomputeOccurrenceStatus, setHabitCheck } from "@/lib/calendar/habits";
 import { habitsForOccurrence } from "@/lib/calendar/habitview";
 import { autoPlaceTasks, countMove, getTask, nextOccurrenceAfter } from "@/lib/calendar/tasks";
-import type { CalResult, EditScope, HabitState } from "@/lib/calendar/types";
+import { applyFreeDays, undoFreeDays } from "@/lib/calendar/freedays";
+import type { CalResult, EditScope, FreeDayPolicy, HabitState } from "@/lib/calendar/types";
 
 async function ctx() {
   const sb = await createClient();
@@ -562,7 +563,13 @@ export async function placeTask(input: {
     const movedDay = Boolean(task.scheduled_for && task.scheduled_for !== date && task.scheduled_for >= c.today);
     const { error } = await c.sb
       .from("tasks")
-      .update({ occurrence_id, event_id, scheduled_for: date, status: task.status === "backlog" ? "pending" : task.status })
+      .update({
+        occurrence_id,
+        event_id,
+        scheduled_for: date,
+        hold_placement: false,
+        status: task.status === "backlog" ? "pending" : task.status,
+      })
       .eq("id", task.id)
       .eq("user_id", c.userId);
     if (error) return { error: error.message };
@@ -670,6 +677,64 @@ export async function dismissRitual(): Promise<CalResult> {
   try {
     const c = await ctx();
     await c.sb.from("user_settings").update({ ritual_seen_on: c.today }).eq("user_id", c.userId);
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ---------- Free days ------------------------------------------------------------
+
+/** Mark one day or a range as free (trip, holiday). Events stay visible. */
+export async function createFreeDays(input: {
+  from: string;
+  to?: string;
+  policy: FreeDayPolicy;
+  note?: string;
+}): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    if (!isDate(input.from)) return { error: "Pick the first free day." };
+    const to = input.to && isDate(input.to) ? input.to : input.from;
+    if (to < input.from) return { error: "The last day is before the first one." };
+    const policy: FreeDayPolicy = ["move_next", "unassigned", "home_block"].includes(input.policy) ? input.policy : "move_next";
+    const { data: overlap } = await c.sb
+      .from("free_days")
+      .select("id")
+      .eq("user_id", c.userId)
+      .is("deleted_at", null)
+      .lte("from_date", to)
+      .gte("to_date", input.from)
+      .limit(1);
+    if (overlap?.length) return { error: "Some of those days are already free. Remove that range first." };
+    const { error } = await c.sb.from("free_days").insert({
+      user_id: c.userId,
+      from_date: input.from,
+      to_date: to,
+      task_policy: policy,
+      note: (input.note ?? "").trim().slice(0, 200) || null,
+    });
+    if (error) return { error: error.message };
+    await applyFreeDays(c.sb, c.userId, input.from, to, policy, c.today);
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function removeFreeDays(input: { id: string }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const { data: f } = await c.sb
+      .from("free_days")
+      .select("id,from_date,to_date")
+      .eq("id", input.id)
+      .eq("user_id", c.userId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!f) return { error: "That free day was already removed." };
+    await c.sb.from("free_days").update({ deleted_at: new Date().toISOString() }).eq("id", f.id).eq("user_id", c.userId);
+    await undoFreeDays(c.sb, c.userId, f.from_date as string, f.to_date as string, c.today);
     return done();
   } catch (e) {
     return fail(e);
