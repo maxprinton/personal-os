@@ -337,7 +337,8 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
         const shiftDays = (n: number) => run(() => moveOccurrences({ ids, dayShift: n, minuteShift: 0 }));
         const btn = "rounded border border-sky-300 bg-white px-2 py-0.5 hover:bg-sky-100 disabled:opacity-40";
         return (
-          <div className="flex flex-wrap items-center gap-2 border-b border-sky-200 bg-sky-50 px-3 py-1 text-xs text-sky-900">
+          // Floats over the grid so selecting never shifts the blocks under the mouse
+          <div className="absolute bottom-3 left-1/2 z-40 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-sky-900 shadow-lg">
             <span className="font-medium">
               {selected.size} block{selected.size > 1 ? "s" : ""} selected
             </span>
@@ -362,7 +363,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
             <button type="button" className="underline" onClick={clearSelection}>
               Clear
             </button>
-            <span className="text-sky-700/80">Ctrl+click adds or removes · drag one to move them all · Esc clears</span>
+            <span className="hidden text-sky-700/80 sm:inline">Ctrl+click adds or removes · drag one to move them all · Esc clears</span>
           </div>
         );
       })()}
@@ -430,7 +431,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
       {toast && (
         <div
           role="status"
-          className={`absolute bottom-3 left-1/2 z-50 max-w-md -translate-x-1/2 rounded-lg px-3 py-2 text-sm shadow-lg ${
+          className={`absolute ${selected.size > 0 && !readOnly ? "bottom-16" : "bottom-3"} left-1/2 z-50 max-w-md -translate-x-1/2 rounded-lg px-3 py-2 text-sm shadow-lg ${
             toast.ok ? "bg-neutral-900 text-white" : "bg-red-600 text-white"
           }`}
         >
