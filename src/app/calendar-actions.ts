@@ -21,6 +21,8 @@ import { getChecks, getHabits, recomputeOccurrenceStatus, setHabitCheck } from "
 import { habitsForOccurrence } from "@/lib/calendar/habitview";
 import { autoPlaceTasks, countMove, getTask, nextOccurrenceAfter } from "@/lib/calendar/tasks";
 import { applyFreeDays, undoFreeDays } from "@/lib/calendar/freedays";
+import { ensurePaymentEvents } from "@/lib/calendar/payments";
+import type { RepeatUnit } from "@/lib/calendar/recurrence";
 import type { CalResult, EditScope, FreeDayPolicy, HabitState } from "@/lib/calendar/types";
 
 async function ctx() {
@@ -735,6 +737,164 @@ export async function removeFreeDays(input: { id: string }): Promise<CalResult> 
     if (!f) return { error: "That free day was already removed." };
     await c.sb.from("free_days").update({ deleted_at: new Date().toISOString() }).eq("id", f.id).eq("user_id", c.userId);
     await undoFreeDays(c.sb, c.userId, f.from_date as string, f.to_date as string, c.today);
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ---------- Payments (events with a pre-filled transaction) ------------------------
+
+export type PaymentInput = {
+  name: string;
+  type?: "income" | "expense";
+  expectedAmount?: string;
+  accountId?: string;
+  categoryId?: string;
+  startDate: string;
+  repeatUnit: RepeatUnit;
+  repeatEvery?: number;
+  endDate?: string;
+};
+
+function money(v: string | undefined) {
+  const s = String(v ?? "").trim().replace(/[$\s]/g, "").replace(",", ".");
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : NaN;
+}
+
+/** Same record whether it is created from Finance or from the calendar: a template + its events. */
+export async function createPayment(input: PaymentInput): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const name = normalizeName(input.name ?? "");
+    if (!name) return { error: "Name the payment (e.g. Rent, Internet)." };
+    if (!isDate(input.startDate)) return { error: "Pick the (first) date." };
+    const expected = money(input.expectedAmount);
+    if (Number.isNaN(expected) || (expected !== null && expected <= 0)) return { error: "The expected amount must be a number above 0." };
+    const unit: RepeatUnit = ["none", "days", "weeks", "months", "years"].includes(input.repeatUnit) ? input.repeatUnit : "none";
+    const every = Math.min(366, Math.max(1, Math.floor(Number(input.repeatEvery) || 1)));
+    const end = input.endDate && isDate(input.endDate) ? input.endDate : null;
+    if (end && end < input.startDate) return { error: "The end date is before the first date." };
+    const { data: t, error } = await c.sb
+      .from("payment_templates")
+      .insert({
+        user_id: c.userId,
+        name,
+        type: input.type === "income" ? "income" : "expense",
+        expected_amount: expected,
+        account_id: input.accountId || null,
+        category_id: input.categoryId || null,
+        repeat_unit: unit,
+        repeat_every: every,
+        start_date: input.startDate,
+        end_date: end,
+      })
+      .select("id")
+      .single();
+    if (error || !t) return { error: error?.message ?? "Could not save the payment." };
+    // Its events: from the first date (even if it's in the past) up to ~2 months ahead
+    await ensurePaymentEvents(c.sb, c.userId, c.today, t.id as string, input.startDate < c.today ? input.startDate : c.today);
+    revalidatePath("/finance");
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Stop a payment: no new events; upcoming unpaid ones are removed. Paid ones stay. */
+export async function stopPaymentTemplate(input: { id: string }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const now = new Date().toISOString();
+    await c.sb.from("payment_templates").update({ deleted_at: now }).eq("id", input.id).eq("user_id", c.userId);
+    await c.sb
+      .from("events")
+      .update({ deleted_at: now })
+      .eq("user_id", c.userId)
+      .eq("payment_template_id", input.id)
+      .is("payment_status", null)
+      .gt("event_date", c.today);
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** The draft of the day: you write the real amount and confirm. Creates the real transaction. */
+export async function confirmPayment(input: {
+  eventId: string;
+  amount: string;
+  accountId?: string;
+  categoryId?: string;
+  date?: string;
+  description?: string;
+}): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const { data: ev } = await c.sb
+      .from("events")
+      .select("id,title,event_date,is_payment,payment_status,payment_template_id")
+      .eq("id", input.eventId)
+      .eq("user_id", c.userId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!ev || !ev.is_payment) return { error: "That payment no longer exists." };
+    if (ev.payment_status === "paid") return { error: "This payment was already confirmed." };
+    const amount = money(input.amount);
+    if (amount === null || Number.isNaN(amount) || amount <= 0) return { error: "Write the real amount (above 0)." };
+    const date = input.date && isDate(input.date) ? input.date : (ev.event_date as string);
+    if (date > c.today) return { error: "You can confirm a payment on its day or later." };
+    let type: "income" | "expense" = "expense";
+    if (ev.payment_template_id) {
+      const { data: t } = await c.sb
+        .from("payment_templates")
+        .select("type")
+        .eq("id", ev.payment_template_id)
+        .eq("user_id", c.userId)
+        .maybeSingle();
+      if (t?.type === "income") type = "income";
+    }
+    const { data: txn, error } = await c.sb
+      .from("transactions")
+      .insert({
+        user_id: c.userId,
+        type,
+        amount,
+        description: (input.description ?? "").trim() || (ev.title as string),
+        account_id: input.accountId || null,
+        category_id: input.categoryId || null,
+        occurred_at: date === c.today ? new Date().toISOString() : zonedToUtc(date, "12:00", c.timezone).toISOString(),
+        event_id: ev.id,
+        payment_template_id: ev.payment_template_id,
+      })
+      .select("id")
+      .single();
+    if (error || !txn) return { error: error?.message ?? "Could not save the transaction." };
+    await c.sb
+      .from("events")
+      .update({ payment_status: "paid", payment_transaction_id: txn.id })
+      .eq("id", ev.id)
+      .eq("user_id", c.userId);
+    revalidatePath("/finance");
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Not paying this one (e.g. waived this month). */
+export async function skipPayment(input: { eventId: string }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const { error } = await c.sb
+      .from("events")
+      .update({ payment_status: "skipped" })
+      .eq("id", input.eventId)
+      .eq("user_id", c.userId)
+      .eq("is_payment", true);
+    if (error) return { error: error.message };
     return done();
   } catch (e) {
     return fail(e);

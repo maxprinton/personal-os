@@ -321,6 +321,7 @@ export default function TimeGrid({
                       style={{ background: alpha(c, 0.15), borderColor: c, color: "#262626" }}
                       title={ev.title}
                     >
+                      {ev.is_payment ? (ev.payment_status === "paid" ? "✓💳 " : ev.payment_status === "skipped" ? "–💳 " : "💳 ") : ""}
                       {ev.title}
                     </button>
                   );

@@ -50,6 +50,11 @@ export async function deleteTransaction(form: FormData) {
   if (!id) return;
   const supabase = await createClient();
   await supabase.from("transactions").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+  // If it was a confirmed payment, its event goes back to "due" (the draft shows again)
+  await supabase
+    .from("events")
+    .update({ payment_status: null, payment_transaction_id: null })
+    .eq("payment_transaction_id", id);
   refresh();
 }
 

@@ -14,6 +14,8 @@ import { runMaintenance } from "@/lib/calendar/maintenance";
 import HabitControls from "@/components/HabitControls";
 import MorningRitual from "@/components/MorningRitual";
 import { getRitual, getTaskPlaces } from "@/lib/calendar/tasks";
+import { getDuePayments, getFinanceOptions } from "@/lib/calendar/payments";
+import { PaymentDraft } from "@/components/PaymentForms";
 import MetricWidget from "@/components/MetricWidget";
 import QuickCapture from "@/components/QuickCapture";
 import { markInsightRead } from "@/app/settings-actions";
@@ -63,6 +65,9 @@ export default async function CommandCenter() {
   const [places, ritual] = userId
     ? await Promise.all([getTaskPlaces(supabase, userId, todayTasks), getRitual(supabase, userId, now.date)])
     : ([undefined, null] as const);
+  const [duePayments, financeOptions] = userId
+    ? await Promise.all([getDuePayments(supabase, userId, now.date), getFinanceOptions(supabase, userId)])
+    : ([[], null] as const);
 
   // The tasks placed in the current block (in any of its appearances today) or in the current event
   const sameBlockIds = new Set(
@@ -128,6 +133,24 @@ export default async function CommandCenter() {
         <QuickCapture />
 
         {ritual && !ritual.seen && (ritual.items.length > 0 || ritual.unassigned > 0) && <MorningRitual ritual={ritual} />}
+
+        {duePayments.length > 0 && financeOptions && (
+          <section className="space-y-3 rounded-xl border border-green-200 bg-green-50 p-4">
+            <h2 className="text-sm font-medium text-green-900">Payments due</h2>
+            {duePayments.map((p) => (
+              <div key={p.eventId} className="rounded-lg bg-white p-3">
+                <PaymentDraft
+                  eventId={p.eventId}
+                  title={p.title}
+                  date={p.date}
+                  template={p.template}
+                  options={financeOptions}
+                  today={now.date}
+                />
+              </div>
+            ))}
+          </section>
+        )}
 
         {insights.length > 0 && (
           <section className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-4">

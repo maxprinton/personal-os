@@ -7,6 +7,7 @@ import type { CalendarData, CalEvent, CalResult, EventType } from "@/lib/calenda
 import { tasksForEvent, unassignedOn } from "@/lib/calendar/taskview";
 import Modal, { btnPrimary, btnSecondary, inputCls } from "@/components/calendar/Modal";
 import TaskList from "@/components/calendar/TaskList";
+import { PaymentDraft, PaymentForm } from "@/components/PaymentForms";
 
 /** Create or edit an event. Without time it is just metadata of the day(s). */
 export default function EventDialog({
@@ -40,6 +41,7 @@ export default function EventDialog({
     event?.end != null ? minutesToTime(event.end) : initial?.end !== undefined ? minutesToTime(initial.end) : "10:00"
   );
   const [busy, setBusy] = useState(false);
+  const [isPayment, setIsPayment] = useState(false);
 
   const match = eventTypes.find((t) => t.name.toLowerCase() === type.trim().toLowerCase());
 
@@ -71,6 +73,32 @@ export default function EventDialog({
     if (ok) onClose();
   }
 
+  // Payment events: the pre-filled draft on its day (or its state)
+  const template = event?.payment_template_id ? data?.finance.templates.find((t) => t.id === event.payment_template_id) ?? null : null;
+  const paymentSection =
+    event?.is_payment && data ? (
+      <section className="space-y-2 rounded-lg border border-green-200 bg-green-50 p-3">
+        {event.payment_status === "paid" ? (
+          <p className="text-sm text-green-800">✓ Paid — it's in Finance.</p>
+        ) : event.payment_status === "skipped" ? (
+          <p className="text-sm text-neutral-600">Skipped this time.</p>
+        ) : readOnly ? (
+          <p className="text-sm text-neutral-600">Payment due {event.date}. Confirm it on the computer.</p>
+        ) : (
+          <PaymentDraft
+            eventId={event.id}
+            title={event.title}
+            date={event.date}
+            template={template}
+            options={data.finance}
+            today={data.today}
+            run={run}
+            onDone={onClose}
+          />
+        )}
+      </section>
+    ) : null;
+
   // An event with tasks behaves like a block for them (they join the end-of-day check too)
   const taskDay = event && data ? (data.today >= event.date && data.today <= event.end_date ? data.today : event.date) : null;
   const taskSection =
@@ -98,13 +126,31 @@ export default function EventDialog({
           {event.start !== null && event.end !== null ? ` · ${minutesToTime(event.start)}–${minutesToTime(event.end)}` : " · no time"}
           {typeName ? ` · ${typeName}` : ""}
         </p>
+        {paymentSection}
         {taskSection}
+      </Modal>
+    );
+  }
+
+  if (!event && isPayment && data) {
+    return (
+      <Modal title="New payment" onClose={onClose} wide>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked onChange={() => setIsPayment(false)} /> It's a payment
+        </label>
+        <PaymentForm options={data.finance} date={date || data.today} run={run} onDone={onClose} />
       </Modal>
     );
   }
 
   return (
     <Modal title={event ? "Edit event" : "New event"} onClose={onClose}>
+      {!event && data && (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={false} onChange={() => setIsPayment(true)} /> It's a payment (amount, account, repeats)
+        </label>
+      )}
+      {paymentSection}
       <form onSubmit={submit} className="space-y-3 text-sm">
         <input autoFocus required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Flight to Lima, Dentist" className={inputCls} />
         <div>

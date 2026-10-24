@@ -5,13 +5,18 @@ import { addDays, dateRange, localNow } from "@/lib/time";
 import { getOccurrences } from "@/lib/calendar/model";
 import { getChecks, getHabits, recomputeOccurrenceStatus } from "@/lib/calendar/habits";
 import { autoPlaceTasks, closeDayTasks } from "@/lib/calendar/tasks";
+import { ensurePaymentEvents } from "@/lib/calendar/payments";
 
 /** How far back a missed run catches up (older days are left as they are). */
 const CATCH_UP_DAYS = 14;
 
-/** Morning: tasks with a home block go into it when that block exists today (not a move). */
+/**
+ * Morning: tasks with a home block go into it when that block exists today (not a move),
+ * and recurring payments create their upcoming events.
+ */
 export async function morningTasks(sb: SupabaseClient, userId: string, today: string) {
   await autoPlaceTasks(sb, userId, today);
+  await ensurePaymentEvents(sb, userId, today);
 }
 
 /**

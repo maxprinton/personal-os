@@ -317,6 +317,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
       )}
       {data && dialog?.kind === "new-event" && (
         <EventDialog
+          data={data}
           initial={{ date: dialog.date, start: dialog.start, end: dialog.end, title: dialog.title }}
           eventTypes={data.eventTypes}
           readOnly={readOnly}

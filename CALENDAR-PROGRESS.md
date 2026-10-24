@@ -67,3 +67,12 @@ Rule for phases 1–9: code only, no tests or builds. Everything is tested in ph
 - **🌴 Free day** button in the calendar toolbar: pick one day or a range (+ optional note, e.g. "Trip to Cuenca") and what happens to the tasks of those days: **move to the day after**, **leave unassigned** (they wait in the Unassigned tray the day after and are not auto-placed), or **take them to their home block** (next date after the break where it exists). Moving tasks because of a free day never counts as a move.
 - Blocks in the range turn "free day" (dimmed). The end-of-day routine skips them: **no missed habits, streaks paused, skips not counted**; tasks put on a free day just wait for the next day without +1. Events (flights, hotel) stay visible. A 🌴 label under the day header opens the range, which can be removed (today's and future blocks come back; the past stays).
 - Telegram: the morning summary says it's a free day, and the "unassigned tasks" reminder stays quiet.
+
+## Phase 7 — Payments as events
+
+- New migration `0012_payments.sql` (NOT applied): `payment_templates` (name, income/expense, expected amount, account, category, repeats: once or every N days/weeks/months/years from a first date, optional end); events get `is_payment`, `payment_template_id`, `payment_status` (paid/skipped), `payment_transaction_id`; transactions get `event_id` and `payment_template_id`.
+- **Same record from Finance or from the calendar**: "Scheduled payments" on the Finance page and "It's a payment" in the calendar's new-event dialog use the same form and the same action (a template + its events, in a green "Payments" event type).
+- **Recurring payments create their own events** about 2 months ahead (every morning, and right after creating one). Months clamp to the last day (a payment on the 31st falls on the 30th/28th). Repeat model inspired by the LifeOS prototype ("every N units").
+- **On the day**: a pre-filled draft (expected amount, account, category) shows on Today, in Finance and in the event's dialog: write the real amount and **Confirm** → a real transaction is created and the event shows ✓💳. "Not this time" skips it. Deleting that transaction puts the payment back to "due". Unconfirmed payments stay due for up to a month.
+- Telegram morning summary lists payments to confirm (confirming happens in the app).
+- "Stop" a scheduled payment: no new events; upcoming unpaid ones are removed; paid ones stay.

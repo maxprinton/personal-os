@@ -8,6 +8,7 @@ import { habitsForOccurrence } from "@/lib/calendar/habitview";
 import { SKIP_LIMIT } from "@/lib/calendar/streaks";
 import type { HabitState } from "@/lib/calendar/types";
 import { packId } from "@/lib/telegram";
+import { getDuePayments } from "@/lib/calendar/payments";
 
 // Server-only: runs with the admin client, so EVERY query filters by user_id.
 
@@ -41,7 +42,7 @@ export type DayHabit = {
 /** Today's schedule, open tasks and habits for one user (calendar v2 model). */
 export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "user_id" | "timezone">, date: string) {
   const tz = s.timezone;
-  const [types, occurrences, events, habits, checks, t, free] = await Promise.all([
+  const [types, occurrences, events, habits, checks, t, free, due] = await Promise.all([
     getBlockTypes(admin, s.user_id, { includeDeleted: true }),
     getOccurrences(admin, s.user_id, date, date),
     getEvents(admin, s.user_id, date, date, tz),
@@ -56,6 +57,7 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
       .lte("scheduled_for", date)
       .order("scheduled_for"),
     freeDatesBetween(admin, s.user_id, date, date),
+    getDuePayments(admin, s.user_id, date),
   ]);
   const typeName = new Map(types.map((x) => [x.id, x.name]));
 
@@ -96,6 +98,11 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
     items,
     dayNotes,
     freeDay: free.has(date),
+    payments: due.map((p) => ({
+      title: p.title,
+      date: p.date,
+      expected: p.template?.expected_amount ?? null,
+    })),
     tasks,
     unassigned: tasks.filter((x) => !x.occurrence_id && !x.event_id).length,
     habits: dayHabits,
@@ -118,6 +125,13 @@ export function morningText(date: string, d: Day) {
   );
   if (d.tasks.length) parts.push(`\n✅ Tasks (${d.tasks.length})\n${list(d.tasks.map((t) => t.title))}`);
   if (d.unassigned) parts.push(unassignedText(d.unassigned));
+  if (d.payments.length) {
+    parts.push(
+      `\n💳 Payments to confirm\n${list(
+        d.payments.map((p) => `${p.title}${p.expected ? ` (expected $${p.expected.toFixed(2)})` : ""}${p.date < date ? ` · since ${p.date}` : ""}`)
+      )}\nWrite the real amount in the app to confirm.`
+    );
+  }
   if (d.habits.length) parts.push(`\n🔁 Habits: ${d.habits.map((h) => h.title).join(", ")}`);
   return parts.join("\n");
 }

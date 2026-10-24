@@ -17,6 +17,7 @@ const TABLES = [
   "habit_checks",
   "task_day_log",
   "free_days",
+  "payment_templates",
   "activity_logs",
   "metric_definitions",
   "daily_metrics",

@@ -46,6 +46,30 @@ export type CalEvent = {
   end_date: string;
   start: number | null;
   end: number | null;
+  /** Payment events: pre-filled from a template; paid / skipped once handled. */
+  is_payment?: boolean;
+  payment_template_id?: string | null;
+  payment_status?: "paid" | "skipped" | null;
+};
+
+export type PaymentTemplate = {
+  id: string;
+  name: string;
+  type: "income" | "expense";
+  expected_amount: number | null;
+  account_id: string | null;
+  category_id: string | null;
+  repeat_unit: "none" | "days" | "weeks" | "months" | "years";
+  repeat_every: number;
+  start_date: string;
+  end_date: string | null;
+};
+
+/** What the payment draft needs to offer: templates and the finance lists. */
+export type FinanceOptions = {
+  templates: PaymentTemplate[];
+  accounts: { id: string; name: string }[];
+  categories: { id: string; name: string; kind: "income" | "expense" }[];
 };
 
 /** A habit lives inside a block type. block_type_id null = "unscheduled" until placed. */
@@ -104,6 +128,7 @@ export type CalendarData = {
   tasks: CalTask[];
   taskLogs: TaskLog[];
   freeDays: FreeDayRange[];
+  finance: FinanceOptions;
 };
 
 /** Result of every calendar server action. */
