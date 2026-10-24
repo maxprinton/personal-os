@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { removeEvent, saveEvent } from "@/app/calendar-actions";
 import { minutesToTime } from "@/lib/time";
-import type { CalEvent, CalResult, EventType } from "@/lib/calendar/types";
+import type { CalendarData, CalEvent, CalResult, EventType } from "@/lib/calendar/types";
+import { tasksForEvent, unassignedOn } from "@/lib/calendar/taskview";
 import Modal, { btnPrimary, btnSecondary, inputCls } from "@/components/calendar/Modal";
+import TaskList from "@/components/calendar/TaskList";
 
 /** Create or edit an event. Without time it is just metadata of the day(s). */
 export default function EventDialog({
@@ -14,7 +16,9 @@ export default function EventDialog({
   readOnly,
   run,
   onClose,
+  data,
 }: {
+  data?: CalendarData;
   event?: CalEvent;
   initial?: { date: string; start?: number; end?: number; title?: string };
   eventTypes: EventType[];
@@ -67,6 +71,24 @@ export default function EventDialog({
     if (ok) onClose();
   }
 
+  // An event with tasks behaves like a block for them (they join the end-of-day check too)
+  const taskDay = event && data ? (data.today >= event.date && data.today <= event.end_date ? data.today : event.date) : null;
+  const taskSection =
+    event && data && taskDay ? (
+      <section className="space-y-2 rounded-lg border border-neutral-200 p-3">
+        <h3 className="text-sm font-medium">Tasks in this event</h3>
+        <TaskList
+          tasks={tasksForEvent(event.id, taskDay, data.tasks)}
+          logs={data.taskLogs.filter((l) => l.event_id === event.id)}
+          unassigned={taskDay >= data.today ? unassignedOn(data.today, data.today, data.tasks) : []}
+          target={{ eventId: event.id, date: taskDay }}
+          canEdit={!readOnly && taskDay >= data.today}
+          canTick={!readOnly}
+          run={run}
+        />
+      </section>
+    ) : null;
+
   if (readOnly && event) {
     return (
       <Modal title={event.title} onClose={onClose}>
@@ -76,6 +98,7 @@ export default function EventDialog({
           {event.start !== null && event.end !== null ? ` · ${minutesToTime(event.start)}–${minutesToTime(event.end)}` : " · no time"}
           {typeName ? ` · ${typeName}` : ""}
         </p>
+        {taskSection}
       </Modal>
     );
   }
@@ -155,6 +178,7 @@ export default function EventDialog({
           </div>
         </div>
       </form>
+      {taskSection}
     </Modal>
   );
 }

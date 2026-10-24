@@ -4,10 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { addDays, daysBetween, minutesToTime, timeToMinutes } from "@/lib/time";
 import { assignLanes, durationOf, eventSpanOn, findOccurrenceConflict } from "@/lib/calendar/overlap";
 import { habitProgress, habitsForOccurrence } from "@/lib/calendar/habitview";
+import { tasksForEvent, tasksForOccurrence } from "@/lib/calendar/taskview";
 import type { CalendarData, CalEvent, Occurrence } from "@/lib/calendar/types";
 import { alpha, dayLabel, snap, textOn, timeRange } from "@/components/calendar/util";
 
 export type MoveRequest = { id: string; date: string; start: number; end: number; duplicate: boolean };
+export type TaskDrop = { taskId: string; occurrenceId?: string; eventId?: string; date: string };
+
+/** Drag data type used for tasks (the unassigned tray and task lines inside blocks). */
+export const TASK_MIME = "text/x-personal-os-task";
 
 type Props = {
   days: string[];
@@ -22,6 +27,7 @@ type Props = {
   onOpenEvent: (id: string) => void;
   onMoveOccurrence: (req: MoveRequest) => void;
   onToggleDone: (occurrenceId: string) => void;
+  onDropTask: (drop: TaskDrop) => void;
   onBlocked: (message: string) => void;
   onPickDay?: (date: string) => void;
 };
@@ -74,9 +80,31 @@ export default function TimeGrid({
   onOpenEvent,
   onMoveOccurrence,
   onToggleDone,
+  onDropTask,
   onBlocked,
   onPickDay,
 }: Props) {
+  const [dropOn, setDropOn] = useState<string | null>(null);
+  const dropHandlers = (key: string, target: Omit<TaskDrop, "taskId">) =>
+    readOnly
+      ? {}
+      : {
+          onDragOver: (e: React.DragEvent) => {
+            if (!e.dataTransfer.types.includes(TASK_MIME)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            if (dropOn !== key) setDropOn(key);
+          },
+          onDragLeave: () => setDropOn((k) => (k === key ? null : k)),
+          onDrop: (e: React.DragEvent) => {
+            const taskId = e.dataTransfer.getData(TASK_MIME);
+            setDropOn(null);
+            if (!taskId) return;
+            e.preventDefault();
+            e.stopPropagation();
+            onDropTask({ taskId, ...target });
+          },
+        };
   const scrollRef = useRef<HTMLDivElement>(null);
   const colRefs = useRef<(HTMLDivElement | null)[]>([]);
   const dragRef = useRef<Drag | null>(null);
@@ -337,12 +365,15 @@ export default function TimeGrid({
                 const realEnd = realStart + durationOf(o.start_time, o.end_time);
                 const hp = habitProgress(habitsForOccurrence(o, data.habits, data.checks, data.today));
                 const canTick = !readOnly && !cutTop && !muted && o.date <= data.today;
+                const blockTasks = cutTop ? [] : tasksForOccurrence(o, data.occurrences, data.tasks);
+                const taskRows = Math.max(0, Math.floor((height - 30) / 14));
                 return (
                   <div
                     key={`${o.id}-${date}`}
                     onPointerDown={(e) => !cutTop && startDrag(e, o, col, top, "move")}
                     onPointerMove={moveDrag}
                     onPointerUp={endDrag}
+                    {...(o.date >= data.today && !muted ? dropHandlers(`occ-${o.id}-${date}`, { occurrenceId: o.id, date: o.date }) : {})}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (readOnly || cutTop) onOpenOccurrence(o.id);
@@ -350,7 +381,7 @@ export default function TimeGrid({
                     title={`${type?.name ?? "Block"} · ${timeRange(realStart, realEnd)}`}
                     className={`absolute inset-x-0.5 overflow-hidden rounded-md px-1.5 py-0.5 shadow-sm ${
                       readOnly || cutTop ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
-                    } ${dragging ? "opacity-40" : ""}`}
+                    } ${dragging ? "opacity-40" : ""} ${dropOn === `occ-${o.id}-${date}` ? "ring-2 ring-neutral-900 ring-offset-1" : ""}`}
                     style={{
                       top: (top / 60) * H,
                       height,
@@ -364,6 +395,9 @@ export default function TimeGrid({
                       {type?.name ?? "Block"}
                       {muted ? " · free day" : ""}
                       {hp.all > 0 && !muted ? <span className="ml-1 font-normal opacity-80">{hp.done}/{hp.total}</span> : null}
+                      {blockTasks.length > 0 && taskRows === 0 ? (
+                        <span className="ml-1 font-normal opacity-80">· {blockTasks.length} task{blockTasks.length > 1 ? "s" : ""}</span>
+                      ) : null}
                     </p>
                     {canTick && (
                       <button
@@ -386,6 +420,28 @@ export default function TimeGrid({
                         {cutBottom ? "…" : ""}
                       </p>
                     )}
+                    {taskRows > 0 &&
+                      blockTasks.slice(0, taskRows).map((t) => (
+                        <p
+                          key={t.id}
+                          draggable={!readOnly && t.status === "pending"}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData(TASK_MIME, t.id);
+                            e.dataTransfer.effectAllowed = "move";
+                          }}
+                          className={`truncate leading-tight ${t.status === "completed" ? "line-through opacity-60" : ""} ${
+                            !readOnly && t.status === "pending" ? "cursor-move" : ""
+                          }`}
+                          title={t.moved ? `${t.title} · moved ${t.moved}×` : t.title}
+                        >
+                          {t.status === "completed" ? "☑" : "☐"} {t.title}
+                          {t.moved > 0 ? ` (${t.moved}×)` : ""}
+                        </p>
+                      ))}
+                    {taskRows > 0 && blockTasks.length > taskRows && (
+                      <p className="truncate leading-tight opacity-70">+{blockTasks.length - taskRows} more</p>
+                    )}
                     {!readOnly && !cutTop && !cutBottom && (
                       <div
                         onPointerDown={(e) => startDrag(e, o, col, top, "resize")}
@@ -404,6 +460,8 @@ export default function TimeGrid({
                 const { e, start, end } = item;
                 const c = eventColor(e);
                 const lanes = eventsPerCol[col].lanes;
+                const evTasks = tasksForEvent(e.id, date, data.tasks);
+                const dropKey = `ev-${e.id}-${date}`;
                 return (
                   <div
                     key={`ev-${e.id}-${date}`}
@@ -423,11 +481,15 @@ export default function TimeGrid({
                         ev.stopPropagation();
                         onOpenEvent(e.id);
                       }}
-                      className="pointer-events-auto block max-w-full truncate rounded-br px-1 text-left text-[11px] font-medium"
+                      {...(date >= data.today ? dropHandlers(dropKey, { eventId: e.id, date }) : {})}
+                      className={`pointer-events-auto block max-w-full truncate rounded-br px-1 text-left text-[11px] font-medium ${
+                        dropOn === dropKey ? "ring-2 ring-neutral-900" : ""
+                      }`}
                       style={{ background: alpha(c, 0.85), color: textOn(c) }}
-                      title={e.title}
+                      title={`${e.title}${evTasks.length ? ` · ${evTasks.length} task(s)` : ""} — drop a task here to put it in this event`}
                     >
                       {e.title}
+                      {evTasks.length > 0 ? ` · ${evTasks.filter((t) => t.status === "completed").length}/${evTasks.length} ☑` : ""}
                     </button>
                   </div>
                 );

@@ -1,6 +1,7 @@
 // Calendar v2 write helpers (server only). Every query filters by user_id explicitly.
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { addDays, formatMinutes, isoWeekday, ISO_DAY_SHORT, timeToMinutes } from "@/lib/time";
+import { addDays, formatMinutes, isoWeekday, ISO_DAY_SHORT, localNow, timeToMinutes } from "@/lib/time";
+import { autoPlaceTasks } from "@/lib/calendar/tasks";
 import { findOccurrenceConflict, findSlotConflict, rangesIntersect, type SlotCandidate } from "@/lib/calendar/overlap";
 import { ensureOccurrences, getBlockTypes, getOccurrences, getSlots, OCC_COLS, SLOT_COLS } from "@/lib/calendar/model";
 import type { BlockType, Occurrence, Slot } from "@/lib/calendar/types";
@@ -126,11 +127,22 @@ export async function untouchedIds(sb: SupabaseClient, userId: string, occurrenc
   return new Set(candidates.filter((o) => !marked.has(o.id)).map((o) => o.id));
 }
 
-/** Called after occurrences were removed or moved, so tasks/marks can follow (filled in later phases). */
+/**
+ * Called after block occurrences were removed or cancelled: their tasks are taken out and put
+ * back into another appearance of their home block that day if there is one (otherwise they
+ * wait in "unassigned" for that day). Not counted as a move.
+ */
 export async function afterOccurrencesChanged(sb: SupabaseClient, userId: string, removedIds: string[]) {
-  void sb;
-  void userId;
-  void removedIds;
+  if (removedIds.length) {
+    await sb
+      .from("tasks")
+      .update({ occurrence_id: null })
+      .eq("user_id", userId)
+      .in("occurrence_id", removedIds)
+      .eq("status", "pending");
+  }
+  const { data } = await sb.from("user_settings").select("timezone").eq("user_id", userId).maybeSingle();
+  await autoPlaceTasks(sb, userId, localNow((data?.timezone as string | undefined) ?? "America/Guayaquil").date);
 }
 
 /** Ends a slot the day before `from` (or retires it if it had not started yet). */

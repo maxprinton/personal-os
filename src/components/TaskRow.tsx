@@ -9,15 +9,21 @@ export type TaskRowData = {
   status: string;
   rollover_policy: string;
   scheduled_for: string | null;
-  rolled_over_count: number;
+  rolled_over_count: number; // the "moved" counter
   is_habit: boolean;
+  home_block_type_id?: string | null;
+  occurrence_id?: string | null;
+  event_id?: string | null;
 };
 
 const POLICY_LABEL: Record<string, string> = {
-  migrate: "moves to tomorrow",
+  migrate: "morning ritual if not done",
   backlog: "goes to backlog",
   graveyard: "fails at midnight",
 };
+
+/** Names shown next to a task: its home block and where it is placed today. */
+export type TaskPlaces = { blockName: Map<string, string>; placedIn: Map<string, string>; eventName: Map<string, string> };
 
 function OpButton({ id, op, label }: { id: string; op: string; label: string }) {
   return (
@@ -29,7 +35,20 @@ function OpButton({ id, op, label }: { id: string; op: string; label: string }) 
   );
 }
 
-export default function TaskRow({ task, tags = [], today }: { task: TaskRowData; tags?: Tag[]; today: string }) {
+export default function TaskRow({
+  task,
+  tags = [],
+  today,
+  places,
+}: {
+  task: TaskRowData;
+  tags?: Tag[];
+  today: string;
+  places?: TaskPlaces;
+}) {
+  const home = task.home_block_type_id ? places?.blockName.get(task.home_block_type_id) : undefined;
+  const placed = task.occurrence_id ? places?.placedIn.get(task.occurrence_id) : undefined;
+  const inEvent = task.event_id ? places?.eventName.get(task.event_id) : undefined;
   const done = task.status === "completed";
   const failed = task.status === "failed";
   const overdue = task.status === "pending" && task.scheduled_for !== null && task.scheduled_for < today;
@@ -46,13 +65,25 @@ export default function TaskRow({ task, tags = [], today }: { task: TaskRowData;
       <div className="flex-1 space-y-1">
         <p className={`font-medium ${done ? "text-neutral-400 line-through" : ""} ${failed ? "text-red-600" : ""}`}>
           {task.title}
+          {task.rolled_over_count > 0 && (
+            <span
+              title="Moved counter: +1 each time a day ends with it undone, +1 per manual move to another day"
+              className="ml-2 rounded-full bg-amber-100 px-1.5 text-xs font-normal text-amber-800"
+            >
+              moved {task.rolled_over_count}×
+            </span>
+          )}
         </p>
         <p className="text-xs text-neutral-500">
           {task.scheduled_for ? formatDateLong(task.scheduled_for) : "No date"}
           {overdue ? " · overdue" : ""}
           {task.status === "pending" ? ` · ${POLICY_LABEL[task.rollover_policy] ?? ""}` : ""}
-          {task.rolled_over_count > 0 ? ` · postponed ${task.rolled_over_count}×` : ""}
-          {task.is_habit ? " · Habit" : ""}
+          {home ? ` · home: ${home}` : ""}
+          {task.status === "pending" && placed ? ` · in ${placed}` : ""}
+          {task.status === "pending" && inEvent ? ` · in event ${inEvent}` : ""}
+          {task.status === "pending" && task.scheduled_for && task.scheduled_for <= today && !task.occurrence_id && !task.event_id
+            ? " · unassigned"
+            : ""}
         </p>
         <TagChips tags={tags} base="/tasks" />
       </div>

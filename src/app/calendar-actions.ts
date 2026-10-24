@@ -19,6 +19,7 @@ import {
 import { userTimezone } from "@/lib/calendar/load";
 import { getChecks, getHabits, recomputeOccurrenceStatus, setHabitCheck } from "@/lib/calendar/habits";
 import { habitsForOccurrence } from "@/lib/calendar/habitview";
+import { autoPlaceTasks, countMove, getTask, nextOccurrenceAfter } from "@/lib/calendar/tasks";
 import type { CalResult, EditScope, HabitState } from "@/lib/calendar/types";
 
 async function ctx() {
@@ -174,7 +175,15 @@ export async function editOccurrence(input: EditOccurrenceInput): Promise<CalRes
       .eq("id", occ.id)
       .eq("user_id", c.userId);
     if (error) return { error: error.message };
-    if (input.date !== occ.date) await afterOccurrencesChanged(c.sb, c.userId, [occ.id]);
+    // Its tasks follow the block to the new day (moving the block is not moving the task)
+    if (input.date !== occ.date) {
+      await c.sb
+        .from("tasks")
+        .update({ scheduled_for: input.date })
+        .eq("user_id", c.userId)
+        .eq("occurrence_id", occ.id)
+        .eq("status", "pending");
+    }
     return done();
   } catch (e) {
     return fail(e);
@@ -507,6 +516,160 @@ export async function removeHabit(input: { id: string }): Promise<CalResult> {
       .eq("id", input.id)
       .eq("user_id", c.userId);
     if (error) return { error: error.message };
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ---------- Tasks: home block, placement, morning ritual -------------------------
+
+/**
+ * Put a task in a block appearance or an event (or take it out: both null = unassigned).
+ * Same day = just placing it. Another day = a manual move: the moved counter goes up by 1.
+ */
+export async function placeTask(input: {
+  taskId: string;
+  occurrenceId?: string | null;
+  eventId?: string | null;
+  date?: string;
+}): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const task = await getTask(c.sb, c.userId, input.taskId);
+    if (!task) return { error: "That task no longer exists." };
+    let date = input.date && isDate(input.date) ? input.date : task.scheduled_for ?? c.today;
+    let occurrence_id: string | null = null;
+    let event_id: string | null = null;
+    if (input.occurrenceId) {
+      const occ = await getOccurrence(c.sb, c.userId, input.occurrenceId);
+      if (!occ || occ.status === "cancelled") return { error: "That block is no longer on the calendar." };
+      occurrence_id = occ.id;
+      date = occ.date;
+    } else if (input.eventId) {
+      const { data: ev } = await c.sb
+        .from("events")
+        .select("id,event_date,end_date")
+        .eq("id", input.eventId)
+        .eq("user_id", c.userId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (!ev) return { error: "That event no longer exists." };
+      event_id = ev.id as string;
+      if (date < (ev.event_date as string) || date > (ev.end_date as string)) date = ev.event_date as string;
+    }
+    if (date < c.today && task.status === "pending") return { error: "Pending tasks can only be placed today or later." };
+    const movedDay = Boolean(task.scheduled_for && task.scheduled_for !== date && task.scheduled_for >= c.today);
+    const { error } = await c.sb
+      .from("tasks")
+      .update({ occurrence_id, event_id, scheduled_for: date, status: task.status === "backlog" ? "pending" : task.status })
+      .eq("id", task.id)
+      .eq("user_id", c.userId);
+    if (error) return { error: error.message };
+    if (movedDay) await countMove(c.sb, c.userId, task, task.scheduled_for);
+    if (task.occurrence_id) await recomputeOccurrenceStatus(c.sb, c.userId, task.occurrence_id, c.today);
+    if (occurrence_id) await recomputeOccurrenceStatus(c.sb, c.userId, occurrence_id, c.today);
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Morning ritual option: move the task to the next appearance of its home block (counts as a move). */
+export async function moveTaskToNextHome(input: { taskId: string }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const task = await getTask(c.sb, c.userId, input.taskId);
+    if (!task) return { error: "That task no longer exists." };
+    if (!task.home_block_type_id) return { error: "This task has no home block." };
+    const next = await nextOccurrenceAfter(c.sb, c.userId, task.home_block_type_id, c.today);
+    if (!next) return { error: "Its home block is not on the calendar in the next 8 weeks." };
+    const { error } = await c.sb
+      .from("tasks")
+      .update({ occurrence_id: next.id, event_id: null, scheduled_for: next.date, status: "pending" })
+      .eq("id", task.id)
+      .eq("user_id", c.userId);
+    if (error) return { error: error.message };
+    await countMove(c.sb, c.userId, task, task.scheduled_for && task.scheduled_for >= c.today ? task.scheduled_for : c.today);
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Set (or clear) a task's home block. If that block is on the task's day, it goes straight in. */
+export async function setTaskHome(input: { taskId: string; blockTypeId: string | null }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const { error } = await c.sb
+      .from("tasks")
+      .update({ home_block_type_id: input.blockTypeId || null })
+      .eq("id", input.taskId)
+      .eq("user_id", c.userId);
+    if (error) return { error: error.message };
+    await autoPlaceTasks(c.sb, c.userId, c.today);
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Tick or untick a task. Done in one appearance of a block = done in all of them. */
+export async function setTaskDone(input: { taskId: string; done: boolean }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const task = await getTask(c.sb, c.userId, input.taskId);
+    if (!task) return { error: "That task no longer exists." };
+    const { error } = await c.sb
+      .from("tasks")
+      .update({
+        status: input.done ? "completed" : "pending",
+        completed_at: input.done ? new Date().toISOString() : null,
+      })
+      .eq("id", task.id)
+      .eq("user_id", c.userId);
+    if (error) return { error: error.message };
+    if (task.occurrence_id) await recomputeOccurrenceStatus(c.sb, c.userId, task.occurrence_id, c.today);
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Quick add from a block or an event: the task is placed there (and the block becomes its home). */
+export async function addTaskHere(input: {
+  title: string;
+  occurrenceId?: string;
+  eventId?: string;
+  date?: string;
+}): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const title = (input.title ?? "").trim().slice(0, 300);
+    if (!title) return { error: "Write the task first." };
+    let values: Record<string, unknown> = { user_id: c.userId, title, status: "pending", scheduled_for: input.date || c.today };
+    if (input.occurrenceId) {
+      const occ = await getOccurrence(c.sb, c.userId, input.occurrenceId);
+      if (!occ) return { error: "That block is no longer on the calendar." };
+      values = { ...values, occurrence_id: occ.id, home_block_type_id: occ.block_type_id, scheduled_for: occ.date };
+    } else if (input.eventId) {
+      values = { ...values, event_id: input.eventId };
+    }
+    if (String(values.scheduled_for) < c.today) return { error: "New tasks go on today or later." };
+    const { error } = await c.sb.from("tasks").insert(values);
+    if (error) return { error: error.message };
+    if (input.occurrenceId) await recomputeOccurrenceStatus(c.sb, c.userId, input.occurrenceId, c.today);
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** "Done" on the morning ritual card: hide it until tomorrow. */
+export async function dismissRitual(): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    await c.sb.from("user_settings").update({ ritual_seen_on: c.today }).eq("user_id", c.userId);
     return done();
   } catch (e) {
     return fail(e);

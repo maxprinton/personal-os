@@ -126,6 +126,7 @@ export async function saveReminders(_prev: ActionState, form: FormData): Promise
       reminder_evening_time: time(form.get("evening_time"), "21:00"),
       reminder_before_minutes: [0, 5, 10, 15, 30, 60].includes(before) ? before : 10,
       reminder_insights: form.get("insights_on") === "on",
+      reminder_unassigned_nag: form.get("unassigned_on") === "on",
     })
     .eq("user_id", user.id);
   if (error) return { error: error.message };

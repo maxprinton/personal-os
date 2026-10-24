@@ -7,6 +7,8 @@ import { parseTags, setTags, type EntityType } from "@/lib/tags";
 import { relationFor } from "@/lib/links";
 import { localNow } from "@/lib/time";
 import { clearActivity, setActivity } from "@/lib/habits";
+import { autoPlaceTasks, countMove, getTask } from "@/lib/calendar/tasks";
+import { recomputeOccurrenceStatus } from "@/lib/calendar/habits";
 import type { ActionState } from "@/app/actions";
 
 const POLICIES = ["migrate", "backlog", "graveyard"] as const;
@@ -33,7 +35,28 @@ export async function createTask(_prev: ActionState, form: FormData): Promise<Ac
 
   const supabase = await createClient();
   const { timezone } = await getSettings(supabase);
-  const scheduled_for = noDate ? null : date || localNow(timezone).date;
+  const today = localNow(timezone).date;
+  let scheduled_for = noDate ? null : date || today;
+  if (scheduled_for && scheduled_for < today) return { error: "Pick today or a later date." };
+  const home = String(form.get("home_block") ?? "") || null;
+
+  // "In an event": an event with tasks acts like a block for them
+  let event_id: string | null = null;
+  const eventId = String(form.get("event") ?? "");
+  if (eventId && !noDate) {
+    const { data: ev } = await supabase
+      .from("events")
+      .select("id,event_date,end_date")
+      .eq("id", eventId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (ev) {
+      event_id = ev.id as string;
+      if (!scheduled_for || scheduled_for < (ev.event_date as string) || scheduled_for > (ev.end_date as string)) {
+        scheduled_for = ev.event_date as string;
+      }
+    }
+  }
 
   const { data, error } = await supabase
     .from("tasks")
@@ -42,11 +65,17 @@ export async function createTask(_prev: ActionState, form: FormData): Promise<Ac
       scheduled_for,
       rollover_policy: policy,
       status: noDate ? "backlog" : "pending",
-      is_habit: form.get("is_habit") === "on",
+      home_block_type_id: home,
+      event_id,
     })
     .select("id")
     .single();
   if (error || !data) return { error: error?.message ?? "Could not create task." };
+  // If its home block is on that day, it goes straight in (not a move)
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (user && home && !event_id) await autoPlaceTasks(supabase, user.id, today);
 
   const tags = parseTags(String(form.get("tags") ?? ""));
   if (tags.length) await setTags(supabase, "task", data.id, tags);
@@ -80,8 +109,15 @@ export async function updateTask(form: FormData) {
       .from("tasks")
       .update({ status: done ? "completed" : "pending", completed_at: done ? now : null })
       .eq("id", id)
-      .select("is_habit")
+      .select("is_habit,occurrence_id")
       .maybeSingle();
+    if (task?.occurrence_id) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const { timezone } = await getSettings(supabase);
+      if (user) await recomputeOccurrenceStatus(supabase, user.id, task.occurrence_id as string, localNow(timezone).date);
+    }
     if (task?.is_habit) {
       // Habit tasks also write to the unified activity log (powers streaks)
       const { timezone } = await getSettings(supabase);
@@ -91,13 +127,28 @@ export async function updateTask(form: FormData) {
     }
     revalidatePath("/habits");
   } else if (op === "backlog") {
-    await supabase.from("tasks").update({ status: "backlog", completed_at: null }).eq("id", id);
-  } else if (op === "today") {
-    const { timezone } = await getSettings(supabase);
     await supabase
       .from("tasks")
-      .update({ status: "pending", completed_at: null, scheduled_for: localNow(timezone).date })
+      .update({ status: "backlog", completed_at: null, occurrence_id: null, event_id: null })
       .eq("id", id);
+  } else if (op === "today") {
+    const { timezone } = await getSettings(supabase);
+    const today = localNow(timezone).date;
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const before = user ? await getTask(supabase, user.id, id) : null;
+    await supabase
+      .from("tasks")
+      .update({ status: "pending", completed_at: null, scheduled_for: today, occurrence_id: null, event_id: null })
+      .eq("id", id);
+    if (user && before) {
+      // Pulling a planned task to another day is a manual move (+1); from the backlog it is not
+      if (before.status === "pending" && before.scheduled_for && before.scheduled_for > today) {
+        await countMove(supabase, user.id, before, before.scheduled_for);
+      }
+      await autoPlaceTasks(supabase, user.id, today);
+    }
   } else if (op === "delete") {
     await supabase
       .from("entity_relations")

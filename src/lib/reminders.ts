@@ -7,6 +7,7 @@ import { getChecks, getHabits, recomputeOccurrenceStatus, setHabitCheck } from "
 import { habitsForOccurrence } from "@/lib/calendar/habitview";
 import { SKIP_LIMIT } from "@/lib/calendar/streaks";
 import type { HabitState } from "@/lib/calendar/types";
+import { packId } from "@/lib/telegram";
 
 // Server-only: runs with the admin client, so EVERY query filters by user_id.
 
@@ -20,10 +21,11 @@ export type ReminderSettings = {
   reminder_evening_time: string;
   reminder_before_minutes: number;
   reminder_insights: boolean;
+  reminder_unassigned_nag: boolean;
 };
 
 export const REMINDER_COLUMNS =
-  "user_id,timezone,telegram_chat_id,reminder_morning_enabled,reminder_morning_time,reminder_evening_enabled,reminder_evening_time,reminder_before_minutes,reminder_insights";
+  "user_id,timezone,telegram_chat_id,reminder_morning_enabled,reminder_morning_time,reminder_evening_enabled,reminder_evening_time,reminder_before_minutes,reminder_insights,reminder_unassigned_nag";
 
 /** block: id is the occurrence id and blockTypeId its block type. */
 export type DayItem = { kind: "block" | "event"; id: string; title: string; start: number; end: number; blockTypeId?: string };
@@ -47,7 +49,7 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
     getChecks(admin, s.user_id, date, date),
     admin
       .from("tasks")
-      .select("id,title")
+      .select("id,title,occurrence_id,event_id")
       .eq("user_id", s.user_id)
       .is("deleted_at", null)
       .eq("status", "pending")
@@ -88,10 +90,12 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
   }
   items.sort((a, b2) => a.start - b2.start);
 
+  const tasks = (t.data ?? []) as { id: string; title: string; occurrence_id: string | null; event_id: string | null }[];
   return {
     items,
     dayNotes,
-    tasks: (t.data ?? []) as { id: string; title: string }[],
+    tasks,
+    unassigned: tasks.filter((x) => !x.occurrence_id && !x.event_id).length,
     habits: dayHabits,
   };
 }
@@ -110,8 +114,38 @@ export function morningText(date: string, d: Day) {
       : "\n📅 Nothing scheduled today."
   );
   if (d.tasks.length) parts.push(`\n✅ Tasks (${d.tasks.length})\n${list(d.tasks.map((t) => t.title))}`);
+  if (d.unassigned) parts.push(unassignedText(d.unassigned));
   if (d.habits.length) parts.push(`\n🔁 Habits: ${d.habits.map((h) => h.title).join(", ")}`);
   return parts.join("\n");
+}
+
+export function unassignedText(n: number) {
+  return `\n📥 ${n} task${n > 1 ? "s" : ""} still without a block. Open the app on the computer to place ${n > 1 ? "them" : "it"}.`;
+}
+
+/** ✓ buttons to complete tasks from Telegram (the only task action allowed there). */
+export function taskButtons(tasks: { id: string; title: string }[], max = 8) {
+  return tasks.slice(0, max).map((t) => [{ text: `✓ ${t.title}`.slice(0, 60), callback_data: `tk:${packId(t.id)}` }]);
+}
+
+/** Completes a task from a Telegram button. */
+export async function completeTaskFromBot(admin: SupabaseClient, userId: string, timezone: string, taskId: string) {
+  const { data: task } = await admin
+    .from("tasks")
+    .select("id,title,status,occurrence_id")
+    .eq("id", taskId)
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!task) return { ok: false, text: "Could not find that task." };
+  if (task.status === "completed") return { ok: true, text: `“${task.title}” was already done.` };
+  await admin
+    .from("tasks")
+    .update({ status: "completed", completed_at: new Date().toISOString() })
+    .eq("id", task.id)
+    .eq("user_id", userId);
+  if (task.occurrence_id) await recomputeOccurrenceStatus(admin, userId, task.occurrence_id as string, localNow(timezone).date);
+  return { ok: true, text: `✓ Done: ${task.title}` };
 }
 
 export function beforeText(item: DayItem, minutes: number, ctx: { tasks: string[]; notes: string[] }) {

@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/agenda";
-import { getLinkOptions } from "@/lib/links";
+import { currentUserId, getBlockTypes } from "@/lib/calendar/model";
+import { getEvents } from "@/lib/calendar/events";
+import { getTaskPlaces } from "@/lib/calendar/tasks";
 import { getTagsFor, idsWithTag } from "@/lib/tags";
-import { localNow, utcToLocal, zonedToUtc } from "@/lib/time";
+import { addDays, localNow, utcToLocal } from "@/lib/time";
 import Nav from "@/components/Nav";
 import TaskForm from "@/components/TaskForm";
 import TaskRow, { type TaskRowData } from "@/components/TaskRow";
@@ -21,7 +23,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
 
   let query = supabase
     .from("tasks")
-    .select("id,title,status,rollover_policy,scheduled_for,rolled_over_count,is_habit,completed_at")
+    .select("id,title,status,rollover_policy,scheduled_for,rolled_over_count,is_habit,completed_at,home_block_type_id,occurrence_id,event_id")
     .is("deleted_at", null)
     .order("scheduled_for", { ascending: true, nullsFirst: false })
     .order("created_at");
@@ -30,7 +32,12 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
   const tasks = (data ?? []) as TaskWithDone[];
 
   const tags = await getTagsFor(supabase, "task", tasks.map((t) => t.id));
-  const linkOptions = await getLinkOptions(supabase, zonedToUtc(today, "00:00", timezone).toISOString(), timezone);
+  const userId = await currentUserId(supabase);
+  const places = userId ? await getTaskPlaces(supabase, userId, tasks) : undefined;
+  const types = userId ? await getBlockTypes(supabase, userId) : [];
+  const upcoming = userId ? await getEvents(supabase, userId, today, addDays(today, 14), timezone) : [];
+  const blockOptions = types.map((t) => ({ value: t.id, label: t.name }));
+  const eventOptions = upcoming.map((e) => ({ value: e.id, label: `${e.title} (${e.date})` }));
 
   const groups: { title: string; items: TaskWithDone[]; empty?: string }[] = [
     {
@@ -54,7 +61,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
         <div>
           <h1 className="text-2xl font-semibold">Tasks</h1>
           <p className="text-sm text-neutral-500">
-            Each task decides what happens at midnight if it is not done.
+            Each task has a home block: every morning it goes into that block if the block is on the calendar that day. Nothing moves silently: undone tasks show up in the morning ritual on Today.
             {tag && (
               <>
                 {" "}Filtered by <strong>#{tag}</strong> · <Link href="/tasks" className="underline">clear</Link>
@@ -62,7 +69,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
             )}
           </p>
         </div>
-        <TaskForm today={today} linkOptions={linkOptions} />
+        <TaskForm today={today} blockOptions={blockOptions} eventOptions={eventOptions} />
         {groups.map((g) =>
           g.items.length || g.empty ? (
             <section key={g.title} className="space-y-2">
@@ -72,7 +79,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
               {g.items.length ? (
                 <ul className="space-y-2">
                   {g.items.map((t) => (
-                    <TaskRow key={t.id} task={t} tags={tags.get(t.id)} today={today} />
+                    <TaskRow key={t.id} task={t} tags={tags.get(t.id)} today={today} places={places} />
                   ))}
                 </ul>
               ) : (

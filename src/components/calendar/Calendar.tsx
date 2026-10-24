@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { editOccurrence, toggleOccurrenceDone } from "@/app/calendar-actions";
+import { editOccurrence, placeTask, toggleOccurrenceDone } from "@/app/calendar-actions";
+import { unassignedOn } from "@/lib/calendar/taskview";
+import UnassignedTray from "@/components/calendar/UnassignedTray";
 import { addDays, dateRange, isoWeekday, minutesToTime, ISO_DAY_SHORT } from "@/lib/time";
 import type { CalResult, EditScope } from "@/lib/calendar/types";
 import TimeGrid, { type MoveRequest } from "@/components/calendar/TimeGrid";
@@ -230,6 +232,9 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
       </div>
 
       {error && !data && <p className="p-4 text-sm text-red-600">{error}</p>}
+      {data && view !== "month" && data.today >= from && data.today <= to && (
+        <UnassignedTray tasks={unassignedOn(data.today, data.today, data.tasks)} readOnly={readOnly} />
+      )}
       {data && (
         <div className="min-h-0 flex-1">
           {view === "month" ? (
@@ -254,6 +259,9 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
               onOpenEvent={(id) => setDialog({ kind: "event", id })}
               onMoveOccurrence={onMove}
               onToggleDone={(id) => run(() => toggleOccurrenceDone({ occurrenceId: id }))}
+              onDropTask={(d) =>
+                run(() => placeTask({ taskId: d.taskId, occurrenceId: d.occurrenceId ?? null, eventId: d.eventId ?? null, date: d.date }))
+              }
               onBlocked={(text) => setToast({ ok: false, text })}
               onPickDay={(d) => {
                 setAnchor(d);
@@ -305,7 +313,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
         />
       )}
       {data && dialog?.kind === "event" && ev && (
-        <EventDialog event={ev} eventTypes={data.eventTypes} readOnly={readOnly} run={run} onClose={() => setDialog(null)} />
+        <EventDialog event={ev} data={data} eventTypes={data.eventTypes} readOnly={readOnly} run={run} onClose={() => setDialog(null)} />
       )}
       {data && dialog?.kind === "occurrence" && occ && (
         <OccurrenceDialog occ={occ} data={data} readOnly={readOnly} run={run} onClose={() => setDialog(null)} />

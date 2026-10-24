@@ -4,22 +4,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDays, dateRange, localNow } from "@/lib/time";
 import { getOccurrences } from "@/lib/calendar/model";
 import { getChecks, getHabits, recomputeOccurrenceStatus } from "@/lib/calendar/habits";
+import { autoPlaceTasks, closeDayTasks } from "@/lib/calendar/tasks";
 
 /** How far back a missed run catches up (older days are left as they are). */
 const CATCH_UP_DAYS = 14;
 
-/** Tasks part of closing a day and of the morning (filled in by phase 5). */
-export async function closeDayTasks(sb: SupabaseClient, userId: string, date: string, today: string) {
-  void sb;
-  void userId;
-  void date;
-  void today;
-}
-
+/** Morning: tasks with a home block go into it when that block exists today (not a move). */
 export async function morningTasks(sb: SupabaseClient, userId: string, today: string) {
-  void sb;
-  void userId;
-  void today;
+  await autoPlaceTasks(sb, userId, today);
 }
 
 /**
@@ -45,8 +37,9 @@ export async function closeDay(sb: SupabaseClient, userId: string, date: string,
   if (rows.length) {
     await sb.from("habit_checks").upsert(rows, { onConflict: "habit_id,occurrence_id", ignoreDuplicates: true });
   }
-  await closeDayTasks(sb, userId, date, today);
+  // Statuses first (they still see the undone tasks in their blocks), then the tasks leave the day
   for (const o of live) await recomputeOccurrenceStatus(sb, userId, o.id, today);
+  await closeDayTasks(sb, userId, date);
 }
 
 /**

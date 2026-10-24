@@ -11,6 +11,7 @@ type Values = {
   eveningTime: string;
   before: number;
   insightsOn: boolean;
+  unassignedOn: boolean;
 };
 
 const input = "rounded-md border border-neutral-300 px-2 py-1 text-sm";
@@ -46,6 +47,10 @@ export default function ReminderSettings({ values }: { values: Values }) {
           Evening check-in at
           <input type="time" name="evening_time" defaultValue={values.eveningTime} className={input} />
           <span className="text-neutral-400">log habits with one tap</span>
+        </label>
+        <label className="flex flex-wrap items-center gap-2">
+          <input type="checkbox" name="unassigned_on" defaultChecked={values.unassignedOn} />
+          Keep reminding me (11:00 and 16:00) while tasks have no block
         </label>
         <label className="flex items-center gap-2">
           <input type="checkbox" name="insights_on" defaultChecked={values.insightsOn} />

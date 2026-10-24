@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { botToken, HELP, sendMessage, tg, unpackId, webhookSecret } from "@/lib/telegram";
 import { parseMessage, saveParsed, undoSaved, userContext } from "@/lib/capture";
-import { markHabitFromBot } from "@/lib/reminders";
+import { completeTaskFromBot, markHabitFromBot } from "@/lib/reminders";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,6 +57,26 @@ export async function POST(req: Request) {
     }
     await tg("answerCallbackQuery", { callback_query_id: cq.id, text: text.slice(0, 190) });
     if (chatId && logged) await sendMessage(chatId, text);
+    return ok();
+  }
+
+  // ---- Task buttons: tk = complete the task (the only task action Telegram allows) ----
+  const taskBtn = /^tk:([A-Za-z0-9_-]{22})$/.exec(update.callback_query?.data ?? "");
+  if (update.callback_query && taskBtn) {
+    const cq = update.callback_query;
+    const chatId = cq.message?.chat.id;
+    const taskId = unpackId(taskBtn[1]);
+    let r = { ok: false, text: "Could not complete that." };
+    if (chatId && taskId) {
+      const { data: s } = await admin
+        .from("user_settings")
+        .select("user_id,timezone")
+        .eq("telegram_chat_id", chatId)
+        .maybeSingle();
+      if (s) r = await completeTaskFromBot(admin, s.user_id, s.timezone ?? "America/Guayaquil", taskId);
+    }
+    await tg("answerCallbackQuery", { callback_query_id: cq.id, text: r.text.slice(0, 190) });
+    if (chatId && r.ok) await sendMessage(chatId, r.text);
     return ok();
   }
 

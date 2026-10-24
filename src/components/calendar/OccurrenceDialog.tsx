@@ -12,7 +12,9 @@ import {
   updateHabit,
 } from "@/app/calendar-actions";
 import { habitsForOccurrence } from "@/lib/calendar/habitview";
+import { logsForOccurrence, tasksForOccurrence, unassignedOn } from "@/lib/calendar/taskview";
 import HabitControls from "@/components/HabitControls";
+import TaskList from "@/components/calendar/TaskList";
 import { timeToMinutes } from "@/lib/time";
 import type { CalendarData, CalResult, EditScope, Occurrence } from "@/lib/calendar/types";
 import Modal, { btnSecondary, inputCls } from "@/components/calendar/Modal";
@@ -146,6 +148,19 @@ export default function OccurrenceDialog({
             ))}
           </select>
         )}
+      </section>
+
+      <section className="space-y-2 rounded-lg border border-neutral-200 p-3">
+        <h3 className="text-sm font-medium">Tasks</h3>
+        <TaskList
+          tasks={tasksForOccurrence(occ, data.occurrences, data.tasks)}
+          logs={logsForOccurrence(occ, data.occurrences, data.taskLogs)}
+          unassigned={occ.date >= data.today ? unassignedOn(data.today, data.today, data.tasks) : []}
+          target={{ occurrenceId: occ.id, date: occ.date }}
+          canEdit={!readOnly && occ.date >= data.today && occ.status !== "free_day"}
+          canTick={!readOnly}
+          run={run}
+        />
       </section>
 
       {!readOnly && (

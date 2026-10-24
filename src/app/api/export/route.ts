@@ -15,6 +15,7 @@ const TABLES = [
   "event_types",
   "habits",
   "habit_checks",
+  "task_day_log",
   "activity_logs",
   "metric_definitions",
   "daily_metrics",

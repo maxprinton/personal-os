@@ -56,6 +56,32 @@ export type HabitState = "done" | "skipped" | "missed";
 /** One mark of a habit in one block occurrence. */
 export type HabitCheck = { habit_id: string; occurrence_id: string; date: string; state: HabitState };
 
+/**
+ * A task. It has a home block (e.g. "Work") and, on its day, is placed in one appearance of a
+ * block (occurrence_id) or in an event (event_id). It shows in every appearance of that block
+ * on that day: it is one linked task, done in one = done in all.
+ */
+export type CalTask = {
+  id: string;
+  title: string;
+  status: "pending" | "completed" | "backlog" | "failed";
+  scheduled_for: string | null;
+  occurrence_id: string | null;
+  event_id: string | null;
+  home_block_type_id: string | null;
+  moved: number;
+};
+
+/** A day a task reached undone: it keeps showing there as skipped / moved. */
+export type TaskLog = {
+  task_id: string;
+  title: string;
+  date: string;
+  outcome: "skipped" | "moved";
+  occurrence_id: string | null;
+  event_id: string | null;
+};
+
 /** Everything the calendar panel needs for one date range (JSON from /api/calendar). */
 export type CalendarData = {
   from: string;
@@ -70,6 +96,8 @@ export type CalendarData = {
   events: CalEvent[];
   habits: Habit[];
   checks: HabitCheck[];
+  tasks: CalTask[];
+  taskLogs: TaskLog[];
 };
 
 /** Result of every calendar server action. */

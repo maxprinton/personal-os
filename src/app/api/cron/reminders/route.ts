@@ -12,6 +12,8 @@ import {
   morningText,
   nowFor,
   REMINDER_COLUMNS,
+  taskButtons,
+  unassignedText,
   type ReminderSettings,
 } from "@/lib/reminders";
 import { timeToMinutes } from "@/lib/time";
@@ -37,8 +39,18 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings) {
   if (s.reminder_morning_enabled) {
     const at = timeToMinutes(s.reminder_morning_time);
     if (now.minutes >= at && now.minutes < at + WINDOW && (await claim(admin, s.user_id, "morning", date))) {
-      await send(s.telegram_chat_id, morningText(date, day));
+      await send(s.telegram_chat_id, morningText(date, day), day.tasks.length ? taskButtons(day.tasks) : undefined);
       sent++;
+    }
+  }
+
+  // Telegram keeps insisting while tasks have no block (11:00 and 16:00, if still true)
+  if (s.reminder_unassigned_nag && day.unassigned > 0) {
+    for (const at of [11 * 60, 16 * 60]) {
+      if (now.minutes >= at && now.minutes < at + WINDOW && (await claim(admin, s.user_id, "unassigned", `${date}:${at}`))) {
+        await send(s.telegram_chat_id, unassignedText(day.unassigned).trim());
+        sent++;
+      }
     }
   }
 
@@ -48,7 +60,19 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings) {
       if (diff > 0 && diff <= s.reminder_before_minutes) {
         if (await claim(admin, s.user_id, "before", `${item.kind}:${item.id}:${date}`)) {
           const ctx = await linkedTo(admin, s.user_id, item.kind, item.kind === "block" ? item.blockTypeId ?? item.id : item.id);
-          await send(s.telegram_chat_id, beforeText(item, diff, ctx));
+          // Tasks placed in this block (any appearance of it today) or in this event
+          const sameBlock = new Set(
+            day.items.filter((i) => i.kind === "block" && i.blockTypeId === item.blockTypeId).map((i) => i.id)
+          );
+          const placed = day.tasks.filter((t) =>
+            item.kind === "block" ? t.occurrence_id && sameBlock.has(t.occurrence_id) : t.event_id === item.id
+          );
+          const titles = [...new Set([...placed.map((t) => t.title), ...ctx.tasks])];
+          await send(
+            s.telegram_chat_id,
+            beforeText(item, diff, { tasks: titles, notes: ctx.notes }),
+            placed.length ? taskButtons(placed) : undefined
+          );
           sent++;
         }
       }
@@ -63,11 +87,14 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings) {
       await send(
         s.telegram_chat_id,
         text,
-        // One row per habit inside its block: ✓ / Skip
-        pending.slice(0, 40).map((h) => [
-          { text: `✓ ${h.title}`.slice(0, 60), callback_data: `hk:d:${packId(h.habitId)}:${packId(h.occurrenceId)}` },
-          { text: "Skip", callback_data: `hk:s:${packId(h.habitId)}:${packId(h.occurrenceId)}` },
-        ])
+        // One row per habit inside its block: ✓ / Skip. Then ✓ for open tasks.
+        [
+          ...pending.slice(0, 30).map((h) => [
+            { text: `✓ ${h.title}`.slice(0, 60), callback_data: `hk:d:${packId(h.habitId)}:${packId(h.occurrenceId)}` },
+            { text: "Skip", callback_data: `hk:s:${packId(h.habitId)}:${packId(h.occurrenceId)}` },
+          ]),
+          ...taskButtons(day.tasks, 8),
+        ]
       );
       sent++;
     }

@@ -49,12 +49,33 @@ export async function setHabitCheck(
     );
 }
 
-/** Extra work counted in an occurrence's status (tasks; filled in by phase 5). */
+/**
+ * Tasks counted in an occurrence's status: the ones placed in this block that day (in any of its
+ * appearances, since a task there is one linked task) plus the ones left undone there.
+ */
 export async function occurrenceTaskProgress(sb: SupabaseClient, userId: string, occ: Occurrence) {
-  void sb;
-  void userId;
-  void occ;
-  return { done: 0, total: 0 };
+  const { data: sameDay } = await sb
+    .from("block_occurrences")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("date", occ.date)
+    .eq("block_type_id", occ.block_type_id)
+    .neq("status", "cancelled");
+  const ids = [...new Set([occ.id, ...((sameDay ?? []) as { id: string }[]).map((o) => o.id)])];
+  const [{ data: tasks }, { data: logs }] = await Promise.all([
+    sb
+      .from("tasks")
+      .select("id,status")
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .in("occurrence_id", ids)
+      .eq("scheduled_for", occ.date)
+      .in("status", ["pending", "completed"]),
+    sb.from("task_day_log").select("task_id").eq("user_id", userId).eq("date", occ.date).in("occurrence_id", ids),
+  ]);
+  const placed = (tasks ?? []) as { id: string; status: string }[];
+  const left = ((logs ?? []) as { task_id: string }[]).filter((l) => !placed.some((t) => t.id === l.task_id));
+  return { done: placed.filter((t) => t.status === "completed").length, total: placed.length + left.length };
 }
 
 /**

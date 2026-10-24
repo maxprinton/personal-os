@@ -25,7 +25,7 @@ export default async function SettingsPage() {
   } = await supabase.auth.getUser();
   const { data: s } = await supabase
     .from("user_settings")
-    .select("timezone,currency,locale,telegram_chat_id,telegram_link_code,telegram_link_expires,reminder_morning_enabled,reminder_morning_time,reminder_evening_enabled,reminder_evening_time,reminder_before_minutes,reminder_insights")
+    .select("timezone,currency,locale,telegram_chat_id,telegram_link_code,telegram_link_expires,reminder_morning_enabled,reminder_morning_time,reminder_evening_enabled,reminder_evening_time,reminder_before_minutes,reminder_insights,reminder_unassigned_nag")
     .maybeSingle();
 
   const hasToken = Boolean(botToken());
@@ -106,6 +106,7 @@ export default async function SettingsPage() {
               eveningTime: String(s.reminder_evening_time ?? "21:00").slice(0, 5),
               before: s.reminder_before_minutes ?? 10,
               insightsOn: s.reminder_insights ?? true,
+              unassignedOn: s.reminder_unassigned_nag ?? true,
             }}
           />
         )}

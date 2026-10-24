@@ -12,6 +12,8 @@ import { getHabitSummaries } from "@/lib/calendar/habits";
 import { currentUserId } from "@/lib/calendar/model";
 import { runMaintenance } from "@/lib/calendar/maintenance";
 import HabitControls from "@/components/HabitControls";
+import MorningRitual from "@/components/MorningRitual";
+import { getRitual, getTaskPlaces } from "@/lib/calendar/tasks";
 import MetricWidget from "@/components/MetricWidget";
 import QuickCapture from "@/components/QuickCapture";
 import { markInsightRead } from "@/app/settings-actions";
@@ -47,11 +49,10 @@ export default async function CommandCenter() {
       i.kind === "event" ? { type: "event" as const, id: i.id } : { type: "block_type" as const, id: i.blockTypeId ?? i.id }
     );
   const context = await getContextFor(supabase, contextTargets);
-  const contextTasks = context.tasks.filter((t) => t.status === "pending");
 
   const { data: taskData } = await supabase
     .from("tasks")
-    .select("id,title,status,rollover_policy,scheduled_for,rolled_over_count,is_habit")
+    .select("id,title,status,rollover_policy,scheduled_for,rolled_over_count,is_habit,home_block_type_id,occurrence_id,event_id")
     .is("deleted_at", null)
     .eq("status", "pending")
     .lte("scheduled_for", now.date)
@@ -59,6 +60,18 @@ export default async function CommandCenter() {
     .order("created_at");
   const todayTasks = (taskData ?? []) as TaskRowData[];
   const taskTags = await getTagsFor(supabase, "task", todayTasks.map((t) => t.id));
+  const [places, ritual] = userId
+    ? await Promise.all([getTaskPlaces(supabase, userId, todayTasks), getRitual(supabase, userId, now.date)])
+    : ([undefined, null] as const);
+
+  // The tasks placed in the current block (in any of its appearances today) or in the current event
+  const sameBlockIds = new Set(
+    items.filter((i) => i.kind === "block" && activeBlock && i.blockTypeId === activeBlock.blockTypeId).map((i) => i.id)
+  );
+  const placedNow = todayTasks
+    .filter((t) => (t.occurrence_id && sameBlockIds.has(t.occurrence_id)) || (activeEvent && t.event_id === activeEvent.id))
+    .map((t) => ({ id: t.id, title: t.title, status: t.status }));
+  const contextTasks = [...placedNow, ...context.tasks.filter((t) => t.status === "pending" && !placedNow.some((p) => p.id === t.id))];
   const [habits, { metrics, values }] = await Promise.all([
     userId ? getHabitSummaries(supabase, userId, now.date) : Promise.resolve([]),
     getMetrics(supabase, now.date, 1),
@@ -114,6 +127,8 @@ export default async function CommandCenter() {
 
         <QuickCapture />
 
+        {ritual && !ritual.seen && (ritual.items.length > 0 || ritual.unassigned > 0) && <MorningRitual ritual={ritual} />}
+
         {insights.length > 0 && (
           <section className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-4">
             <h2 className="text-sm font-medium text-amber-900">Chief of Staff</h2>
@@ -166,7 +181,7 @@ export default async function CommandCenter() {
           {todayTasks.length ? (
             <ul className="space-y-2">
               {todayTasks.map((t) => (
-                <TaskRow key={t.id} task={t} tags={taskTags.get(t.id)} today={now.date} />
+                <TaskRow key={t.id} task={t} tags={taskTags.get(t.id)} today={now.date} places={places} />
               ))}
             </ul>
           ) : (
