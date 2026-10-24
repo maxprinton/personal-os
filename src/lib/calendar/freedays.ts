@@ -21,13 +21,26 @@ export async function applyFreeDays(
 ) {
   // Blocks: create the missing appearances, then pause the ones not already done
   await ensureOccurrences(sb, userId, from, to);
-  await sb
+  const { data: paused } = await sb
     .from("block_occurrences")
     .update({ status: "free_day" })
     .eq("user_id", userId)
     .gte("date", from)
     .lte("date", to)
-    .eq("status", "scheduled");
+    .eq("status", "scheduled")
+    .select("id");
+  // Past days marked free afterwards (edit-the-past window): the automatic "missed" marks go away,
+  // so their streaks are paused instead of broken
+  const pausedIds = ((paused ?? []) as { id: string }[]).map((o) => o.id);
+  if (from < today && pausedIds.length) {
+    await sb
+      .from("habit_checks")
+      .delete()
+      .eq("user_id", userId)
+      .eq("source", "auto")
+      .eq("state", "missed")
+      .in("occurrence_id", pausedIds);
+  }
 
   // Tasks of those dates (and today's leftovers if the range starts today or earlier)
   let q = sb.from("tasks").select(TASK_COLS).eq("user_id", userId).is("deleted_at", null).eq("status", "pending").lte("scheduled_for", to);

@@ -16,6 +16,9 @@ export async function userTimezone(sb: SupabaseClient, userId: string) {
 
 export async function loadCalendar(sb: SupabaseClient, userId: string, from: string, to: string): Promise<CalendarData> {
   const timezone = await userTimezone(sb, userId);
+  const { data: s } = await sb.from("user_settings").select("past_edit_until").eq("user_id", userId).maybeSingle();
+  const until = (s?.past_edit_until as string | null | undefined) ?? null;
+  const pastEditUntil = until && new Date(until).getTime() > Date.now() ? until : null;
   await runMaintenance(sb, userId, timezone);
   const now = localNow(timezone);
   const [blockTypes, slots, occurrences, eventTypes, events, habits, checks, { tasks, taskLogs }, freeDays, finance] = await Promise.all([
@@ -47,5 +50,6 @@ export async function loadCalendar(sb: SupabaseClient, userId: string, from: str
     taskLogs,
     freeDays: freeDays as CalendarData["freeDays"],
     finance,
+    pastEditUntil,
   };
 }

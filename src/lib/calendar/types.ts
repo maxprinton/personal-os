@@ -129,6 +129,8 @@ export type CalendarData = {
   taskLogs: TaskLog[];
   freeDays: FreeDayRange[];
   finance: FinanceOptions;
+  /** ISO time until which past days can be edited (null = the past is locked). */
+  pastEditUntil: string | null;
 };
 
 /** Result of every calendar server action. */

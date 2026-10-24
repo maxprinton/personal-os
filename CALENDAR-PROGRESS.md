@@ -76,3 +76,12 @@ Rule for phases 1–9: code only, no tests or builds. Everything is tested in ph
 - **On the day**: a pre-filled draft (expected amount, account, category) shows on Today, in Finance and in the event's dialog: write the real amount and **Confirm** → a real transaction is created and the event shows ✓💳. "Not this time" skips it. Deleting that transaction puts the payment back to "due". Unconfirmed payments stay due for up to a month.
 - Telegram morning summary lists payments to confirm (confirming happens in the app).
 - "Stop" a scheduled payment: no new events; upcoming unpaid ones are removed; paid ones stay.
+
+## Phase 8 — Editing the past (1-hour window)
+
+- New migration `0013_past_edit.sql` (NOT applied): `user_settings.past_edit_until`.
+- The past is **locked by default**. Any calendar change that touches a past day (moving/resizing/removing a block, creating a one-day block, marking a habit or ticking a block, ticking a task of a past day, creating/editing/deleting a past event, marking past free days) is refused by the server with a "past locked" answer.
+- The calendar then asks **"Edit the past?"**; confirming opens a **1-hour window** with no more questions and a discreet violet banner **"✎ Editing the past until 3:45 PM"** (with "Stop"). After the hour, the next change asks again.
+- Changes to a past day **affect only that day** and never carry forward ("From today on" is not offered for past days; a new block on a past day can only be "Only this day"). Editing past habit marks recalculates that block's status.
+- Marking past days as free afterwards removes their automatic "missed" marks, so those streaks pause instead of breaking.
+- Telegram can't edit the past (its buttons only work for today).

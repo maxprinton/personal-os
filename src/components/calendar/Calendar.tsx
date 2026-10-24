@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { editOccurrence, placeTask, toggleOccurrenceDone } from "@/app/calendar-actions";
+import { editOccurrence, lockPast, placeTask, toggleOccurrenceDone, unlockPast } from "@/app/calendar-actions";
+import Modal, { btnPrimary, btnSecondary } from "@/components/calendar/Modal";
 import { unassignedOn } from "@/lib/calendar/taskview";
 import UnassignedTray from "@/components/calendar/UnassignedTray";
 import FreeDayDialog from "@/components/calendar/FreeDayDialog";
@@ -48,6 +49,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
   const [dayStart, setDayStart] = useState(0);
   const [hidden, setHidden] = useState<number[]>([]);
   const [showSettings, setShowSettings] = useState(false);
+  const [pastAsk, setPastAsk] = useState<{ resolve: (ok: boolean) => void } | null>(null);
 
   // Desktop opens on the week, phones on the day (unless the user picked another view before)
   useEffect(() => {
@@ -104,6 +106,14 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
       let res: CalResult;
       try {
         res = await fn();
+        // The past is locked: ask once, open the 1-hour window, then try again
+        if (res.code === "PAST_LOCKED") {
+          const yes = await new Promise<boolean>((resolve) => setPastAsk({ resolve }));
+          setPastAsk(null);
+          if (!yes) return false;
+          const opened = await unlockPast();
+          res = opened.error ? opened : await fn();
+        }
       } catch {
         res = { error: "Could not reach the server. Check your connection." };
       }
@@ -243,6 +253,16 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
       </div>
 
       {error && !data && <p className="p-4 text-sm text-red-600">{error}</p>}
+      {data?.pastEditUntil && (
+        <div className="flex items-center gap-2 border-b border-violet-200 bg-violet-50 px-3 py-1 text-xs text-violet-900">
+          ✎ Editing the past until{" "}
+          {new Date(data.pastEditUntil).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: data.timezone })}
+          <span className="text-violet-700">· changes only affect that day</span>
+          <button type="button" onClick={() => run(() => lockPast())} className="ml-auto underline">
+            Stop
+          </button>
+        </div>
+      )}
       {data && view !== "month" && data.today >= from && data.today <= to && (
         <UnassignedTray tasks={unassignedOn(data.today, data.today, data.tasks)} readOnly={readOnly} />
       )}
@@ -282,6 +302,23 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
             />
           )}
         </div>
+      )}
+
+      {pastAsk && (
+        <Modal title="Edit the past?" onClose={() => pastAsk.resolve(false)}>
+          <p className="text-sm text-neutral-600">
+            Past days are locked so history stays true. If you confirm, you can edit past days for the next hour without
+            more questions. Changes affect only that day and are not carried forward.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => pastAsk.resolve(false)} className={btnSecondary}>
+              Cancel
+            </button>
+            <button type="button" autoFocus onClick={() => pastAsk.resolve(true)} className={btnPrimary}>
+              Edit the past for 1 hour
+            </button>
+          </div>
+        </Modal>
       )}
 
       {toast && (

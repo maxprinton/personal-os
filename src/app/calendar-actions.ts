@@ -31,8 +31,57 @@ async function ctx() {
     data: { user },
   } = await sb.auth.getUser();
   if (!user) throw new Error("You are signed out. Sign in again.");
-  const timezone = await userTimezone(sb, user.id);
-  return { sb, userId: user.id, timezone, today: localNow(timezone).date };
+  const { data: s } = await sb
+    .from("user_settings")
+    .select("timezone,past_edit_until")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const timezone = (s?.timezone as string | undefined) ?? (await userTimezone(sb, user.id));
+  const until = s?.past_edit_until as string | null | undefined;
+  return {
+    sb,
+    userId: user.id,
+    timezone,
+    today: localNow(timezone).date,
+    /** "Edit the past" window is open (confirmed less than an hour ago). */
+    pastOpen: Boolean(until && new Date(until).getTime() > Date.now()),
+  };
+}
+
+const PAST_LOCKED: CalResult = {
+  error: "The past is locked. Confirm to edit past days for the next hour.",
+  code: "PAST_LOCKED",
+};
+
+/** Past days are locked unless the 1-hour window is open. Returns the refusal, or null to go on. */
+function pastGuard(c: { today: string; pastOpen: boolean }, ...dates: (string | null | undefined)[]): CalResult | null {
+  if (c.pastOpen) return null;
+  return dates.some((d) => d && d < c.today) ? PAST_LOCKED : null;
+}
+
+/** Confirmation given: past days can be edited for one hour without more questions. */
+export async function unlockPast(): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    await c.sb
+      .from("user_settings")
+      .update({ past_edit_until: new Date(Date.now() + 60 * 60 * 1000).toISOString() })
+      .eq("user_id", c.userId);
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Close the window early ("Stop editing the past"). */
+export async function lockPast(): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    await c.sb.from("user_settings").update({ past_edit_until: null }).eq("user_id", c.userId);
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
 }
 
 function done(): CalResult {
@@ -77,6 +126,11 @@ export async function createBlock(input: NewBlockInput): Promise<CalResult> {
     if (bad) return { error: bad };
     const start_time = hhmm(input.start);
     const end_time = hhmm(input.end);
+    const locked = pastGuard(c, input.date);
+    if (locked) return locked;
+    if (input.date < c.today && input.repeat !== "this_day") {
+      return { error: "A block on a past day can only be for that day. Pick “Only this day”." };
+    }
 
     if (input.repeat === "this_day") {
       const msg = await occurrenceConflictMessage(c.sb, c.userId, { date: input.date, start_time, end_time });
@@ -133,6 +187,8 @@ export async function editOccurrence(input: EditOccurrenceInput): Promise<CalRes
     const occ = await getOccurrence(c.sb, c.userId, input.id);
     if (!occ) return { error: "That block is no longer on the calendar." };
     if (!isDate(input.date)) return { error: "Pick a date." };
+    const locked = pastGuard(c, occ.date, input.date);
+    if (locked) return locked;
     const bad = checkTimes(input.start, input.end);
     if (bad) return { error: bad };
     const start_time = hhmm(input.start);
@@ -199,6 +255,8 @@ export async function removeOccurrence(input: { id: string; scope: EditScope }):
     const c = await ctx();
     const occ = await getOccurrence(c.sb, c.userId, input.id);
     if (!occ) return { error: "That block is no longer on the calendar." };
+    const locked = pastGuard(c, occ.date);
+    if (locked) return locked;
 
     if (input.scope === "forward") {
       if (!occ.slot_id) return { error: "This block was only for one day." };
@@ -329,6 +387,13 @@ export async function saveEvent(input: EventInput): Promise<CalResult> {
     if (!isDate(input.date)) return { error: "Pick a date." };
     let endDate = input.endDate && isDate(input.endDate) ? input.endDate : input.date;
     if (endDate < input.date) return { error: "The end date is before the start date." };
+    let before: string | null = null;
+    if (input.id) {
+      const { data: old } = await c.sb.from("events").select("event_date").eq("id", input.id).eq("user_id", c.userId).maybeSingle();
+      before = (old?.event_date as string | undefined) ?? null;
+    }
+    const locked = pastGuard(c, input.date, before);
+    if (locked) return locked;
 
     let start_time: string | null = null;
     let end_time: string | null = null;
@@ -362,6 +427,9 @@ export async function saveEvent(input: EventInput): Promise<CalResult> {
 export async function removeEvent(input: { id: string }): Promise<CalResult> {
   try {
     const c = await ctx();
+    const { data: old } = await c.sb.from("events").select("event_date").eq("id", input.id).eq("user_id", c.userId).maybeSingle();
+    const locked = pastGuard(c, old?.event_date as string | undefined);
+    if (locked) return locked;
     const now = new Date().toISOString();
     await c.sb
       .from("entity_relations")
@@ -421,6 +489,8 @@ export async function markHabit(input: { habitId: string; occurrenceId: string; 
     const occ = await getOccurrence(c.sb, c.userId, input.occurrenceId);
     if (!occ) return { error: "That block is no longer on the calendar." };
     if (occ.date > c.today) return { error: "You can only mark habits once their day has come." };
+    const locked = pastGuard(c, occ.date);
+    if (locked) return locked;
     const { data: habit } = await c.sb
       .from("habits")
       .select("id")
@@ -445,6 +515,8 @@ export async function toggleOccurrenceDone(input: { occurrenceId: string }): Pro
     const occ = await getOccurrence(c.sb, c.userId, input.occurrenceId);
     if (!occ) return { error: "That block is no longer on the calendar." };
     if (occ.date > c.today) return { error: "You can only tick a block once its day has come." };
+    const locked = pastGuard(c, occ.date);
+    if (locked) return locked;
     if (occ.status === "free_day" || occ.status === "cancelled") return { error: "This block is not active that day." };
     const [habits, checks] = await Promise.all([
       getHabits(c.sb, c.userId, { includeRemoved: true }),
@@ -629,6 +701,8 @@ export async function setTaskDone(input: { taskId: string; done: boolean }): Pro
     const c = await ctx();
     const task = await getTask(c.sb, c.userId, input.taskId);
     if (!task) return { error: "That task no longer exists." };
+    const locked = pastGuard(c, task.scheduled_for);
+    if (locked) return locked;
     const { error } = await c.sb
       .from("tasks")
       .update({
@@ -697,6 +771,8 @@ export async function createFreeDays(input: {
   try {
     const c = await ctx();
     if (!isDate(input.from)) return { error: "Pick the first free day." };
+    const locked = pastGuard(c, input.from);
+    if (locked) return locked;
     const to = input.to && isDate(input.to) ? input.to : input.from;
     if (to < input.from) return { error: "The last day is before the first one." };
     const policy: FreeDayPolicy = ["move_next", "unassigned", "home_block"].includes(input.policy) ? input.policy : "move_next";

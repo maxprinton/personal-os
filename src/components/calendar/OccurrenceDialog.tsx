@@ -98,7 +98,7 @@ export default function OccurrenceDialog({
             <li key={habit.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
               <span>{habit.name}</span>
               <span className="flex items-center gap-2">
-                <HabitControls habitId={habit.id} occurrenceId={occ.id} state={state} readOnly={!canMark} compact />
+                <HabitControls habitId={habit.id} occurrenceId={occ.id} state={state} readOnly={!canMark} compact run={run} />
                 {editableHabits && habit.block_type_id === occ.block_type_id && (
                   <button
                     type="button"

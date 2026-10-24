@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { markHabit } from "@/app/calendar-actions";
-import type { HabitState } from "@/lib/calendar/types";
+import type { CalResult, HabitState } from "@/lib/calendar/types";
 import { emitCalendarChanged } from "@/components/calendar/util";
 
 const LABEL: Record<HabitState, string> = { done: "Done", skipped: "Skipped", missed: "Missed" };
@@ -16,12 +16,15 @@ export default function HabitControls({
   state,
   readOnly = false,
   compact = false,
+  run,
 }: {
   habitId: string;
   occurrenceId: string;
   state: HabitState | null;
   readOnly?: boolean;
   compact?: boolean;
+  /** The calendar's runner (handles "edit the past" confirmation). */
+  run?: (fn: () => Promise<CalResult>) => Promise<boolean>;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -29,6 +32,11 @@ export default function HabitControls({
 
   async function set(next: HabitState | null) {
     setBusy(true);
+    if (run) {
+      await run(() => markHabit({ habitId, occurrenceId, state: next }));
+      setBusy(false);
+      return;
+    }
     const r = await markHabit({ habitId, occurrenceId, state: next });
     setBusy(false);
     setErr(r.error ?? null);
