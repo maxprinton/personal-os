@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { botToken, tg } from "@/lib/telegram";
+import { botToken, packId, tg } from "@/lib/telegram";
+import { runMaintenance } from "@/lib/calendar/maintenance";
 import {
   beforeText,
   claim,
@@ -62,9 +63,10 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings) {
       await send(
         s.telegram_chat_id,
         text,
-        pending.map((h) => [
-          { text: `✓ ${h.title}`.slice(0, 60), callback_data: `hd:${h.id}:${date}` },
-          { text: "Skip", callback_data: `hs:${h.id}:${date}` },
+        // One row per habit inside its block: ✓ / Skip
+        pending.slice(0, 40).map((h) => [
+          { text: `✓ ${h.title}`.slice(0, 60), callback_data: `hk:d:${packId(h.habitId)}:${packId(h.occurrenceId)}` },
+          { text: "Skip", callback_data: `hk:s:${packId(h.habitId)}:${packId(h.occurrenceId)}` },
         ])
       );
       sent++;
@@ -94,12 +96,23 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings) {
 
 export async function POST(req: Request) {
   const admin = createAdminClient();
-  if (!admin || !botToken()) return NextResponse.json({ ok: true, skipped: "not configured" });
+  if (!admin) return NextResponse.json({ ok: true, skipped: "not configured" });
 
   const { data: secret } = await admin.from("cron_secrets").select("secret").eq("name", "reminders").maybeSingle();
   if (!secret || req.headers.get("x-cron-secret") !== secret.secret) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
+
+  // Calendar end-of-day routine for everyone (missed habits, block status, morning task placement)
+  const { data: everyone } = await admin.from("user_settings").select("user_id,timezone");
+  for (const u of (everyone ?? []) as { user_id: string; timezone: string | null }[]) {
+    try {
+      await runMaintenance(admin, u.user_id, u.timezone ?? "America/Guayaquil");
+    } catch {
+      // one user's problem must not stop the others
+    }
+  }
+  if (!botToken()) return NextResponse.json({ ok: true, sent: 0 });
 
   const { data } = await admin.from("user_settings").select(REMINDER_COLUMNS).not("telegram_chat_id", "is", null);
   let sent = 0;

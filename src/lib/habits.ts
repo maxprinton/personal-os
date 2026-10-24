@@ -1,7 +1,8 @@
 import type { createClient } from "@/lib/supabase/server";
-import { getActiveBlocks, type BlockRow } from "@/lib/agenda";
-import { computeStreaks, completionRate, type DayStatus } from "@/lib/streaks";
-import { addDays, occursOn } from "@/lib/time";
+import type { DayStatus } from "@/lib/streaks";
+import { addDays } from "@/lib/time";
+
+// Legacy activity log helpers (task habits). Block habits moved to lib/calendar/habits.ts.
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 export type HabitEntity = "time_block" | "event" | "task";
@@ -40,61 +41,6 @@ export async function clearActivity(supabase: Supabase, entityType: HabitEntity,
     .eq("entity_id", entityId)
     .eq("log_date", date)
     .is("deleted_at", null);
-}
-
-export type HabitSummary = {
-  block: BlockRow;
-  dueToday: boolean;
-  todayStatus: DayStatus | null;
-  todayReason: string | null;
-  current: number;
-  best: number;
-  rate: number | null;
-  last14: { date: string; due: boolean; status: DayStatus | null }[];
-};
-
-/** Habit time blocks with streaks, 14-day history and today's status. */
-export async function getHabitSummaries(supabase: Supabase, today: string): Promise<HabitSummary[]> {
-  const blocks = (await getActiveBlocks(supabase)).filter((b) => b.is_habit);
-  if (!blocks.length) return [];
-  const since = addDays(today, -365);
-  const { data } = await supabase
-    .from("activity_logs")
-    .select("entity_id,log_date,status,skip_reason")
-    .eq("entity_type", "time_block")
-    .in("entity_id", blocks.map((b) => b.id))
-    .gte("log_date", since)
-    .is("deleted_at", null);
-  const rows = (data ?? []) as { entity_id: string; log_date: string; status: DayStatus; skip_reason: string | null }[];
-
-  return blocks.map((block) => {
-    const logs = new Map<string, DayStatus>();
-    let todayReason: string | null = null;
-    for (const r of rows.filter((r) => r.entity_id === block.id)) {
-      logs.set(r.log_date, r.status);
-      if (r.log_date === today) todayReason = r.skip_reason;
-    }
-    const start = block.valid_from > since ? block.valid_from : since;
-    const scheduled: string[] = [];
-    for (let d = start; d <= today; d = addDays(d, 1)) {
-      if (occursOn(block, d)) scheduled.push(d);
-    }
-    const { current, best } = computeStreaks(scheduled, logs, today);
-    const last14 = Array.from({ length: 14 }, (_, i) => {
-      const date = addDays(today, i - 13);
-      return { date, due: occursOn(block, date), status: logs.get(date) ?? null };
-    });
-    return {
-      block,
-      dueToday: occursOn(block, today),
-      todayStatus: logs.get(today) ?? null,
-      todayReason,
-      current,
-      best,
-      rate: completionRate(scheduled.slice(-30), logs, today),
-      last14,
-    };
-  });
 }
 
 export type MetricDef = {

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addDays, daysBetween, minutesToTime, timeToMinutes } from "@/lib/time";
 import { assignLanes, durationOf, eventSpanOn, findOccurrenceConflict } from "@/lib/calendar/overlap";
+import { habitProgress, habitsForOccurrence } from "@/lib/calendar/habitview";
 import type { CalendarData, CalEvent, Occurrence } from "@/lib/calendar/types";
 import { alpha, dayLabel, snap, textOn, timeRange } from "@/components/calendar/util";
 
@@ -20,6 +21,7 @@ type Props = {
   onOpenOccurrence: (id: string) => void;
   onOpenEvent: (id: string) => void;
   onMoveOccurrence: (req: MoveRequest) => void;
+  onToggleDone: (occurrenceId: string) => void;
   onBlocked: (message: string) => void;
   onPickDay?: (date: string) => void;
 };
@@ -71,6 +73,7 @@ export default function TimeGrid({
   onOpenOccurrence,
   onOpenEvent,
   onMoveOccurrence,
+  onToggleDone,
   onBlocked,
   onPickDay,
 }: Props) {
@@ -332,6 +335,8 @@ export default function TimeGrid({
                 const muted = o.status === "free_day";
                 const realStart = timeToMinutes(o.start_time);
                 const realEnd = realStart + durationOf(o.start_time, o.end_time);
+                const hp = habitProgress(habitsForOccurrence(o, data.habits, data.checks, data.today));
+                const canTick = !readOnly && !cutTop && !muted && o.date <= data.today;
                 return (
                   <div
                     key={`${o.id}-${date}`}
@@ -354,11 +359,26 @@ export default function TimeGrid({
                       touchAction: readOnly ? "auto" : "none",
                     }}
                   >
-                    <p className="truncate font-medium leading-tight">
+                    <p className={`truncate font-medium leading-tight ${canTick ? "pr-4" : ""}`}>
                       {o.status === "done" ? "✓ " : o.status === "partial" ? "◐ " : ""}
                       {type?.name ?? "Block"}
                       {muted ? " · free day" : ""}
+                      {hp.all > 0 && !muted ? <span className="ml-1 font-normal opacity-80">{hp.done}/{hp.total}</span> : null}
                     </p>
+                    {canTick && (
+                      <button
+                        type="button"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleDone(o.id);
+                        }}
+                        title={o.status === "done" ? "Undo done" : "Mark block done (ticks all its habits)"}
+                        className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-current text-[10px] leading-none opacity-70 hover:opacity-100"
+                      >
+                        {o.status === "done" ? "✓" : ""}
+                      </button>
+                    )}
                     {height >= 28 && (
                       <p className="truncate leading-tight opacity-80">
                         {cutTop ? "…" : ""}

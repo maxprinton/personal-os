@@ -41,3 +41,14 @@ export const HELP = [
   "",
   "/undo removes the last thing I saved.",
 ].join("\n");
+
+/** UUID <-> 22-character base64url, so two ids fit in Telegram's 64-byte button data. */
+export function packId(uuid: string) {
+  return Buffer.from(uuid.replace(/-/g, ""), "hex").toString("base64url");
+}
+
+export function unpackId(packed: string) {
+  const hex = Buffer.from(packed, "base64url").toString("hex");
+  if (hex.length !== 32) return null;
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}

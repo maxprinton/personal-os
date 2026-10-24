@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { editOccurrence } from "@/app/calendar-actions";
+import { editOccurrence, toggleOccurrenceDone } from "@/app/calendar-actions";
 import { addDays, dateRange, isoWeekday, minutesToTime, ISO_DAY_SHORT } from "@/lib/time";
 import type { CalResult, EditScope } from "@/lib/calendar/types";
 import TimeGrid, { type MoveRequest } from "@/components/calendar/TimeGrid";
@@ -133,6 +133,14 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
   const hourHeight = variant === "page" ? 48 : 36;
   const days = view === "week" ? dateRange(from, to).filter((d) => !hidden.includes(isoWeekday(d))) : dateRange(from, to);
 
+  // Progress of the visible week/day so far (idea from the LifeOS prototype): done = 1, partial = ½
+  const scored = (data?.occurrences ?? []).filter(
+    (o) => o.date >= from && o.date <= to && data && o.date <= data.today && o.status !== "free_day" && o.status !== "cancelled"
+  );
+  const progress = scored.length
+    ? Math.round((scored.reduce((s, o) => s + (o.status === "done" ? 1 : o.status === "partial" ? 0.5 : 0), 0) / scored.length) * 100)
+    : null;
+
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-white">
       <div className="flex flex-wrap items-center gap-2 border-b border-neutral-200 px-3 py-1.5 text-sm">
@@ -152,6 +160,14 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
           </button>
         </div>
         <span className="font-medium">{rangeLabel(view, anchor)}</span>
+        {progress !== null && view !== "month" && (
+          <span className="flex items-center gap-1 text-xs text-neutral-500" title="Blocks done so far in this range (partly done counts half)">
+            <span className="inline-block h-1.5 w-16 overflow-hidden rounded-full bg-neutral-200">
+              <span className="block h-full bg-green-600" style={{ width: `${progress}%` }} />
+            </span>
+            {progress}%
+          </span>
+        )}
         {loading && <span className="text-xs text-neutral-400">Loading…</span>}
         <div className="ml-auto flex items-center gap-2">
           {!readOnly && data && (
@@ -237,6 +253,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
               onOpenOccurrence={(id) => setDialog({ kind: "occurrence", id })}
               onOpenEvent={(id) => setDialog({ kind: "event", id })}
               onMoveOccurrence={onMove}
+              onToggleDone={(id) => run(() => toggleOccurrenceDone({ occurrenceId: id }))}
               onBlocked={(text) => setToast({ ok: false, text })}
               onPickDay={(d) => {
                 setAnchor(d);

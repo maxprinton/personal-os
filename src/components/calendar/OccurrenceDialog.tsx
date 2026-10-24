@@ -2,7 +2,17 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { editOccurrence, removeOccurrence, renameBlockType, setBlockTypeColor } from "@/app/calendar-actions";
+import {
+  createHabit,
+  editOccurrence,
+  removeOccurrence,
+  renameBlockType,
+  setBlockTypeColor,
+  toggleOccurrenceDone,
+  updateHabit,
+} from "@/app/calendar-actions";
+import { habitsForOccurrence } from "@/lib/calendar/habitview";
+import HabitControls from "@/components/HabitControls";
 import { timeToMinutes } from "@/lib/time";
 import type { CalendarData, CalResult, EditScope, Occurrence } from "@/lib/calendar/types";
 import Modal, { btnSecondary, inputCls } from "@/components/calendar/Modal";
@@ -31,6 +41,11 @@ export default function OccurrenceDialog({
   const [color, setColor] = useState(type?.color ?? "#6366f1");
   const [pending, setPending] = useState<"save" | "remove" | null>(null);
   const [busy, setBusy] = useState(false);
+  const [newHabit, setNewHabit] = useState("");
+  const habits = habitsForOccurrence(occ, data.habits, data.checks, data.today);
+  const unscheduled = data.habits.filter((h) => !h.removed && !h.block_type_id);
+  const canMark = !readOnly && occ.date <= data.today && occ.status !== "free_day";
+  const editableHabits = !readOnly && occ.date >= data.today && type && !type.removed;
 
   const changed = date !== occ.date || start !== occ.start_time.slice(0, 5) || end !== occ.end_time.slice(0, 5);
 
@@ -60,6 +75,78 @@ export default function OccurrenceDialog({
         {occ.status !== "scheduled" && <span className="rounded bg-neutral-100 px-1.5 text-xs">{occ.status.replace("_", " ")}</span>}
         {!occ.slot_id && <span className="rounded bg-neutral-100 px-1.5 text-xs">one day only</span>}
       </div>
+
+      <section className="space-y-2 rounded-lg border border-neutral-200 p-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium">Habits</h3>
+          {canMark && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => run(() => toggleOccurrenceDone({ occurrenceId: occ.id }))}
+              className="rounded-md border border-green-600 px-2 py-0.5 text-xs text-green-700"
+            >
+              {occ.status === "done" ? "Undo ✓" : "✓ Mark block done"}
+            </button>
+          )}
+        </div>
+        {habits.length === 0 && <p className="text-xs text-neutral-500">No habits in this block.</p>}
+        <ul className="space-y-1">
+          {habits.map(({ habit, state }) => (
+            <li key={habit.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span>{habit.name}</span>
+              <span className="flex items-center gap-2">
+                <HabitControls habitId={habit.id} occurrenceId={occ.id} state={state} readOnly={!canMark} compact />
+                {editableHabits && habit.block_type_id === occ.block_type_id && (
+                  <button
+                    type="button"
+                    title="Take this habit out of the block from today on (past marks stay)"
+                    onClick={() => run(() => updateHabit({ id: habit.id, blockTypeId: null }))}
+                    className="text-xs text-neutral-400 hover:text-red-600"
+                  >
+                    ✕
+                  </button>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+        {occ.date > data.today && habits.length > 0 && (
+          <p className="text-xs text-neutral-500">You can mark these when the day comes.</p>
+        )}
+        {editableHabits && (
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!newHabit.trim() || !type) return;
+              if (await run(() => createHabit({ name: newHabit, blockTypeId: type.id }))) setNewHabit("");
+            }}
+            className="flex gap-2"
+          >
+            <input
+              value={newHabit}
+              onChange={(e) => setNewHabit(e.target.value)}
+              placeholder={`New habit in ${type?.name ?? "this block"} (from today on)`}
+              className={inputCls}
+            />
+            <button className={btnSecondary}>Add</button>
+          </form>
+        )}
+        {editableHabits && unscheduled.length > 0 && (
+          <select
+            defaultValue=""
+            onChange={(e) => e.target.value && type && run(() => updateHabit({ id: e.target.value, blockTypeId: type.id }))}
+            className={inputCls}
+          >
+            <option value="">Place an unscheduled habit here…</option>
+            {unscheduled.map((h) => (
+              <option key={h.id} value={h.id}>
+                {h.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </section>
 
       {!readOnly && (
         <section className="space-y-2 rounded-lg border border-neutral-200 p-3">

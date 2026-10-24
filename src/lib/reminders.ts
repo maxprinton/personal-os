@@ -1,7 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { addDays, formatDateLong, formatMinutes, localNow, occursOn, timeToMinutes, utcToLocal, zonedToUtc } from "@/lib/time";
-import { getBlockTypes, getOccurrences } from "@/lib/calendar/model";
-import { spanOn } from "@/lib/calendar/overlap";
+import { formatDateLong, formatMinutes, localNow, timeToMinutes } from "@/lib/time";
+import { getBlockTypes, getOccurrence, getOccurrences } from "@/lib/calendar/model";
+import { eventSpanOn, spanOn } from "@/lib/calendar/overlap";
+import { getEvents } from "@/lib/calendar/events";
+import { getChecks, getHabits, recomputeOccurrenceStatus, setHabitCheck } from "@/lib/calendar/habits";
+import { habitsForOccurrence } from "@/lib/calendar/habitview";
+import { SKIP_LIMIT } from "@/lib/calendar/streaks";
+import type { HabitState } from "@/lib/calendar/types";
 
 // Server-only: runs with the admin client, so EVERY query filters by user_id.
 
@@ -20,44 +25,26 @@ export type ReminderSettings = {
 export const REMINDER_COLUMNS =
   "user_id,timezone,telegram_chat_id,reminder_morning_enabled,reminder_morning_time,reminder_evening_enabled,reminder_evening_time,reminder_before_minutes,reminder_insights";
 
-type Block = {
-  id: string;
-  title: string;
-  start_time: string;
-  end_time: string;
-  rrule: string;
-  valid_from: string;
-  valid_until: string | null;
-  is_habit: boolean;
-};
-type Ev = { id: string; title: string; start_time: string; end_time: string };
 /** block: id is the occurrence id and blockTypeId its block type. */
 export type DayItem = { kind: "block" | "event"; id: string; title: string; start: number; end: number; blockTypeId?: string };
 
-/** Today's schedule, open tasks and habits for one user. */
+/** One habit mark to make today: a habit inside one appearance of its block. */
+export type DayHabit = {
+  habitId: string;
+  occurrenceId: string;
+  title: string; // "Gym 7:00 AM · Stretch"
+  status: HabitState | null;
+};
+
+/** Today's schedule, open tasks and habits for one user (calendar v2 model). */
 export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "user_id" | "timezone">, date: string) {
   const tz = s.timezone;
-  const dayStart = zonedToUtc(date, "00:00", tz).toISOString();
-  const dayEnd = zonedToUtc(addDays(date, 1), "00:00", tz).toISOString();
-  const [types, occurrences] = await Promise.all([
-    getBlockTypes(admin, s.user_id),
+  const [types, occurrences, events, habits, checks, t] = await Promise.all([
+    getBlockTypes(admin, s.user_id, { includeDeleted: true }),
     getOccurrences(admin, s.user_id, date, date),
-  ]);
-  const typeName = new Map(types.map((x) => [x.id, x.name]));
-  const [b, e, t, logs, untimed] = await Promise.all([
-    admin
-      .from("time_blocks")
-      .select("id,title,start_time,end_time,rrule,valid_from,valid_until,is_habit")
-      .eq("user_id", s.user_id)
-      .is("deleted_at", null),
-    admin
-      .from("events")
-      .select("id,title,start_time,end_time")
-      .eq("user_id", s.user_id)
-      .is("deleted_at", null)
-      .lt("start_time", dayEnd)
-      .gt("end_time", dayStart)
-      .order("start_time"),
+    getEvents(admin, s.user_id, date, date, tz),
+    getHabits(admin, s.user_id, { includeRemoved: true }),
+    getChecks(admin, s.user_id, date, date),
     admin
       .from("tasks")
       .select("id,title")
@@ -66,54 +53,46 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
       .eq("status", "pending")
       .lte("scheduled_for", date)
       .order("scheduled_for"),
-    admin
-      .from("activity_logs")
-      .select("entity_id,status")
-      .eq("user_id", s.user_id)
-      .eq("entity_type", "time_block")
-      .eq("log_date", date)
-      .is("deleted_at", null),
-    admin
-      .from("events")
-      .select("title")
-      .eq("user_id", s.user_id)
-      .is("deleted_at", null)
-      .is("start_time", null)
-      .lte("event_date", date)
-      .gte("end_date", date),
   ]);
-  const blocks = ((b.data ?? []) as Block[]).filter((x) => occursOn(x, date));
-  const events = (e.data ?? []) as Ev[];
-  const logged = new Map(((logs.data ?? []) as { entity_id: string; status: string }[]).map((l) => [l.entity_id, l.status]));
+  const typeName = new Map(types.map((x) => [x.id, x.name]));
 
-  const blockItems: DayItem[] = [];
+  const items: DayItem[] = [];
+  const dayHabits: DayHabit[] = [];
   for (const o of occurrences) {
     const span = spanOn(o, date);
-    if (!span || span.continued || o.status === "free_day") continue; // reminders only where a block starts
-    blockItems.push({
+    if (!span || span.continued || o.status === "free_day") continue; // only where a block starts
+    const name = typeName.get(o.block_type_id) ?? "Block";
+    items.push({
       kind: "block",
       id: o.id,
-      title: typeName.get(o.block_type_id) ?? "Block",
+      title: name,
       start: span.start,
       end: span.continues ? timeToMinutes(o.end_time) + 1440 : span.end,
       blockTypeId: o.block_type_id,
     });
+    for (const x of habitsForOccurrence(o, habits, checks, date)) {
+      dayHabits.push({
+        habitId: x.habit.id,
+        occurrenceId: o.id,
+        title: `${name} ${formatMinutes(span.start)} · ${x.habit.name}`,
+        status: x.state,
+      });
+    }
   }
-
-  const items: DayItem[] = [
-    ...blockItems,
-    ...events.map((x) => {
-      const st = utcToLocal(x.start_time, tz);
-      const en = utcToLocal(x.end_time, tz);
-      return { kind: "event" as const, id: x.id, title: x.title, start: st.date < date ? 0 : st.minutes, end: en.date > date ? 1440 : en.minutes };
-    }),
-  ].sort((a, b2) => a.start - b2.start);
+  const dayNotes: string[] = [];
+  for (const e of events) {
+    const span = eventSpanOn(e, date);
+    if (!span) continue;
+    if (span.allDay) dayNotes.push(e.title);
+    else items.push({ kind: "event", id: e.id, title: e.title, start: span.start, end: span.end });
+  }
+  items.sort((a, b2) => a.start - b2.start);
 
   return {
     items,
-    dayNotes: ((untimed.data ?? []) as { title: string }[]).map((x) => x.title),
+    dayNotes,
     tasks: (t.data ?? []) as { id: string; title: string }[],
-    habits: blocks.filter((x) => x.is_habit).map((x) => ({ id: x.id, title: x.title, status: logged.get(x.id) ?? null })),
+    habits: dayHabits,
   };
 }
 
@@ -147,7 +126,7 @@ export function eveningText(d: Day) {
   const lines = ["🌙 Evening check-in"];
   if (pending.length) lines.push("\nDid you do these today? Tap to log:");
   else if (d.habits.length) lines.push("\nAll habits logged today. 👏");
-  if (d.tasks.length) lines.push(`\n${d.tasks.length} task${d.tasks.length > 1 ? "s" : ""} still open. Unfinished ones roll over at midnight.`);
+  if (d.tasks.length) lines.push(`\n${d.tasks.length} task${d.tasks.length > 1 ? "s" : ""} still open. Unfinished ones go to tomorrow's morning ritual.`);
   return { text: lines.join("\n"), pending };
 }
 
@@ -184,37 +163,50 @@ export async function claim(admin: SupabaseClient, userId: string, kind: string,
   return !error;
 }
 
-/** Log a habit from a Telegram button. */
-export async function logHabitFromBot(
+/**
+ * Marks one habit in one block from a Telegram button (✓ / Skip). Only for today:
+ * corrections of earlier days are made on the computer.
+ */
+export async function markHabitFromBot(
   admin: SupabaseClient,
   userId: string,
-  blockId: string,
-  date: string,
-  status: "completed" | "skipped"
-) {
-  const { data: block } = await admin
-    .from("time_blocks")
-    .select("id,title")
-    .eq("id", blockId)
+  timezone: string,
+  habitId: string,
+  occurrenceId: string,
+  state: "done" | "skipped"
+): Promise<{ text: string; ok: boolean }> {
+  const today = localNow(timezone).date;
+  const [occ, { data: habit }] = await Promise.all([
+    getOccurrence(admin, userId, occurrenceId),
+    admin.from("habits").select("id,name").eq("id", habitId).eq("user_id", userId).maybeSingle(),
+  ]);
+  if (!occ || !habit) return { ok: false, text: "Could not find that habit." };
+  if (occ.date !== today) return { ok: false, text: "That day is closed. Fix it on the computer." };
+  await setHabitCheck(admin, userId, habitId, occ, state, "telegram");
+  await recomputeOccurrenceStatus(admin, userId, occ.id, today);
+  if (state === "done") return { ok: true, text: `✓ ${habit.name} logged` };
+
+  // How many skips in a row now (the 4th breaks the streak)
+  const { data: last } = await admin
+    .from("habit_checks")
+    .select("state,date")
     .eq("user_id", userId)
-    .maybeSingle();
-  if (!block) return null;
-  const values = { status, skip_reason: status === "skipped" ? "Skipped from Telegram" : null };
-  const { data: existing } = await admin
-    .from("activity_logs")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("entity_type", "time_block")
-    .eq("entity_id", blockId)
-    .eq("log_date", date)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (existing) await admin.from("activity_logs").update(values).eq("id", existing.id);
-  else
-    await admin
-      .from("activity_logs")
-      .insert({ user_id: userId, entity_type: "time_block", entity_id: blockId, log_date: date, ...values });
-  return block.title as string;
+    .eq("habit_id", habitId)
+    .order("date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(SKIP_LIMIT + 1);
+  let run = 0;
+  for (const r of (last ?? []) as { state: string }[]) {
+    if (r.state !== "skipped") break;
+    run += 1;
+  }
+  return {
+    ok: true,
+    text:
+      run > SKIP_LIMIT
+        ? `${habit.name} skipped. That's more than ${SKIP_LIMIT} in a row, so the streak breaks.`
+        : `${habit.name} skipped (streak kept, ${SKIP_LIMIT - run} skip${SKIP_LIMIT - run === 1 ? "" : "s"} left in a row)`,
+  };
 }
 
 export function nowFor(s: Pick<ReminderSettings, "timezone">) {

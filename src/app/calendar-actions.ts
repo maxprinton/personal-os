@@ -17,7 +17,9 @@ import {
   slotConflictMessage,
 } from "@/lib/calendar/edit";
 import { userTimezone } from "@/lib/calendar/load";
-import type { CalResult, EditScope } from "@/lib/calendar/types";
+import { getChecks, getHabits, recomputeOccurrenceStatus, setHabitCheck } from "@/lib/calendar/habits";
+import { habitsForOccurrence } from "@/lib/calendar/habitview";
+import type { CalResult, EditScope, HabitState } from "@/lib/calendar/types";
 
 async function ctx() {
   const sb = await createClient();
@@ -388,6 +390,119 @@ export async function removeEventType(input: { id: string }): Promise<CalResult>
     await c.sb.from("events").update({ event_type_id: null }).eq("user_id", c.userId).eq("event_type_id", input.id);
     const { error } = await c.sb
       .from("event_types")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", input.id)
+      .eq("user_id", c.userId);
+    if (error) return { error: error.message };
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ---------- Habits (they live inside blocks) ----------------------------------
+
+/** Mark one habit in one block occurrence. state null = clear the mark. */
+export async function markHabit(input: { habitId: string; occurrenceId: string; state: HabitState | null }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const occ = await getOccurrence(c.sb, c.userId, input.occurrenceId);
+    if (!occ) return { error: "That block is no longer on the calendar." };
+    if (occ.date > c.today) return { error: "You can only mark habits once their day has come." };
+    const { data: habit } = await c.sb
+      .from("habits")
+      .select("id")
+      .eq("id", input.habitId)
+      .eq("user_id", c.userId)
+      .maybeSingle();
+    if (!habit) return { error: "That habit no longer exists." };
+    if (input.state !== null && !["done", "skipped", "missed"].includes(input.state)) return { error: "Unknown mark." };
+    const { error } = await setHabitCheck(c.sb, c.userId, input.habitId, occ, input.state, "web");
+    if (error) return { error: error.message };
+    await recomputeOccurrenceStatus(c.sb, c.userId, occ.id, c.today);
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** The quick ✓ on a block: marks all its habits done (or undoes it if the block was already done). */
+export async function toggleOccurrenceDone(input: { occurrenceId: string }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const occ = await getOccurrence(c.sb, c.userId, input.occurrenceId);
+    if (!occ) return { error: "That block is no longer on the calendar." };
+    if (occ.date > c.today) return { error: "You can only tick a block once its day has come." };
+    if (occ.status === "free_day" || occ.status === "cancelled") return { error: "This block is not active that day." };
+    const [habits, checks] = await Promise.all([
+      getHabits(c.sb, c.userId, { includeRemoved: true }),
+      getChecks(c.sb, c.userId, occ.date, occ.date),
+    ]);
+    const list = habitsForOccurrence(occ, habits, checks, c.today);
+    const undo = occ.status === "done";
+    for (const { habit, state } of list) {
+      if (undo && state === "done") await setHabitCheck(c.sb, c.userId, habit.id, occ, null, "web");
+      if (!undo && state !== "done") await setHabitCheck(c.sb, c.userId, habit.id, occ, "done", "web");
+    }
+    await c.sb
+      .from("block_occurrences")
+      .update({ status: undo ? "scheduled" : "done" })
+      .eq("id", occ.id)
+      .eq("user_id", c.userId);
+    await recomputeOccurrenceStatus(c.sb, c.userId, occ.id, c.today);
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** New habit inside a block (from today on). Without a block it waits in "Unscheduled". */
+export async function createHabit(input: { name: string; blockTypeId: string | null }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const name = normalizeName(input.name ?? "");
+    if (!name) return { error: "Give the habit a name." };
+    const { error } = await c.sb.from("habits").insert({
+      user_id: c.userId,
+      name,
+      block_type_id: input.blockTypeId || null,
+      active_from: c.today,
+    });
+    if (error) return { error: error.message };
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Rename a habit or move it to another block (or to "Unscheduled"). Past marks stay where they were. */
+export async function updateHabit(input: { id: string; name?: string; blockTypeId?: string | null }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const values: Record<string, unknown> = {};
+    if (input.name !== undefined) {
+      const name = normalizeName(input.name);
+      if (!name) return { error: "The name can't be empty." };
+      values.name = name;
+    }
+    if (input.blockTypeId !== undefined) {
+      values.block_type_id = input.blockTypeId || null;
+      values.active_from = c.today;
+    }
+    const { error } = await c.sb.from("habits").update(values).eq("id", input.id).eq("user_id", c.userId);
+    if (error) return { error: error.message };
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Stop tracking a habit. Its past marks are kept. */
+export async function removeHabit(input: { id: string }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const { error } = await c.sb
+      .from("habits")
       .update({ deleted_at: new Date().toISOString() })
       .eq("id", input.id)
       .eq("user_id", c.userId);

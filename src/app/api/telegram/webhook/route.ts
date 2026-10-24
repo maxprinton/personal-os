@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { botToken, HELP, sendMessage, tg, webhookSecret } from "@/lib/telegram";
+import { botToken, HELP, sendMessage, tg, unpackId, webhookSecret } from "@/lib/telegram";
 import { parseMessage, saveParsed, undoSaved, userContext } from "@/lib/capture";
-import { logHabitFromBot } from "@/lib/reminders";
+import { markHabitFromBot } from "@/lib/reminders";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,22 +27,45 @@ export async function POST(req: Request) {
   const update = (await req.json().catch(() => ({}))) as TgUpdate;
 
   // ---- "Undo" button --------------------------------------------------
-  // ---- Habit buttons (evening check-in): hd = done, hs = skip ----------
-  const habitBtn = /^(hd|hs):([0-9a-f-]{36}):(\d{4}-\d{2}-\d{2})$/.exec(update.callback_query?.data ?? "");
+  // ---- Habit buttons (evening check-in): hk:d = done, hk:s = skip, per habit inside its block ----
+  const habitBtn = /^hk:([ds]):([A-Za-z0-9_-]{22}):([A-Za-z0-9_-]{22})$/.exec(update.callback_query?.data ?? "");
   if (update.callback_query && habitBtn) {
     const cq = update.callback_query;
     const chatId = cq.message?.chat.id;
     let text = "Could not log that.";
-    if (chatId) {
-      const { data: s } = await admin.from("user_settings").select("user_id").eq("telegram_chat_id", chatId).maybeSingle();
+    let logged = false;
+    const habitId = unpackId(habitBtn[2]);
+    const occurrenceId = unpackId(habitBtn[3]);
+    if (chatId && habitId && occurrenceId) {
+      const { data: s } = await admin
+        .from("user_settings")
+        .select("user_id,timezone")
+        .eq("telegram_chat_id", chatId)
+        .maybeSingle();
       if (s) {
-        const status = habitBtn[1] === "hd" ? "completed" : "skipped";
-        const title = await logHabitFromBot(admin, s.user_id, habitBtn[2], habitBtn[3], status);
-        if (title) text = status === "completed" ? `✓ ${title} logged` : `${title} skipped (streak kept)`;
+        const r = await markHabitFromBot(
+          admin,
+          s.user_id,
+          s.timezone ?? "America/Guayaquil",
+          habitId,
+          occurrenceId,
+          habitBtn[1] === "d" ? "done" : "skipped"
+        );
+        text = r.text;
+        logged = r.ok;
       }
     }
-    await tg("answerCallbackQuery", { callback_query_id: cq.id, text });
-    if (chatId && text !== "Could not log that.") await sendMessage(chatId, text);
+    await tg("answerCallbackQuery", { callback_query_id: cq.id, text: text.slice(0, 190) });
+    if (chatId && logged) await sendMessage(chatId, text);
+    return ok();
+  }
+
+  // Buttons from the old (v1) evening message
+  if (update.callback_query && /^(hd|hs):/.test(update.callback_query.data ?? "")) {
+    await tg("answerCallbackQuery", {
+      callback_query_id: update.callback_query.id,
+      text: "This button is from an older version. Use tonight's check-in, or mark it on the computer.",
+    });
     return ok();
   }
 

@@ -112,11 +112,18 @@ export async function occurrenceConflictMessage(
  * Later phases add more conditions (habit marks, tasks).
  */
 export async function untouchedIds(sb: SupabaseClient, userId: string, occurrences: Occurrence[]) {
-  void sb;
-  void userId;
-  return new Set(
-    occurrences.filter((o) => !o.is_override && (o.status === "scheduled" || o.status === "free_day")).map((o) => o.id)
+  const candidates = occurrences.filter(
+    (o) => !o.is_override && (o.status === "scheduled" || o.status === "free_day")
   );
+  if (!candidates.length) return new Set<string>();
+  // Anything with habit marks has history and is kept
+  const { data } = await sb
+    .from("habit_checks")
+    .select("occurrence_id")
+    .eq("user_id", userId)
+    .in("occurrence_id", candidates.map((o) => o.id));
+  const marked = new Set(((data ?? []) as { occurrence_id: string }[]).map((r) => r.occurrence_id));
+  return new Set(candidates.filter((o) => !marked.has(o.id)).map((o) => o.id));
 }
 
 /** Called after occurrences were removed or moved, so tasks/marks can follow (filled in later phases). */

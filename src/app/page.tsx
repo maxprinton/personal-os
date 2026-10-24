@@ -7,7 +7,10 @@ import AutoRefresh from "@/components/AutoRefresh";
 import TaskRow, { type TaskRowData } from "@/components/TaskRow";
 import { getContextFor } from "@/lib/links";
 import { getTagsFor } from "@/lib/tags";
-import { getHabitSummaries, getMetrics } from "@/lib/habits";
+import { getMetrics } from "@/lib/habits";
+import { getHabitSummaries } from "@/lib/calendar/habits";
+import { currentUserId } from "@/lib/calendar/model";
+import { runMaintenance } from "@/lib/calendar/maintenance";
 import HabitControls from "@/components/HabitControls";
 import MetricWidget from "@/components/MetricWidget";
 import QuickCapture from "@/components/QuickCapture";
@@ -27,6 +30,8 @@ export default async function CommandCenter() {
   const supabase = await createClient();
   await supabase.rpc("rollover_my_tasks");
   const { timezone } = await getSettings(supabase);
+  const userId = await currentUserId(supabase);
+  if (userId) await runMaintenance(supabase, userId, timezone);
   const now = localNow(timezone);
   const items = await getAgenda(supabase, now.date, timezone);
   const { activeEvent, activeBlock, next } = whatNow(items, now.minutes);
@@ -55,10 +60,12 @@ export default async function CommandCenter() {
   const todayTasks = (taskData ?? []) as TaskRowData[];
   const taskTags = await getTagsFor(supabase, "task", todayTasks.map((t) => t.id));
   const [habits, { metrics, values }] = await Promise.all([
-    getHabitSummaries(supabase, now.date),
+    userId ? getHabitSummaries(supabase, userId, now.date) : Promise.resolve([]),
     getMetrics(supabase, now.date, 1),
   ]);
-  const habitsToday = habits.filter((h) => h.dueToday);
+  const habitsToday = habits
+    .flatMap((h) => h.today.map((t) => ({ h, t })))
+    .sort((a, b) => a.t.start.localeCompare(b.t.start));
   const { data: insightData } = await supabase
     .from("system_insights")
     .select("id,insight_type,message")
@@ -174,13 +181,16 @@ export default async function CommandCenter() {
               <Link href="/habits" className="text-sm text-neutral-500 hover:text-neutral-900">Streaks →</Link>
             </div>
             <ul className="space-y-2">
-              {habitsToday.map((h) => (
-                <li key={h.block.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-200 p-3">
+              {habitsToday.map(({ h, t }) => (
+                <li key={`${h.habit.id}-${t.occurrenceId}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-200 p-3">
                   <div>
-                    <p className="font-medium">{h.block.title}</p>
-                    <p className="text-xs text-neutral-500">Streak {h.current} · best {h.best}</p>
+                    <p className="font-medium">{h.habit.name}</p>
+                    <p className="text-xs text-neutral-500">
+                      <span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: h.blockColor ?? "#6366f1" }} />
+                      {h.blockName} {formatMinutes(Number(t.start.slice(0, 2)) * 60 + Number(t.start.slice(3, 5)))} · streak {h.current} · best {h.best}
+                    </p>
                   </div>
-                  <HabitControls blockId={h.block.id} status={h.todayStatus} reason={h.todayReason} />
+                  <HabitControls habitId={h.habit.id} occurrenceId={t.occurrenceId} state={t.state} />
                 </li>
               ))}
             </ul>

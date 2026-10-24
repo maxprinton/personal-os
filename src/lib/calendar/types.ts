@@ -48,6 +48,14 @@ export type CalEvent = {
   end: number | null;
 };
 
+/** A habit lives inside a block type. block_type_id null = "unscheduled" until placed. */
+export type Habit = { id: string; name: string; block_type_id: string | null; active_from: string; removed?: boolean };
+
+export type HabitState = "done" | "skipped" | "missed";
+
+/** One mark of a habit in one block occurrence. */
+export type HabitCheck = { habit_id: string; occurrence_id: string; date: string; state: HabitState };
+
 /** Everything the calendar panel needs for one date range (JSON from /api/calendar). */
 export type CalendarData = {
   from: string;
@@ -60,6 +68,8 @@ export type CalendarData = {
   occurrences: Occurrence[];
   eventTypes: EventType[];
   events: CalEvent[];
+  habits: Habit[];
+  checks: HabitCheck[];
 };
 
 /** Result of every calendar server action. */

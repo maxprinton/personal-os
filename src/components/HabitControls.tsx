@@ -1,55 +1,65 @@
-import { logHabit } from "@/app/habit-actions";
-import type { DayStatus } from "@/lib/streaks";
+"use client";
 
-function Op({ id, op, label, className = "" }: { id: string; op: string; label: string; className?: string }) {
-  return (
-    <form action={logHabit}>
-      <input type="hidden" name="entity_type" value="time_block" />
-      <input type="hidden" name="entity_id" value={id} />
-      <input type="hidden" name="op" value={op} />
-      <button className={`rounded-md border px-2 py-1 text-xs ${className}`}>{label}</button>
-    </form>
-  );
-}
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { markHabit } from "@/app/calendar-actions";
+import type { HabitState } from "@/lib/calendar/types";
+import { emitCalendarChanged } from "@/components/calendar/util";
 
-/** Done / Skip (with reason) / Missed buttons for a habit block today. */
+const LABEL: Record<HabitState, string> = { done: "Done", skipped: "Skipped", missed: "Missed" };
+const COLOR: Record<HabitState, string> = { done: "text-green-700", skipped: "text-amber-700", missed: "text-red-600" };
+
+/** ✓ / Skip for one habit in one block occurrence (skips keep the streak, up to 3 in a row). */
 export default function HabitControls({
-  blockId,
-  status,
-  reason,
+  habitId,
+  occurrenceId,
+  state,
+  readOnly = false,
+  compact = false,
 }: {
-  blockId: string;
-  status: DayStatus | null;
-  reason: string | null;
+  habitId: string;
+  occurrenceId: string;
+  state: HabitState | null;
+  readOnly?: boolean;
+  compact?: boolean;
 }) {
-  if (status) {
-    const label =
-      status === "completed" ? "Done today" : status === "skipped" ? `Skipped: ${reason ?? ""}` : "Missed today";
-    const color =
-      status === "completed" ? "text-green-700" : status === "skipped" ? "text-amber-700" : "text-red-600";
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function set(next: HabitState | null) {
+    setBusy(true);
+    const r = await markHabit({ habitId, occurrenceId, state: next });
+    setBusy(false);
+    setErr(r.error ?? null);
+    emitCalendarChanged();
+    router.refresh();
+  }
+
+  const btn = `rounded-md border ${compact ? "px-1.5 py-0.5" : "px-2 py-1"} text-xs disabled:opacity-50`;
+  if (state) {
     return (
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={`text-sm ${color}`}>{label}</span>
-        <Op id={blockId} op="clear" label="Undo" className="border-neutral-300 text-neutral-500" />
-      </div>
+      <span className="flex flex-wrap items-center gap-2">
+        <span className={`text-xs ${COLOR[state]}`}>{LABEL[state]}</span>
+        {!readOnly && (
+          <button disabled={busy} onClick={() => set(null)} className={`${btn} border-neutral-300 text-neutral-500`}>
+            Undo
+          </button>
+        )}
+        {err && <span className="text-xs text-red-600">{err}</span>}
+      </span>
     );
   }
+  if (readOnly) return <span className="text-xs text-neutral-400">Not marked</span>;
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Op id={blockId} op="completed" label="Done" className="border-green-600 text-green-700" />
-      <form action={logHabit} className="flex items-center gap-1">
-        <input type="hidden" name="entity_type" value="time_block" />
-        <input type="hidden" name="entity_id" value={blockId} />
-        <input type="hidden" name="op" value="skipped" />
-        <input
-          name="reason"
-          required
-          placeholder="Reason to skip"
-          className="w-32 rounded-md border border-neutral-300 px-2 py-1 text-xs"
-        />
-        <button className="rounded-md border border-amber-500 px-2 py-1 text-xs text-amber-700">Skip</button>
-      </form>
-      <Op id={blockId} op="failed" label="Missed" className="border-red-400 text-red-600" />
-    </div>
+    <span className="flex flex-wrap items-center gap-1">
+      <button disabled={busy} onClick={() => set("done")} className={`${btn} border-green-600 text-green-700`}>
+        ✓ Done
+      </button>
+      <button disabled={busy} onClick={() => set("skipped")} className={`${btn} border-amber-500 text-amber-700`}>
+        Skip
+      </button>
+      {err && <span className="text-xs text-red-600">{err}</span>}
+    </span>
   );
 }
