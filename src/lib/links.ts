@@ -19,7 +19,7 @@ export type ContextNote = { id: string; title: string };
 /** Tasks and notes linked to the given blocks / events (for the Command Center). */
 export async function getContextFor(
   supabase: Supabase,
-  targets: { type: "time_block" | "event"; id: string }[]
+  targets: { type: "time_block" | "block_type" | "event"; id: string }[]
 ) {
   const empty = { tasks: [] as ContextTask[], notes: [] as ContextNote[] };
   if (!targets.length) return empty;
@@ -56,11 +56,12 @@ export type OutgoingLink = {
   title: string;
 };
 
-const TABLE: Record<string, string> = {
-  time_block: "time_blocks",
-  event: "events",
-  task: "tasks",
-  note: "notes",
+const TABLE: Record<string, { table: string; cols: string }> = {
+  time_block: { table: "time_blocks", cols: "id,title" },
+  block_type: { table: "block_types", cols: "id,title:name" },
+  event: { table: "events", cols: "id,title" },
+  task: { table: "tasks", cols: "id,title" },
+  note: { table: "notes", cols: "id,title" },
 };
 
 /** Links that start at one entity, with the target's title resolved. */
@@ -76,8 +77,8 @@ export async function getLinksFrom(supabase: Supabase, sourceType: EntityType, s
   for (const type of Object.keys(TABLE)) {
     const ids = rels.filter((r) => r.target_type === type).map((r) => r.target_id);
     if (!ids.length) continue;
-    const { data: rows } = await supabase.from(TABLE[type]).select("id,title").in("id", ids);
-    const titles = new Map(((rows ?? []) as { id: string; title: string }[]).map((r) => [r.id, r.title]));
+    const { data: rows } = await supabase.from(TABLE[type].table).select(TABLE[type].cols).in("id", ids);
+    const titles = new Map(((rows ?? []) as unknown as { id: string; title: string }[]).map((r) => [r.id, r.title]));
     for (const r of rels.filter((r) => r.target_type === type)) {
       out.push({
         relationId: r.id,
@@ -91,10 +92,10 @@ export async function getLinksFrom(supabase: Supabase, sourceType: EntityType, s
   return out;
 }
 
-/** Options for a "link to..." dropdown: time blocks + upcoming events. Value = "type:id". */
+/** Options for a "link to..." dropdown: blocks + upcoming events. Value = "type:id". */
 export async function getLinkOptions(supabase: Supabase, fromIso: string, tz: string) {
   const [blocks, events] = await Promise.all([
-    supabase.from("time_blocks").select("id,title").is("deleted_at", null).order("start_time"),
+    supabase.from("block_types").select("id,title:name").is("deleted_at", null).order("name"),
     supabase
       .from("events")
       .select("id,title,start_time")
@@ -104,8 +105,8 @@ export async function getLinkOptions(supabase: Supabase, fromIso: string, tz: st
       .limit(50),
   ]);
   return [
-    ...((blocks.data ?? []) as { id: string; title: string }[]).map((b) => ({
-      value: `time_block:${b.id}`,
+    ...((blocks.data ?? []) as unknown as { id: string; title: string }[]).map((b) => ({
+      value: `block_type:${b.id}`,
       label: `Block · ${b.title}`,
     })),
     ...((events.data ?? []) as { id: string; title: string; start_time: string }[]).map((e) => ({

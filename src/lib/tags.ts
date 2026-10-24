@@ -1,7 +1,7 @@
 import type { createClient } from "@/lib/supabase/server";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
-export type EntityType = "time_block" | "event" | "task" | "note";
+export type EntityType = "time_block" | "block_type" | "event" | "task" | "note";
 export type Tag = { name: string; color: string | null };
 
 /** "work, #ideas,  urgent" -> ["work", "ideas", "urgent"] */
@@ -100,6 +100,7 @@ const ENTITY_TABLE: Record<EntityType, string> = {
   note: "notes",
   event: "events",
   time_block: "time_blocks",
+  block_type: "block_types",
 };
 
 /** Tag links split into live ones and orphans (pointing at deleted items). */

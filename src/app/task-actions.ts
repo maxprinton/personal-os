@@ -19,7 +19,7 @@ function refresh() {
 
 function parseTarget(value: string): { type: EntityType; id: string } | null {
   const [type, id] = value.split(":");
-  if (!id || !["time_block", "event", "task", "note"].includes(type)) return null;
+  if (!id || !["time_block", "block_type", "event", "task", "note"].includes(type)) return null;
   return { type: type as EntityType, id };
 }
 

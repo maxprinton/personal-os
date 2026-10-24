@@ -36,7 +36,9 @@ export default async function CommandCenter() {
   );
   const contextTargets = [activeEvent, activeBlock, soon]
     .filter((i): i is AgendaItem => Boolean(i))
-    .map((i) => ({ type: i.kind === "event" ? ("event" as const) : ("time_block" as const), id: i.id }));
+    .map((i) =>
+      i.kind === "event" ? { type: "event" as const, id: i.id } : { type: "block_type" as const, id: i.blockTypeId ?? i.id }
+    );
   const context = await getContextFor(supabase, contextTargets);
   const contextTasks = context.tasks.filter((t) => t.status === "pending");
 

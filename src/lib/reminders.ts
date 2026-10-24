@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDays, formatDateLong, formatMinutes, localNow, occursOn, timeToMinutes, utcToLocal, zonedToUtc } from "@/lib/time";
+import { getBlockTypes, getOccurrences } from "@/lib/calendar/model";
+import { spanOn } from "@/lib/calendar/overlap";
 
 // Server-only: runs with the admin client, so EVERY query filters by user_id.
 
@@ -29,14 +31,20 @@ type Block = {
   is_habit: boolean;
 };
 type Ev = { id: string; title: string; start_time: string; end_time: string };
-export type DayItem = { kind: "block" | "event"; id: string; title: string; start: number; end: number };
+/** block: id is the occurrence id and blockTypeId its block type. */
+export type DayItem = { kind: "block" | "event"; id: string; title: string; start: number; end: number; blockTypeId?: string };
 
 /** Today's schedule, open tasks and habits for one user. */
 export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "user_id" | "timezone">, date: string) {
   const tz = s.timezone;
   const dayStart = zonedToUtc(date, "00:00", tz).toISOString();
   const dayEnd = zonedToUtc(addDays(date, 1), "00:00", tz).toISOString();
-  const [b, e, t, logs, fr] = await Promise.all([
+  const [types, occurrences] = await Promise.all([
+    getBlockTypes(admin, s.user_id),
+    getOccurrences(admin, s.user_id, date, date),
+  ]);
+  const typeName = new Map(types.map((x) => [x.id, x.name]));
+  const [b, e, t, logs] = await Promise.all([
     admin
       .from("time_blocks")
       .select("id,title,start_time,end_time,rrule,valid_from,valid_until,is_habit")
@@ -65,27 +73,27 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
       .eq("entity_type", "time_block")
       .eq("log_date", date)
       .is("deleted_at", null),
-    admin
-      .from("entity_relations")
-      .select("source_id,target_id")
-      .eq("user_id", s.user_id)
-      .eq("relationship_type", "fulfills")
-      .is("deleted_at", null),
   ]);
   const blocks = ((b.data ?? []) as Block[]).filter((x) => occursOn(x, date));
   const events = (e.data ?? []) as Ev[];
-  const todayEvents = new Set(events.map((x) => x.id));
-  const fulfilled = new Set(
-    ((fr.data ?? []) as { source_id: string; target_id: string }[])
-      .filter((r) => todayEvents.has(r.source_id))
-      .map((r) => r.target_id)
-  );
   const logged = new Map(((logs.data ?? []) as { entity_id: string; status: string }[]).map((l) => [l.entity_id, l.status]));
 
+  const blockItems: DayItem[] = [];
+  for (const o of occurrences) {
+    const span = spanOn(o, date);
+    if (!span || span.continued || o.status === "free_day") continue; // reminders only where a block starts
+    blockItems.push({
+      kind: "block",
+      id: o.id,
+      title: typeName.get(o.block_type_id) ?? "Block",
+      start: span.start,
+      end: span.continues ? timeToMinutes(o.end_time) + 1440 : span.end,
+      blockTypeId: o.block_type_id,
+    });
+  }
+
   const items: DayItem[] = [
-    ...blocks
-      .filter((x) => !fulfilled.has(x.id))
-      .map((x) => ({ kind: "block" as const, id: x.id, title: x.title, start: timeToMinutes(x.start_time), end: timeToMinutes(x.end_time) })),
+    ...blockItems,
     ...events.map((x) => {
       const st = utcToLocal(x.start_time, tz);
       const en = utcToLocal(x.end_time, tz);
@@ -133,13 +141,13 @@ export function eveningText(d: Day) {
   return { text: lines.join("\n"), pending };
 }
 
-/** Tasks and notes linked to a block or event. */
+/** Tasks and notes linked to a block type or event. */
 export async function linkedTo(admin: SupabaseClient, userId: string, kind: "block" | "event", id: string) {
   const { data } = await admin
     .from("entity_relations")
     .select("source_type,source_id")
     .eq("user_id", userId)
-    .eq("target_type", kind === "block" ? "time_block" : "event")
+    .eq("target_type", kind === "block" ? "block_type" : "event")
     .eq("target_id", id)
     .in("source_type", ["task", "note"])
     .is("deleted_at", null);

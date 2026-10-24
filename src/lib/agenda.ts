@@ -1,5 +1,8 @@
 import type { createClient } from "@/lib/supabase/server";
-import { addDays, occursOn, timeToMinutes, utcToLocal, zonedToUtc } from "@/lib/time";
+import { addDays, utcToLocal, zonedToUtc } from "@/lib/time";
+import { currentUserId, getBlockTypes, getOccurrences } from "@/lib/calendar/model";
+import { spanOn } from "@/lib/calendar/overlap";
+import type { OccurrenceStatus } from "@/lib/calendar/types";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -25,14 +28,16 @@ export type EventRow = {
 
 export type AgendaItem = {
   kind: "block" | "event";
-  id: string;
+  id: string; // block: occurrence id
   title: string;
   start: number; // minutes since local midnight
   end: number;
   color: string | null;
   isHabit: boolean;
-  fulfilledBy?: string; // block: title of the event that fulfills it
-  fulfills?: string; // event: title of the block it fulfills
+  blockTypeId?: string; // block only
+  status?: OccurrenceStatus; // block only
+  fulfilledBy?: string; // legacy (calendar v1)
+  fulfills?: string; // legacy (calendar v1)
 };
 
 export async function getSettings(supabase: Supabase) {
@@ -40,6 +45,7 @@ export async function getSettings(supabase: Supabase) {
   return { timezone: (data?.timezone as string | undefined) ?? "America/Guayaquil" };
 }
 
+/** Legacy calendar v1 blocks (read-only since calendar v2). */
 export async function getActiveBlocks(supabase: Supabase): Promise<BlockRow[]> {
   const { data } = await supabase
     .from("time_blocks")
@@ -66,13 +72,15 @@ export async function getFulfillments(supabase: Supabase, eventIds: string[]) {
   return map;
 }
 
-/** All blocks and events for one local date, sorted by start time. */
+/** All blocks (occurrences) and events for one local date, sorted by start time. */
 export async function getAgenda(supabase: Supabase, date: string, tz: string) {
   const dayStart = zonedToUtc(date, "00:00", tz).toISOString();
   const dayEnd = zonedToUtc(addDays(date, 1), "00:00", tz).toISOString();
+  const userId = await currentUserId(supabase);
 
-  const [blocks, eventsRes] = await Promise.all([
-    getActiveBlocks(supabase),
+  const [types, occurrences, eventsRes] = await Promise.all([
+    userId ? getBlockTypes(supabase, userId) : Promise.resolve([]),
+    userId ? getOccurrences(supabase, userId, date, date) : Promise.resolve([]),
     supabase
       .from("events")
       .select("id,title,start_time,end_time,is_habit")
@@ -81,36 +89,28 @@ export async function getAgenda(supabase: Supabase, date: string, tz: string) {
       .gt("end_time", dayStart),
   ]);
   const events = (eventsRes.data ?? []) as EventRow[];
-  const fulfills = await getFulfillments(
-    supabase,
-    events.map((e) => e.id)
-  );
-
-  const blockTitle = new Map(blocks.map((b) => [b.id, b.title]));
-  const fulfilledBy = new Map<string, string>();
-  for (const e of events) {
-    const blockId = fulfills.get(e.id);
-    if (blockId) fulfilledBy.set(blockId, e.title);
-  }
+  const typeById = new Map(types.map((t) => [t.id, t]));
 
   const items: AgendaItem[] = [];
-  const yesterday = addDays(date, -1);
-  for (const b of blocks) {
-    const start = timeToMinutes(b.start_time);
-    const end = timeToMinutes(b.end_time);
-    const overnight = end < start; // e.g. 23:00 -> 01:00 ends the next day
-    const base = { kind: "block" as const, id: b.id, title: b.title, color: b.color, isHabit: b.is_habit };
-    if (occursOn(b, date)) {
-      items.push({ ...base, start, end: overnight ? 1440 : end, fulfilledBy: fulfilledBy.get(b.id) });
-    }
-    if (overnight && occursOn(b, yesterday)) {
-      items.push({ ...base, start: 0, end });
-    }
+  for (const o of occurrences) {
+    const span = spanOn(o, date);
+    if (!span) continue;
+    const type = typeById.get(o.block_type_id);
+    items.push({
+      kind: "block",
+      id: o.id,
+      title: type?.name ?? "Block",
+      start: span.start,
+      end: span.end,
+      color: type?.color ?? null,
+      isHabit: false,
+      blockTypeId: o.block_type_id,
+      status: o.status,
+    });
   }
   for (const e of events) {
     const s = utcToLocal(e.start_time, tz);
     const en = utcToLocal(e.end_time, tz);
-    const blockId = fulfills.get(e.id);
     items.push({
       kind: "event",
       id: e.id,
@@ -119,7 +119,6 @@ export async function getAgenda(supabase: Supabase, date: string, tz: string) {
       end: en.date > date ? 1440 : en.minutes,
       color: null,
       isHabit: e.is_habit,
-      fulfills: blockId ? blockTitle.get(blockId) : undefined,
     });
   }
   return items.sort((a, b) => a.start - b.start || (a.kind === "event" ? -1 : 1));

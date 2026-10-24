@@ -130,3 +130,43 @@ export function describeDays(rrule: string) {
     .map((x) => x[0] + x[1].toLowerCase())
     .join(", ");
 }
+
+// ---- Calendar v2 helpers (ISO weekdays: 1 = Monday ... 7 = Sunday) -------
+
+export const ISO_DAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+
+export function isoWeekday(date: string) {
+  const d = new Date(`${date}T12:00:00Z`).getUTCDay();
+  return d === 0 ? 7 : d;
+}
+
+/** 545 -> "09:05" (wraps past midnight). */
+export function minutesToTime(min: number) {
+  const m = ((Math.round(min) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+/** Monday of the week that contains the date. */
+export function startOfWeek(date: string) {
+  return addDays(date, 1 - isoWeekday(date));
+}
+
+/** Whole days from a to b (b - a). */
+export function daysBetween(a: string, b: string) {
+  return Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86400000);
+}
+
+/** Every date from..to inclusive. */
+export function dateRange(from: string, to: string) {
+  const out: string[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) out.push(d);
+  return out;
+}
+
+export function isDate(s: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T12:00:00Z`));
+}
+
+export function isTime(s: string) {
+  return /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(s);
+}

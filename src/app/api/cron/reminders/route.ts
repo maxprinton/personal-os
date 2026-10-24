@@ -46,7 +46,7 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings) {
       const diff = item.start - now.minutes;
       if (diff > 0 && diff <= s.reminder_before_minutes) {
         if (await claim(admin, s.user_id, "before", `${item.kind}:${item.id}:${date}`)) {
-          const ctx = await linkedTo(admin, s.user_id, item.kind, item.id);
+          const ctx = await linkedTo(admin, s.user_id, item.kind, item.kind === "block" ? item.blockTypeId ?? item.id : item.id);
           await send(s.telegram_chat_id, beforeText(item, diff, ctx));
           sent++;
         }

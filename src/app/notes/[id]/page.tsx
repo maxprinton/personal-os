@@ -14,7 +14,7 @@ import { renderMarkdown } from "@/lib/markdown";
 
 export const dynamic = "force-dynamic";
 
-const KIND: Record<string, string> = { time_block: "Block", event: "Event", task: "Task", note: "Note" };
+const KIND: Record<string, string> = { time_block: "Block (old)", block_type: "Block", event: "Event", task: "Task", note: "Note" };
 
 export default async function NotePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
