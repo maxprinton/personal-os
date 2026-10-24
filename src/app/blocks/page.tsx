@@ -1,45 +1,56 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { getActiveBlocks } from "@/lib/agenda";
-import { describeDays, formatMinutes, timeToMinutes } from "@/lib/time";
-import { deleteBlock } from "@/app/actions";
+import { currentUserId, getBlockTypes, getSlots } from "@/lib/calendar/model";
+import { userTimezone } from "@/lib/calendar/load";
+import { formatDateLong, formatMinutes, localNow, timeToMinutes, ISO_DAY_SHORT } from "@/lib/time";
 import Nav from "@/components/Nav";
-import BlockForm from "@/components/BlockForm";
+import BlockTypeCard from "@/components/BlockTypeCard";
+import type { Slot } from "@/lib/calendar/types";
 
 export const dynamic = "force-dynamic";
 
+function describe(s: Slot, today: string) {
+  const end = timeToMinutes(s.end_time);
+  const start = timeToMinutes(s.start_time);
+  let text = `${ISO_DAY_SHORT[s.weekday - 1]} ${formatMinutes(start)} – ${formatMinutes(end)}${end < start ? " (next day)" : ""}`;
+  if (s.valid_from > today) text += ` · from ${formatDateLong(s.valid_from)}`;
+  if (s.valid_to) text += ` · until ${formatDateLong(s.valid_to)}`;
+  return text;
+}
+
 export default async function BlocksPage() {
   const supabase = await createClient();
-  const blocks = await getActiveBlocks(supabase);
+  const userId = await currentUserId(supabase);
+  if (!userId) return null;
+  const today = localNow(await userTimezone(supabase, userId)).date;
+  const [types, slots] = await Promise.all([getBlockTypes(supabase, userId), getSlots(supabase, userId, today)]);
 
   return (
     <>
       <Nav active="/blocks" />
       <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
         <div>
-          <h1 className="text-2xl font-semibold">Time blocks</h1>
-          <p className="text-sm text-neutral-500">Your ideal week: recurring blocks with no specific date.</p>
+          <h1 className="text-2xl font-semibold">Blocks</h1>
+          <p className="text-sm text-neutral-500">
+            A block is time reserved for an activity and repeats every week. Its name is its identity: one block can have
+            many time slots. Create and move blocks in the <Link href="/calendar" className="underline">calendar</Link>.
+          </p>
         </div>
-        <BlockForm />
-        <ul className="space-y-2">
-          {blocks.map((b) => (
-            <li key={b.id} className="flex items-center gap-3 rounded-lg border border-neutral-200 p-3">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ background: b.color ?? "#6366f1" }} />
-              <div className="flex-1">
-                <p className="font-medium">{b.title}</p>
-                <p className="text-sm text-neutral-500">
-                  {formatMinutes(timeToMinutes(b.start_time))} – {formatMinutes(timeToMinutes(b.end_time))}
-                  {timeToMinutes(b.end_time) < timeToMinutes(b.start_time) ? " (next day)" : ""} ·{" "}
-                  {describeDays(b.rrule)}
-                  {b.is_habit ? " · Habit" : ""}
-                </p>
-              </div>
-              <form action={deleteBlock}>
-                <input type="hidden" name="id" value={b.id} />
-                <button className="text-sm text-neutral-500 hover:text-red-600">Delete</button>
-              </form>
-            </li>
+        <ul className="space-y-3">
+          {types.map((t) => (
+            <BlockTypeCard
+              key={t.id}
+              id={t.id}
+              name={t.name}
+              color={t.color}
+              slots={slots.filter((s) => s.block_type_id === t.id).map((s) => describe(s, today))}
+            />
           ))}
-          {blocks.length === 0 && <p className="text-sm text-neutral-500">No time blocks yet.</p>}
+          {types.length === 0 && (
+            <p className="text-sm text-neutral-500">
+              No blocks yet. Open the <Link href="/calendar" className="underline">calendar</Link> and click an empty time.
+            </p>
+          )}
         </ul>
       </main>
     </>

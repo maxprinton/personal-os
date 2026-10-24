@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import ServiceWorker from "@/components/ServiceWorker";
+import CalendarDock from "@/components/calendar/CalendarDock";
 
 export const metadata: Metadata = {
   title: "Personal OS",
@@ -19,6 +20,7 @@ export default function RootLayout({
     <html lang="en">
       <body>
         {children}
+        <CalendarDock />
         <ServiceWorker />
       </body>
     </html>

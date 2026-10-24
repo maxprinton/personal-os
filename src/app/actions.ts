@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/agenda";
-import { addDays, buildRRule, isWeekday, localNow, zonedToUtc } from "@/lib/time";
+import { addDays, zonedToUtc } from "@/lib/time";
 
 export type ActionState = { error?: string; ok?: boolean; at?: number };
 
@@ -13,41 +13,8 @@ function refresh() {
   revalidatePath("/events");
 }
 
-export async function createBlock(_prev: ActionState, form: FormData): Promise<ActionState> {
-  const title = String(form.get("title") ?? "").trim();
-  const start = String(form.get("start") ?? "");
-  const end = String(form.get("end") ?? "");
-  const days = form.getAll("days").map(String).filter(isWeekday);
-  if (!title) return { error: "Title is required." };
-  if (!start || !end) return { error: "Start and end are required." };
-  if (end === start) return { error: "Start and end cannot be the same time." };
-  if (!days.length) return { error: "Pick at least one day." };
-
-  const supabase = await createClient();
-  const { timezone } = await getSettings(supabase);
-  const color = String(form.get("color") ?? "");
-  const { error } = await supabase.from("time_blocks").insert({
-    title,
-    start_time: start,
-    end_time: end,
-    rrule: buildRRule(days),
-    timezone,
-    valid_from: localNow(timezone).date,
-    is_habit: form.get("is_habit") === "on",
-    color: color || null,
-  });
-  if (error) return { error: error.message };
-  refresh();
-  return { ok: true, at: Date.now() };
-}
-
-export async function deleteBlock(form: FormData) {
-  const id = String(form.get("id") ?? "");
-  if (!id) return;
-  const supabase = await createClient();
-  await supabase.from("time_blocks").update({ deleted_at: new Date().toISOString() }).eq("id", id);
-  refresh();
-}
+// Calendar v1 createBlock/deleteBlock were removed: blocks live in block_types/block_slots
+// now (see app/calendar-actions.ts). The old time_blocks table is kept read-only as a backup.
 
 export async function createEvent(_prev: ActionState, form: FormData): Promise<ActionState> {
   const title = String(form.get("title") ?? "").trim();

@@ -23,14 +23,21 @@ export function slotActiveOn(slot: Slot, date: string) {
   );
 }
 
-export async function getBlockTypes(sb: SupabaseClient, userId: string): Promise<BlockType[]> {
-  const { data } = await sb
-    .from("block_types")
-    .select("id,name,color")
-    .eq("user_id", userId)
-    .is("deleted_at", null)
-    .order("name");
-  return (data ?? []) as BlockType[];
+/** Live block types. includeDeleted also returns removed ones (so past days keep their names). */
+export async function getBlockTypes(
+  sb: SupabaseClient,
+  userId: string,
+  opts: { includeDeleted?: boolean } = {}
+): Promise<BlockType[]> {
+  let q = sb.from("block_types").select("id,name,color,deleted_at").eq("user_id", userId);
+  if (!opts.includeDeleted) q = q.is("deleted_at", null);
+  const { data } = await q.order("name");
+  return ((data ?? []) as (BlockType & { deleted_at: string | null })[]).map((t) => ({
+    id: t.id,
+    name: t.name,
+    color: t.color,
+    ...(t.deleted_at ? { removed: true } : {}),
+  }));
 }
 
 /** Slots that are valid at some point between from and to (both optional). */
