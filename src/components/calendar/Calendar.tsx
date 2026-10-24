@@ -2,7 +2,16 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { editOccurrence, lockPast, placeTask, toggleOccurrenceDone, unlockPast } from "@/app/calendar-actions";
+import {
+  editOccurrence,
+  lockPast,
+  moveOccurrences,
+  placeTask,
+  removeOccurrences,
+  setOccurrencesDone,
+  toggleOccurrenceDone,
+  unlockPast,
+} from "@/app/calendar-actions";
 import Modal, { btnPrimary, btnSecondary } from "@/components/calendar/Modal";
 import { unassignedOn } from "@/lib/calendar/taskview";
 import UnassignedTray from "@/components/calendar/UnassignedTray";
@@ -36,6 +45,7 @@ type Dialog =
   | { kind: "move"; id: string; date: string; start: number; end: number }
   | { kind: "new-free"; date: string }
   | { kind: "free"; id: string }
+  | { kind: "bulk-remove" }
   | null;
 
 export default function Calendar({ variant }: { variant: "dock" | "page" }) {
@@ -50,6 +60,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
   const [hidden, setHidden] = useState<number[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [pastAsk, setPastAsk] = useState<{ resolve: (ok: boolean) => void } | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
 
   // Desktop opens on the week, phones on the day (unless the user picked another view before)
   useEffect(() => {
@@ -77,6 +88,44 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
     }
   }, []);
   const readOnly = Boolean(data?.readOnly) || touchPhone;
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  const clearSelection = useCallback(() => setSelected((prev) => (prev.size ? new Set() : prev)), []);
+
+  // Selected blocks that left the calendar (removed, or another week is shown) drop out of the selection
+  useEffect(() => {
+    if (!data) return;
+    setSelected((prev) => {
+      if (!prev.size) return prev;
+      const live = new Set(data.occurrences.filter((o) => o.status !== "cancelled").map((o) => o.id));
+      const next = new Set([...prev].filter((id) => live.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [data]);
+
+  // Esc clears the selection; Delete removes the selected blocks (asks first)
+  useEffect(() => {
+    if (!selected.size || readOnly) return;
+    function onKey(e: KeyboardEvent) {
+      if (dialog || pastAsk) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if (e.key === "Escape") clearSelection();
+      else if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        setDialog({ kind: "bulk-remove" });
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected.size, readOnly, dialog, pastAsk, clearSelection]);
 
   // The server knows the user's real "today" (their timezone); follow it once
   useEffect(() => {
@@ -277,6 +326,46 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
           </button>
         </div>
       )}
+      {!readOnly && data && selected.size > 0 && (() => {
+        const sel = data.occurrences.filter((o) => selected.has(o.id));
+        const tickable = sel.filter((o) => o.date <= data.today && o.status !== "free_day");
+        const allDone = tickable.length > 0 && tickable.every((o) => o.status === "done");
+        const ids = [...selected];
+        const act = async (fn: () => Promise<CalResult>) => {
+          if (await run(fn)) clearSelection();
+        };
+        const shiftDays = (n: number) => run(() => moveOccurrences({ ids, dayShift: n, minuteShift: 0 }));
+        const btn = "rounded border border-sky-300 bg-white px-2 py-0.5 hover:bg-sky-100 disabled:opacity-40";
+        return (
+          <div className="flex flex-wrap items-center gap-2 border-b border-sky-200 bg-sky-50 px-3 py-1 text-xs text-sky-900">
+            <span className="font-medium">
+              {selected.size} block{selected.size > 1 ? "s" : ""} selected
+            </span>
+            <button
+              type="button"
+              className={btn}
+              disabled={!tickable.length}
+              title={tickable.length ? undefined : "Blocks can be ticked once their day has come"}
+              onClick={() => act(() => setOccurrencesDone({ ids, done: !allDone }))}
+            >
+              {allDone ? "Undo done" : "✓ Mark done"}
+            </button>
+            <button type="button" className={btn} onClick={() => shiftDays(-1)} title="Move them one day earlier (only those days)">
+              ← 1 day
+            </button>
+            <button type="button" className={btn} onClick={() => shiftDays(1)} title="Move them one day later (only those days)">
+              1 day →
+            </button>
+            <button type="button" className={`${btn} text-red-700`} onClick={() => setDialog({ kind: "bulk-remove" })}>
+              Remove
+            </button>
+            <button type="button" className="underline" onClick={clearSelection}>
+              Clear
+            </button>
+            <span className="text-sky-700/80">Ctrl+click adds or removes · drag one to move them all · Esc clears</span>
+          </div>
+        );
+      })()}
       {data && view !== "month" && data.today >= from && data.today <= to && (
         <UnassignedTray tasks={unassignedOn(data.today, data.today, data.tasks)} readOnly={readOnly} />
       )}
@@ -309,6 +398,9 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
                 run(() => placeTask({ taskId: d.taskId, occurrenceId: d.occurrenceId ?? null, eventId: d.eventId ?? null, date: d.date }))
               }
               onBlocked={(text) => setToast({ ok: false, text })}
+              selected={selected}
+              onToggleSelect={toggleSelect}
+              onMoveGroup={(shift) => run(() => moveOccurrences({ ids: [...selected], ...shift }))}
               onPickDay={(d) => {
                 setAnchor(d);
                 changeView("day");
@@ -393,6 +485,30 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
       )}
       {data && dialog?.kind === "occurrence" && occ && (
         <OccurrenceDialog occ={occ} data={data} readOnly={readOnly} run={run} onClose={() => setDialog(null)} />
+      )}
+      {data && dialog?.kind === "bulk-remove" && (
+        <Modal title={`Remove ${selected.size} block${selected.size > 1 ? "s" : ""}?`} onClose={() => setDialog(null)}>
+          <p className="text-sm text-neutral-600">
+            Only on those days: their weekly pattern stays. Pending tasks inside them go back to the unassigned list.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setDialog(null)} className={btnSecondary}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              autoFocus
+              onClick={async () => {
+                const ids = [...selected];
+                setDialog(null);
+                if (await run(() => removeOccurrences({ ids }))) clearSelection();
+              }}
+              className={btnPrimary}
+            >
+              Remove
+            </button>
+          </div>
+        </Modal>
       )}
       {data && dialog?.kind === "move" && occ && (
         <ScopeDialog

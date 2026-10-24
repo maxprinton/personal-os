@@ -10,6 +10,19 @@ import { alpha, dayLabel, snap, textOn, timeRange } from "@/components/calendar/
 
 export type MoveRequest = { id: string; date: string; start: number; end: number; duplicate: boolean };
 export type TaskDrop = { taskId: string; occurrenceId?: string; eventId?: string; date: string };
+export type GroupShift = { dayShift: number; minuteShift: number };
+
+/** A block moved by whole days and minutes (used to preview a multi-block drag). */
+function shiftOcc(o: Occurrence, { dayShift, minuteShift }: GroupShift): Occurrence {
+  const startAbs = timeToMinutes(o.start_time) + minuteShift;
+  const start = ((startAbs % 1440) + 1440) % 1440;
+  return {
+    ...o,
+    date: addDays(o.date, dayShift + Math.floor(startAbs / 1440)),
+    start_time: minutesToTime(start),
+    end_time: minutesToTime(start + durationOf(o.start_time, o.end_time)),
+  };
+}
 
 /** Drag data type used for tasks (the unassigned tray and task lines inside blocks). */
 export const TASK_MIME = "text/x-personal-os-task";
@@ -31,6 +44,10 @@ type Props = {
   onOpenFreeDay: (id: string) => void;
   onBlocked: (message: string) => void;
   onPickDay?: (date: string) => void;
+  /** Multi-select: Ctrl/⌘/Shift+click adds or removes a block; dragging a selected block moves them all. */
+  selected: Set<string>;
+  onToggleSelect: (id: string) => void;
+  onMoveGroup: (shift: GroupShift) => void;
 };
 
 type Drag = {
@@ -43,6 +60,7 @@ type Drag = {
   duration: number;
   grab: number;
   moved: boolean;
+  group: boolean;
 };
 
 type Preview = { id: string; col: number; top: number; bottom: number; conflict: boolean };
@@ -85,6 +103,9 @@ export default function TimeGrid({
   onOpenFreeDay,
   onBlocked,
   onPickDay,
+  selected,
+  onToggleSelect,
+  onMoveGroup,
 }: Props) {
   const [dropOn, setDropOn] = useState<string | null>(null);
   const dropHandlers = (key: string, target: Omit<TaskDrop, "taskId">) =>
@@ -111,6 +132,8 @@ export default function TimeGrid({
   const colRefs = useRef<(HTMLDivElement | null)[]>([]);
   const dragRef = useRef<Drag | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [groupPreview, setGroupPreview] = useState<(GroupShift & { conflict: boolean }) | null>(null);
+  const selectedOccs = useMemo(() => data.occurrences.filter((o) => selected.has(o.id)), [data.occurrences, selected]);
 
   const typeById = useMemo(() => new Map(data.blockTypes.map((t) => [t.id, t])), [data.blockTypes]);
   const eventColor = useMemo(() => {
@@ -221,6 +244,7 @@ export default function TimeGrid({
       duration: durationOf(o.start_time, o.end_time),
       grab: minuteAt(col, e.clientY) - top,
       moved: false,
+      group: mode === "move" && selected.has(o.id) && selected.size > 1,
     };
   }
 
@@ -230,7 +254,13 @@ export default function TimeGrid({
     if (!d.moved && Math.abs(e.clientX - d.startX) + Math.abs(e.clientY - d.startY) < 5) return;
     d.moved = true;
     autoScroll(e.clientY);
-    if (d.mode === "move") {
+    if (d.mode === "move" && d.group) {
+      const col = columnAt(e.clientX);
+      const top = Math.min(Math.max(0, snap(minuteAt(col, e.clientY) - d.grab)), 1440 - 15);
+      const shift = { dayShift: daysBetween(days[d.col], days[col]), minuteShift: top - d.top };
+      const conflict = selectedOccs.some((o) => Boolean(findOccurrenceConflict(shiftOcc(o, shift), data.occurrences, selected)));
+      setGroupPreview({ ...shift, conflict });
+    } else if (d.mode === "move") {
       const col = columnAt(e.clientX);
       const top = Math.min(Math.max(0, snap(minuteAt(col, e.clientY) - d.grab)), 1440 - 15);
       const bottom = top + d.duration;
@@ -247,9 +277,25 @@ export default function TimeGrid({
     if (!d) return;
     e.stopPropagation();
     const p = preview;
+    const gp = groupPreview;
     setPreview(null);
+    setGroupPreview(null);
     if (!d.moved) {
-      onOpenOccurrence(d.id);
+      if (e.ctrlKey || e.metaKey || e.shiftKey) onToggleSelect(d.id);
+      else onOpenOccurrence(d.id);
+      return;
+    }
+    if (d.group) {
+      if (!gp || (!gp.dayShift && !gp.minuteShift)) return;
+      if (e.altKey) {
+        onBlocked("Alt+drag copies one block at a time. Clear the selection to copy a block.");
+        return;
+      }
+      if (gp.conflict) {
+        onBlocked("That time is taken: blocks can't overlap.");
+        return;
+      }
+      onMoveGroup({ dayShift: gp.dayShift, minuteShift: gp.minuteShift });
       return;
     }
     if (!p) return;
@@ -374,7 +420,8 @@ export default function TimeGrid({
               {blocksPerCol[col].map(({ o, top, bottom, cutTop, cutBottom }) => {
                 const type = typeById.get(o.block_type_id);
                 const color = type?.color ?? "#6366f1";
-                const dragging = preview?.id === o.id;
+                const dragging = preview?.id === o.id || (groupPreview !== null && selected.has(o.id));
+                const isSelected = selected.has(o.id);
                 const height = Math.max(((bottom - top) / 60) * H, 14);
                 const muted = o.status === "free_day";
                 const realStart = timeToMinutes(o.start_time);
@@ -392,12 +439,19 @@ export default function TimeGrid({
                     {...(o.date >= data.today && !muted ? dropHandlers(`occ-${o.id}-${date}`, { occurrenceId: o.id, date: o.date }) : {})}
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (readOnly || cutTop) onOpenOccurrence(o.id);
+                      if (!readOnly && cutTop && (e.ctrlKey || e.metaKey || e.shiftKey)) onToggleSelect(o.id);
+                      else if (readOnly || cutTop) onOpenOccurrence(o.id);
                     }}
-                    title={`${type?.name ?? "Block"} · ${timeRange(realStart, realEnd)}`}
+                    title={`${type?.name ?? "Block"} · ${timeRange(realStart, realEnd)}${readOnly ? "" : " · Ctrl+click to select several"}`}
                     className={`absolute inset-x-0.5 overflow-hidden rounded-md px-1.5 py-0.5 shadow-sm ${
                       readOnly || cutTop ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
-                    } ${dragging ? "opacity-40" : ""} ${dropOn === `occ-${o.id}-${date}` ? "ring-2 ring-neutral-900 ring-offset-1" : ""}`}
+                    } ${dragging ? "opacity-40" : ""} ${
+                      dropOn === `occ-${o.id}-${date}`
+                        ? "ring-2 ring-neutral-900 ring-offset-1"
+                        : isSelected
+                          ? "ring-2 ring-sky-500 ring-offset-1"
+                          : ""
+                    }`}
                     style={{
                       top: (top / 60) * H,
                       height,
@@ -510,6 +564,29 @@ export default function TimeGrid({
                   </div>
                 );
               })}
+
+              {groupPreview &&
+                selectedOccs.map((o) => {
+                  const g = shiftOcc(o, groupPreview);
+                  const [a, b] = occAbs(g, date);
+                  const c = clip(a, b, S);
+                  if (!c) return null;
+                  const start = timeToMinutes(g.start_time);
+                  return (
+                    <div
+                      key={`ghost-${o.id}-${date}`}
+                      className={`pointer-events-none absolute inset-x-0.5 z-30 rounded-md border-2 border-dashed px-1.5 py-0.5 ${
+                        groupPreview.conflict ? "border-red-600 bg-red-100/80 text-red-700" : "border-sky-600 bg-white/70"
+                      }`}
+                      style={{ top: (c.top / 60) * H, height: Math.max(((c.bottom - c.top) / 60) * H, 14) }}
+                    >
+                      <p className="truncate font-medium">
+                        {typeById.get(o.block_type_id)?.name ?? "Block"} · {timeRange(start, start + durationOf(o.start_time, o.end_time))}
+                        {groupPreview.conflict ? " · taken" : ""}
+                      </p>
+                    </div>
+                  );
+                })}
 
               {preview && preview.col === col && (
                 <div

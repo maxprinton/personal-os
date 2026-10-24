@@ -133,6 +133,12 @@ All files are written to be safe to run twice. `time_blocks` and `activity_logs`
 - Phone read-only currently covers the calendar and everything that edits it (blocks, events, habits, task placement, ritual, free days, payment drafts). Quick capture, the Tasks page buttons, Notes and the Finance forms still work on the phone — tell me if those should be read-only too.
 - Telegram quick capture ("task: …", "spent 12 on lunch") still works, besides the habit/task buttons.
 
+## Deployment — 2026-10-24
+- Migrations 0006–0013 applied to Supabase (verified counts against the backup).
+- main (5029956) pushed to GitHub via Git GUI; Vercel production deployment dpl_AcH1ewv7CAAQwZ1fBHPjVtB6seWP built and is READY.
+- Smoke check on the live app: all pages and /api/calendar return 200, no function crashes, server durations < 1 s; cron/reminders runs cleanly.
+- Not yet done: the phase 10 manual test list below (needs real use: creating blocks, habits, tasks, payments).
+
 ## Phase 10 — what to test (not done yet)
 
 1. `npx tsc --noEmit` and `npm run build` (nothing was compiled during phases 1–9, so expect a few type fixes).
@@ -151,6 +157,13 @@ All files are written to be safe to run twice. `time_blocks` and `activity_logs`
 
 - **Named week layouts** ("Normal", "Travel", "Exams") you can switch, duplicate, rename — would sit next to free days.
 - **Inventory / stash** of blocks kept off the calendar, to place again with one click.
-- **Marquee multi-select** to move several blocks at once.
 - **Per-block AI instructions, prompt manager, smart exporter** (left out: no AI key by choice).
-- Built from it already: live collision preview, Alt+drag duplicate, auto-scroll, day start hour, hide days, untimed events as bubbles, quick ✓ + week progress bar, banner in the current block's color, "every N units" repeats (payments).
+- Built from it already: live collision preview, Alt+drag duplicate, auto-scroll, day start hour, hide days, untimed events as bubbles, quick ✓ + week progress bar, banner in the current block's color, "every N units" repeats (payments), multi-select (below).
+
+## Multi-select (added 2026-10-24, after the release)
+- Ctrl/⌘/Shift+click a block to add or remove it from the selection (blue ring). Plain click still opens the block.
+- Dragging a selected block moves the whole selection by the same days/minutes, with a live preview (red = would overlap).
+- Selection bar: ✓ Mark done / Undo done, ← 1 day, 1 day →, Remove (asks first), Clear. Keys: Esc clears, Delete removes.
+- Always "only those days" — weekly patterns are still changed one block at a time from the block dialog.
+- Server actions: moveOccurrences, removeOccurrences, setOccurrencesDone (past lock and overlap rules apply; max 100 blocks).
+- To test: select 3 blocks on different days → drag → they move together; try a move onto another block → refused; Delete → confirm → gone only that day.

@@ -3,8 +3,8 @@
 // Calendar v2 server actions. Called directly from the calendar panel (client components).
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { addDays, isDate, isTime, isoWeekday, localNow, zonedToUtc } from "@/lib/time";
-import { ensureOccurrences, getOccurrence, getSlots } from "@/lib/calendar/model";
+import { addDays, isDate, isTime, isoWeekday, localNow, minutesToTime, timeToMinutes, zonedToUtc } from "@/lib/time";
+import { ensureOccurrences, getOccurrence, getOccurrences, getSlots } from "@/lib/calendar/model";
 import {
   afterOccurrencesChanged,
   changeSlotForward,
@@ -24,7 +24,8 @@ import { applyFreeDays, undoFreeDays } from "@/lib/calendar/freedays";
 import { ensurePaymentEvents } from "@/lib/calendar/payments";
 import type { RepeatUnit } from "@/lib/calendar/recurrence";
 import { isMobileRequest, READ_ONLY_MESSAGE } from "@/lib/device";
-import type { CalResult, EditScope, FreeDayPolicy, HabitState } from "@/lib/calendar/types";
+import type { CalResult, EditScope, FreeDayPolicy, HabitState, Occurrence } from "@/lib/calendar/types";
+import { durationOf, findOccurrenceConflict } from "@/lib/calendar/overlap";
 
 /** Thrown when an edit comes from a phone (the calendar is read-only there). */
 class ReadOnlyError extends Error {}
@@ -286,6 +287,122 @@ export async function removeOccurrence(input: { id: string; scope: EditScope }):
   }
 }
 
+// ---------- Several blocks at once (multi-select) --------------------------------
+// Always "only these days": weekly patterns are changed one block at a time.
+
+const MAX_BULK = 100;
+
+async function loadMany(c: Awaited<ReturnType<typeof ctx>>, ids: string[]) {
+  const unique = [...new Set(ids)].slice(0, MAX_BULK);
+  if (!unique.length) return { error: "Select at least one block." } as const;
+  const { data } = await c.sb
+    .from("block_occurrences")
+    .select("id,block_type_id,slot_id,origin_date,date,start_time,end_time,status,is_override")
+    .eq("user_id", c.userId)
+    .in("id", unique);
+  const list = ((data ?? []) as Occurrence[]).filter((o) => o.status !== "cancelled");
+  if (!list.length) return { error: "Those blocks are no longer on the calendar." } as const;
+  return { list } as const;
+}
+
+/** Move the selected blocks together by the same number of days and minutes (only those days). */
+export async function moveOccurrences(input: { ids: string[]; dayShift: number; minuteShift: number }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const dayShift = Math.trunc(Number(input.dayShift) || 0);
+    const minuteShift = Math.trunc(Number(input.minuteShift) || 0);
+    if (!dayShift && !minuteShift) return done();
+    if (Math.abs(dayShift) > 366 || Math.abs(minuteShift) > 1440) return { error: "That move is too far." };
+    const got = await loadMany(c, input.ids);
+    if ("error" in got) return { error: got.error };
+    const moved = got.list.map((o) => {
+      const startAbs = timeToMinutes(o.start_time) + minuteShift;
+      const date = addDays(o.date, dayShift + Math.floor(startAbs / 1440));
+      const start = ((startAbs % 1440) + 1440) % 1440;
+      return {
+        o,
+        date,
+        start_time: minutesToTime(start),
+        end_time: minutesToTime(start + durationOf(o.start_time, o.end_time)),
+      };
+    });
+    const locked = pastGuard(c, ...got.list.map((o) => o.date), ...moved.map((m) => m.date));
+    if (locked) return locked;
+
+    // Check against every other block around the new days (the selected ones move together)
+    const dates = moved.map((m) => m.date).sort();
+    const others = await getOccurrences(c.sb, c.userId, dates[0], addDays(dates[dates.length - 1], 1));
+    const ignore = new Set(got.list.map((o) => o.id));
+    for (const m of moved) {
+      const hit = findOccurrenceConflict(m, others, ignore);
+      if (hit) {
+        return {
+          error: `Blocks can't overlap: on ${m.date} a selected block would overlap another one at ${hit.start_time.slice(0, 5)}–${hit.end_time.slice(0, 5)}.`,
+        };
+      }
+    }
+
+    for (const m of moved) {
+      const { error } = await c.sb
+        .from("block_occurrences")
+        .update({ date: m.date, start_time: m.start_time, end_time: m.end_time, is_override: true })
+        .eq("id", m.o.id)
+        .eq("user_id", c.userId);
+      if (error) return { error: error.message };
+      if (m.date !== m.o.date) {
+        await c.sb
+          .from("tasks")
+          .update({ scheduled_for: m.date })
+          .eq("user_id", c.userId)
+          .eq("occurrence_id", m.o.id)
+          .eq("status", "pending");
+      }
+    }
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Remove the selected blocks for their days only (weekly patterns stay). */
+export async function removeOccurrences(input: { ids: string[] }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const got = await loadMany(c, input.ids);
+    if ("error" in got) return { error: got.error };
+    const locked = pastGuard(c, ...got.list.map((o) => o.date));
+    if (locked) return locked;
+    const ids = got.list.map((o) => o.id);
+    const { error } = await c.sb
+      .from("block_occurrences")
+      .update({ status: "cancelled" })
+      .eq("user_id", c.userId)
+      .in("id", ids);
+    if (error) return { error: error.message };
+    await afterOccurrencesChanged(c.sb, c.userId, ids);
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Mark the selected blocks done (all their habits), or undo it. Future and inactive blocks are skipped. */
+export async function setOccurrencesDone(input: { ids: string[]; done: boolean }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const got = await loadMany(c, input.ids);
+    if ("error" in got) return { error: got.error };
+    const list = got.list.filter((o) => o.date <= c.today && o.status !== "free_day");
+    if (!list.length) return { error: "None of the selected blocks can be ticked yet (their day hasn't come)." };
+    const locked = pastGuard(c, ...list.map((o) => o.date));
+    if (locked) return locked;
+    for (const occ of list) await applyDone(c, occ, Boolean(input.done));
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
 // ---------- Block types (the block as a concept) --------------------------------
 
 /** Renaming changes the name everywhere (all slots share the block type). */
@@ -515,6 +632,25 @@ export async function markHabit(input: { habitId: string; occurrenceId: string; 
   }
 }
 
+/** Ticks every habit of a block and marks it done (makeDone), or clears them and reopens it. */
+async function applyDone(c: Awaited<ReturnType<typeof ctx>>, occ: Occurrence, makeDone: boolean) {
+  const [habits, checks] = await Promise.all([
+    getHabits(c.sb, c.userId, { includeRemoved: true }),
+    getChecks(c.sb, c.userId, occ.date, occ.date),
+  ]);
+  const list = habitsForOccurrence(occ, habits, checks, c.today);
+  for (const { habit, state } of list) {
+    if (!makeDone && state === "done") await setHabitCheck(c.sb, c.userId, habit.id, occ, null, "web");
+    if (makeDone && state !== "done") await setHabitCheck(c.sb, c.userId, habit.id, occ, "done", "web");
+  }
+  await c.sb
+    .from("block_occurrences")
+    .update({ status: makeDone ? "done" : "scheduled" })
+    .eq("id", occ.id)
+    .eq("user_id", c.userId);
+  await recomputeOccurrenceStatus(c.sb, c.userId, occ.id, c.today);
+}
+
 /** The quick ✓ on a block: marks all its habits done (or undoes it if the block was already done). */
 export async function toggleOccurrenceDone(input: { occurrenceId: string }): Promise<CalResult> {
   try {
@@ -525,22 +661,7 @@ export async function toggleOccurrenceDone(input: { occurrenceId: string }): Pro
     const locked = pastGuard(c, occ.date);
     if (locked) return locked;
     if (occ.status === "free_day" || occ.status === "cancelled") return { error: "This block is not active that day." };
-    const [habits, checks] = await Promise.all([
-      getHabits(c.sb, c.userId, { includeRemoved: true }),
-      getChecks(c.sb, c.userId, occ.date, occ.date),
-    ]);
-    const list = habitsForOccurrence(occ, habits, checks, c.today);
-    const undo = occ.status === "done";
-    for (const { habit, state } of list) {
-      if (undo && state === "done") await setHabitCheck(c.sb, c.userId, habit.id, occ, null, "web");
-      if (!undo && state !== "done") await setHabitCheck(c.sb, c.userId, habit.id, occ, "done", "web");
-    }
-    await c.sb
-      .from("block_occurrences")
-      .update({ status: undo ? "scheduled" : "done" })
-      .eq("id", occ.id)
-      .eq("user_id", c.userId);
-    await recomputeOccurrenceStatus(c.sb, c.userId, occ.id, c.today);
+    await applyDone(c, occ, occ.status !== "done");
     return done();
   } catch (e) {
     return fail(e);
