@@ -14,10 +14,12 @@ import QuickCapture from "@/components/QuickCapture";
 import { markInsightRead } from "@/app/settings-actions";
 import { getFinance } from "@/lib/finance";
 import { budgetUsage, formatUSD, inRange, monthRange, totals } from "@/lib/money";
+import { textOn } from "@/components/calendar/util";
 
 export const dynamic = "force-dynamic";
 
 function range(i: AgendaItem) {
+  if (i.allDay) return "All day";
   return `${formatMinutes(i.start)} – ${formatMinutes(i.end % 1440)}`;
 }
 
@@ -87,12 +89,20 @@ export default async function CommandCenter() {
       <Nav active="/" />
       <AutoRefresh />
       <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
-        <section className="rounded-xl bg-neutral-900 p-6 text-white">
-          <p className="text-xs uppercase tracking-wide text-neutral-400">
+        <section
+          className="rounded-xl bg-neutral-900 p-6 text-white"
+          style={current?.color ? { background: current.color, color: textOn(current.color) } : undefined}
+        >
+          <p className="text-xs uppercase tracking-wide opacity-70">
             What should I be doing right now? · {formatMinutes(now.minutes)}
           </p>
           <h1 className="mt-2 text-3xl font-semibold">{headline}</h1>
-          <p className="mt-1 text-neutral-300">{detail}</p>
+          <p className="mt-1 opacity-80">{detail}</p>
+          {items.some((i) => i.allDay) && (
+            <p className="mt-3 text-sm opacity-80">
+              Today: {items.filter((i) => i.allDay).map((i) => i.title).join(" · ")}
+            </p>
+          )}
         </section>
 
         <QuickCapture />
@@ -209,24 +219,26 @@ export default async function CommandCenter() {
             <ul className="space-y-2">
               {items.map((i) => {
                 const isNow = i === current;
-                const past = i.end <= now.minutes;
+                const past = !i.allDay && i.end <= now.minutes;
                 return (
                   <li
                     key={`${i.kind}-${i.id}-${i.start}`}
                     className={`flex items-start gap-3 rounded-lg border p-3 ${
                       isNow ? "border-neutral-900" : "border-neutral-200"
-                    } ${past ? "opacity-50" : ""}`}
+                    } ${i.kind === "event" ? "border-dashed" : ""} ${past || i.status === "free_day" ? "opacity-50" : ""}`}
                   >
                     <span
                       className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ background: i.kind === "event" ? "#111827" : i.color ?? "#6366f1" }}
+                      style={{ background: i.color ?? (i.kind === "event" ? "#64748b" : "#6366f1") }}
                     />
                     <div className="flex-1">
                       <p className={`font-medium ${i.fulfilledBy ? "line-through text-neutral-400" : ""}`}>
                         {i.title}
                       </p>
                       <p className="text-sm text-neutral-500">
-                        {range(i)} · {i.kind === "event" ? "Event" : "Time block"}
+                        {range(i)} · {i.kind === "event" ? "Event" : "Block"}
+                        {i.status === "done" ? " · done" : i.status === "partial" ? " · partly done" : ""}
+                        {i.status === "free_day" ? " · free day" : ""}
                         {i.isHabit ? " · Habit" : ""}
                         {i.fulfilledBy ? ` · fulfilled by ${i.fulfilledBy}` : ""}
                         {i.fulfills ? ` · fulfills ${i.fulfills}` : ""}

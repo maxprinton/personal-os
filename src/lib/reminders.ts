@@ -44,7 +44,7 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
     getOccurrences(admin, s.user_id, date, date),
   ]);
   const typeName = new Map(types.map((x) => [x.id, x.name]));
-  const [b, e, t, logs] = await Promise.all([
+  const [b, e, t, logs, untimed] = await Promise.all([
     admin
       .from("time_blocks")
       .select("id,title,start_time,end_time,rrule,valid_from,valid_until,is_habit")
@@ -73,6 +73,14 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
       .eq("entity_type", "time_block")
       .eq("log_date", date)
       .is("deleted_at", null),
+    admin
+      .from("events")
+      .select("title")
+      .eq("user_id", s.user_id)
+      .is("deleted_at", null)
+      .is("start_time", null)
+      .lte("event_date", date)
+      .gte("end_date", date),
   ]);
   const blocks = ((b.data ?? []) as Block[]).filter((x) => occursOn(x, date));
   const events = (e.data ?? []) as Ev[];
@@ -103,6 +111,7 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
 
   return {
     items,
+    dayNotes: ((untimed.data ?? []) as { title: string }[]).map((x) => x.title),
     tasks: (t.data ?? []) as { id: string; title: string }[],
     habits: blocks.filter((x) => x.is_habit).map((x) => ({ id: x.id, title: x.title, status: logged.get(x.id) ?? null })),
   };
@@ -115,6 +124,7 @@ const list = (titles: string[], max = 5) =>
 
 export function morningText(date: string, d: Day) {
   const parts = [`☀️ Good morning! ${formatDateLong(date)}`];
+  if (d.dayNotes.length) parts.push(`📌 ${d.dayNotes.join(" · ")}`);
   parts.push(
     d.items.length
       ? `\n📅 Today\n${d.items.map((i) => `• ${formatMinutes(i.start % 1440)} ${i.title}${i.kind === "event" ? "" : " (block)"}`).join("\n")}`

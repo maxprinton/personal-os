@@ -3,7 +3,7 @@
 // Calendar v2 server actions. Called directly from the calendar panel (client components).
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { addDays, isDate, isTime, isoWeekday, localNow } from "@/lib/time";
+import { addDays, isDate, isTime, isoWeekday, localNow, zonedToUtc } from "@/lib/time";
 import { ensureOccurrences, getOccurrence, getSlots } from "@/lib/calendar/model";
 import {
   afterOccurrencesChanged,
@@ -271,6 +271,127 @@ export async function removeBlockType(input: { id: string }): Promise<CalResult>
       .update({ deleted_at: new Date().toISOString() })
       .eq("id", input.id)
       .eq("user_id", c.userId);
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ---------- Events (their own layer; may overlap blocks and each other) -------
+
+export type EventInput = {
+  id?: string;
+  title: string;
+  /** Name of the event type; a new name creates the type with typeColor. Empty = no type. */
+  typeName?: string;
+  typeColor?: string;
+  date: string;
+  endDate?: string;
+  hasTime: boolean;
+  start?: string;
+  end?: string;
+};
+
+async function findOrCreateEventType(c: Awaited<ReturnType<typeof ctx>>, rawName: string, color?: string) {
+  const name = normalizeName(rawName);
+  if (!name) return null;
+  const { data } = await c.sb.from("event_types").select("id,name").eq("user_id", c.userId).is("deleted_at", null);
+  const found = ((data ?? []) as { id: string; name: string }[]).find((t) => t.name.toLowerCase() === name.toLowerCase());
+  if (found) return found.id;
+  const { data: created, error } = await c.sb
+    .from("event_types")
+    .insert({ user_id: c.userId, name, color: color && isColor(color) ? color : "#64748b" })
+    .select("id")
+    .single();
+  if (error || !created) throw new Error(error?.message ?? "Could not create the event type.");
+  return created.id as string;
+}
+
+export async function saveEvent(input: EventInput): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const title = (input.title ?? "").trim().slice(0, 300);
+    if (!title) return { error: "Give the event a title." };
+    if (!isDate(input.date)) return { error: "Pick a date." };
+    let endDate = input.endDate && isDate(input.endDate) ? input.endDate : input.date;
+    if (endDate < input.date) return { error: "The end date is before the start date." };
+
+    let start_time: string | null = null;
+    let end_time: string | null = null;
+    if (input.hasTime) {
+      const bad = checkTimes(input.start ?? "", input.end ?? "");
+      if (bad) return { error: bad };
+      const s = hhmm(input.start!);
+      const e = hhmm(input.end!);
+      // Same day and an end earlier than the start = ends the next day
+      if (endDate === input.date && e < s) endDate = addDays(input.date, 1);
+      const startAt = zonedToUtc(input.date, s, c.timezone);
+      const endAt = zonedToUtc(endDate, e, c.timezone);
+      if (!(endAt > startAt)) return { error: "The event must end after it starts." };
+      start_time = startAt.toISOString();
+      end_time = endAt.toISOString();
+      if (e === "00:00" && endDate > input.date) endDate = addDays(endDate, -1);
+    }
+
+    const event_type_id = input.typeName ? await findOrCreateEventType(c, input.typeName, input.typeColor) : null;
+    const values = { title, event_type_id, event_date: input.date, end_date: endDate, start_time, end_time };
+    const { error } = input.id
+      ? await c.sb.from("events").update(values).eq("id", input.id).eq("user_id", c.userId)
+      : await c.sb.from("events").insert({ ...values, user_id: c.userId });
+    if (error) return { error: error.message };
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function removeEvent(input: { id: string }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const now = new Date().toISOString();
+    await c.sb
+      .from("entity_relations")
+      .update({ deleted_at: now })
+      .eq("user_id", c.userId)
+      .eq("source_type", "event")
+      .eq("source_id", input.id);
+    const { error } = await c.sb.from("events").update({ deleted_at: now }).eq("id", input.id).eq("user_id", c.userId);
+    if (error) return { error: error.message };
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Rename or recolor an event type (the color applies to all its events). */
+export async function saveEventType(input: { id: string; name: string; color: string }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const name = normalizeName(input.name ?? "");
+    if (!name) return { error: "The name can't be empty." };
+    if (!isColor(input.color)) return { error: "Pick a color." };
+    const { error } = await c.sb
+      .from("event_types")
+      .update({ name, color: input.color })
+      .eq("id", input.id)
+      .eq("user_id", c.userId);
+    if (error) return { error: error.code === "23505" ? "There is already an event type with that name." : error.message };
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function removeEventType(input: { id: string }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    await c.sb.from("events").update({ event_type_id: null }).eq("user_id", c.userId).eq("event_type_id", input.id);
+    const { error } = await c.sb
+      .from("event_types")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", input.id)
+      .eq("user_id", c.userId);
+    if (error) return { error: error.message };
     return done();
   } catch (e) {
     return fail(e);

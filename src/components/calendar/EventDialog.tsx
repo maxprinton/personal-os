@@ -1,0 +1,160 @@
+"use client";
+
+import { useState } from "react";
+import { removeEvent, saveEvent } from "@/app/calendar-actions";
+import { minutesToTime } from "@/lib/time";
+import type { CalEvent, CalResult, EventType } from "@/lib/calendar/types";
+import Modal, { btnPrimary, btnSecondary, inputCls } from "@/components/calendar/Modal";
+
+/** Create or edit an event. Without time it is just metadata of the day(s). */
+export default function EventDialog({
+  event,
+  initial,
+  eventTypes,
+  readOnly,
+  run,
+  onClose,
+}: {
+  event?: CalEvent;
+  initial?: { date: string; start?: number; end?: number; title?: string };
+  eventTypes: EventType[];
+  readOnly: boolean;
+  run: (fn: () => Promise<CalResult>) => Promise<boolean>;
+  onClose: () => void;
+}) {
+  const typeName = event?.event_type_id ? eventTypes.find((t) => t.id === event.event_type_id)?.name ?? "" : "";
+  const [title, setTitle] = useState(event?.title ?? initial?.title ?? "");
+  const [type, setType] = useState(typeName);
+  const [typeColor, setTypeColor] = useState("#64748b");
+  const [date, setDate] = useState(event?.date ?? initial?.date ?? "");
+  const [endDate, setEndDate] = useState(event?.end_date ?? initial?.date ?? "");
+  const [hasTime, setHasTime] = useState(event ? event.start !== null : initial?.start !== undefined);
+  const [start, setStart] = useState(
+    event?.start != null ? minutesToTime(event.start) : initial?.start !== undefined ? minutesToTime(initial.start) : "09:00"
+  );
+  const [end, setEnd] = useState(
+    event?.end != null ? minutesToTime(event.end) : initial?.end !== undefined ? minutesToTime(initial.end) : "10:00"
+  );
+  const [busy, setBusy] = useState(false);
+
+  const match = eventTypes.find((t) => t.name.toLowerCase() === type.trim().toLowerCase());
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    const ok = await run(() =>
+      saveEvent({
+        id: event?.id,
+        title,
+        typeName: type.trim() || undefined,
+        typeColor: match ? undefined : typeColor,
+        date,
+        endDate: endDate || date,
+        hasTime,
+        start,
+        end,
+      })
+    );
+    setBusy(false);
+    if (ok) onClose();
+  }
+
+  async function remove() {
+    if (!event || !window.confirm(`Delete "${event.title}"?`)) return;
+    setBusy(true);
+    const ok = await run(() => removeEvent({ id: event.id }));
+    setBusy(false);
+    if (ok) onClose();
+  }
+
+  if (readOnly && event) {
+    return (
+      <Modal title={event.title} onClose={onClose}>
+        <p className="text-sm text-neutral-600">
+          {event.date}
+          {event.end_date !== event.date ? ` → ${event.end_date}` : ""}
+          {event.start !== null && event.end !== null ? ` · ${minutesToTime(event.start)}–${minutesToTime(event.end)}` : " · no time"}
+          {typeName ? ` · ${typeName}` : ""}
+        </p>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title={event ? "Edit event" : "New event"} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-3 text-sm">
+        <input autoFocus required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Flight to Lima, Dentist" className={inputCls} />
+        <div>
+          <input
+            list="event-type-names"
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+            placeholder="Type (optional): Travel, Health, Social…"
+            className={inputCls}
+          />
+          <datalist id="event-type-names">
+            {eventTypes.map((t) => (
+              <option key={t.id} value={t.name} />
+            ))}
+          </datalist>
+          {match ? (
+            <p className="mt-1 flex items-center gap-2 text-xs text-neutral-600">
+              <span className="inline-block h-3 w-3 rounded-full" style={{ background: match.color }} /> {match.name}
+            </p>
+          ) : type.trim() ? (
+            <label className="mt-1 flex items-center gap-2 text-xs text-neutral-600">
+              New type · color <input type="color" value={typeColor} onChange={(e) => setTypeColor(e.target.value)} />
+            </label>
+          ) : null}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="text-xs text-neutral-500">
+            Date
+            <input
+              type="date"
+              required
+              value={date}
+              onChange={(e) => {
+                setDate(e.target.value);
+                if (!endDate || endDate < e.target.value) setEndDate(e.target.value);
+              }}
+              className={inputCls}
+            />
+          </label>
+          <label className="text-xs text-neutral-500">
+            Until (optional)
+            <input type="date" value={endDate} min={date} onChange={(e) => setEndDate(e.target.value)} className={inputCls} />
+          </label>
+        </div>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={hasTime} onChange={(e) => setHasTime(e.target.checked)} /> Has a time
+        </label>
+        {hasTime ? (
+          <div className="grid grid-cols-2 gap-2">
+            <input type="time" required value={start} onChange={(e) => setStart(e.target.value)} className={inputCls} />
+            <input type="time" required value={end} onChange={(e) => setEnd(e.target.value)} className={inputCls} />
+          </div>
+        ) : (
+          <p className="text-xs text-neutral-500">Without a time it shows on top of the day, like a note.</p>
+        )}
+        <div className="flex items-center justify-between gap-2">
+          {event ? (
+            <button type="button" onClick={remove} disabled={busy} className="text-sm text-red-600">
+              Delete
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className={btnSecondary}>
+              Cancel
+            </button>
+            <button disabled={busy} className={btnPrimary}>
+              {busy ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      </form>
+    </Modal>
+  );
+}

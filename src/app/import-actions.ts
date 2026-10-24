@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/agenda";
 import { parseBankCsv, parseIcs, type DateOrder } from "@/lib/files";
 import { guessCategory } from "@/lib/parse";
-import { zonedToUtc } from "@/lib/time";
+import { addDays, zonedToUtc } from "@/lib/time";
 
 export type ImportState = { error?: string; message?: string; at?: number };
 
@@ -71,8 +71,16 @@ export async function importCalendar(_prev: ImportState, form: FormData): Promis
 
   const supabase = await createClient();
   const { timezone } = await getSettings(supabase);
-  const { data: existing } = await supabase.from("events").select("title,start_time").eq("source", "import").is("deleted_at", null);
-  const seen = new Set(((existing ?? []) as { title: string; start_time: string }[]).map((e) => `${e.title}|${new Date(e.start_time).toISOString()}`));
+  const { data: existing } = await supabase
+    .from("events")
+    .select("title,start_time,event_date")
+    .eq("source", "import")
+    .is("deleted_at", null);
+  const seen = new Set(
+    ((existing ?? []) as { title: string; start_time: string | null; event_date: string }[]).map((e) =>
+      e.start_time ? `${e.title}|${new Date(e.start_time).toISOString()}` : `${e.title}|day:${e.event_date}`
+    )
+  );
 
   const records: Record<string, unknown>[] = [];
   let skipped = 0;
@@ -84,9 +92,14 @@ export async function importCalendar(_prev: ImportState, form: FormData): Promis
       let start: Date;
       let end: Date;
       if (!ev.start.time) {
+        // All-day events become events without time (metadata of the day)
         if (!includeAllDay) { skipped++; continue; }
-        start = zonedToUtc(ev.start.date, "00:00", timezone);
-        end = zonedToUtc(ev.start.date, "23:59", timezone);
+        const key = `${ev.title}|day:${ev.start.date}`;
+        if (seen.has(key)) { skipped++; continue; }
+        seen.add(key);
+        const last = ev.end?.date && ev.end.date > ev.start.date ? addDays(ev.end.date, -1) : ev.start.date;
+        records.push({ title: ev.title.slice(0, 300), event_date: ev.start.date, end_date: last, start_time: null, end_time: null, source: "import" });
+        continue;
       } else {
         const toDate = (p: NonNullable<typeof ev.end>) =>
           p.utc ? new Date(`${p.date}T${p.time}:00Z`) : zonedToUtc(p.date, p.time ?? "00:00", p.tzid ?? timezone);

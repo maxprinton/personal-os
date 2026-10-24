@@ -32,6 +32,22 @@ export type Occurrence = {
 /** "this_day" = only this occurrence, "forward" = this day and every later week. */
 export type EditScope = "this_day" | "forward";
 
+export type EventType = { id: string; name: string; color: string };
+
+/**
+ * An event: its own layer over the blocks, always with a local date.
+ * start/end are minutes since local midnight of `date` / `end_date`; null = no time (day metadata).
+ */
+export type CalEvent = {
+  id: string;
+  title: string;
+  event_type_id: string | null;
+  date: string;
+  end_date: string;
+  start: number | null;
+  end: number | null;
+};
+
 /** Everything the calendar panel needs for one date range (JSON from /api/calendar). */
 export type CalendarData = {
   from: string;
@@ -42,6 +58,8 @@ export type CalendarData = {
   blockTypes: BlockType[];
   slots: Slot[];
   occurrences: Occurrence[];
+  eventTypes: EventType[];
+  events: CalEvent[];
 };
 
 /** Result of every calendar server action. */

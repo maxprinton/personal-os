@@ -1,7 +1,7 @@
 import type { createClient } from "@/lib/supabase/server";
-import { addDays, utcToLocal, zonedToUtc } from "@/lib/time";
 import { currentUserId, getBlockTypes, getOccurrences } from "@/lib/calendar/model";
-import { spanOn } from "@/lib/calendar/overlap";
+import { getEvents, getEventTypes } from "@/lib/calendar/events";
+import { eventSpanOn, spanOn } from "@/lib/calendar/overlap";
 import type { OccurrenceStatus } from "@/lib/calendar/types";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
@@ -36,6 +36,7 @@ export type AgendaItem = {
   isHabit: boolean;
   blockTypeId?: string; // block only
   status?: OccurrenceStatus; // block only
+  allDay?: boolean; // event without time (metadata of the day)
   fulfilledBy?: string; // legacy (calendar v1)
   fulfills?: string; // legacy (calendar v1)
 };
@@ -74,22 +75,17 @@ export async function getFulfillments(supabase: Supabase, eventIds: string[]) {
 
 /** All blocks (occurrences) and events for one local date, sorted by start time. */
 export async function getAgenda(supabase: Supabase, date: string, tz: string) {
-  const dayStart = zonedToUtc(date, "00:00", tz).toISOString();
-  const dayEnd = zonedToUtc(addDays(date, 1), "00:00", tz).toISOString();
   const userId = await currentUserId(supabase);
+  if (!userId) return [] as AgendaItem[];
 
-  const [types, occurrences, eventsRes] = await Promise.all([
-    userId ? getBlockTypes(supabase, userId) : Promise.resolve([]),
-    userId ? getOccurrences(supabase, userId, date, date) : Promise.resolve([]),
-    supabase
-      .from("events")
-      .select("id,title,start_time,end_time,is_habit")
-      .is("deleted_at", null)
-      .lt("start_time", dayEnd)
-      .gt("end_time", dayStart),
+  const [types, occurrences, events, eventTypes] = await Promise.all([
+    getBlockTypes(supabase, userId, { includeDeleted: true }),
+    getOccurrences(supabase, userId, date, date),
+    getEvents(supabase, userId, date, date, tz),
+    getEventTypes(supabase, userId),
   ]);
-  const events = (eventsRes.data ?? []) as EventRow[];
   const typeById = new Map(types.map((t) => [t.id, t]));
+  const eventColor = new Map(eventTypes.map((t) => [t.id, t.color]));
 
   const items: AgendaItem[] = [];
   for (const o of occurrences) {
@@ -109,23 +105,27 @@ export async function getAgenda(supabase: Supabase, date: string, tz: string) {
     });
   }
   for (const e of events) {
-    const s = utcToLocal(e.start_time, tz);
-    const en = utcToLocal(e.end_time, tz);
+    const span = eventSpanOn(e, date);
+    if (!span) continue;
     items.push({
       kind: "event",
       id: e.id,
       title: e.title,
-      start: s.date < date ? 0 : s.minutes,
-      end: en.date > date ? 1440 : en.minutes,
-      color: null,
-      isHabit: e.is_habit,
+      start: span.start,
+      end: span.end,
+      color: (e.event_type_id && eventColor.get(e.event_type_id)) || null,
+      isHabit: false,
+      allDay: span.allDay,
     });
   }
-  return items.sort((a, b) => a.start - b.start || (a.kind === "event" ? -1 : 1));
+  return items.sort(
+    (a, b) => Number(Boolean(b.allDay)) - Number(Boolean(a.allDay)) || a.start - b.start || (a.kind === "event" ? -1 : 1)
+  );
 }
 
-/** Decide what the banner shows at a given minute of the day. */
-export function whatNow(items: AgendaItem[], nowMin: number) {
+/** Decide what the banner shows at a given minute of the day (events without time are ignored). */
+export function whatNow(all: AgendaItem[], nowMin: number) {
+  const items = all.filter((i) => !i.allDay && i.status !== "free_day");
   const isOpen = (i: AgendaItem) => !(i.kind === "block" && i.fulfilledBy);
   const activeEvent = items.find((i) => i.kind === "event" && i.start <= nowMin && nowMin < i.end);
   const activeBlock = items.find(

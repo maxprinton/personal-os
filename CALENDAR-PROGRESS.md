@@ -26,3 +26,15 @@ Rule for phases 1–9: code only, no tests or builds. Everything is tested in ph
 - **Blocks page** (`/blocks`) rewritten: list of blocks with their slots from today on, rename, color, remove (stops it from today on, past kept).
 - Server: `app/calendar-actions.ts` (createBlock, editOccurrence, removeOccurrence, renameBlockType, setBlockTypeColor, removeBlockType), `app/api/calendar/route.ts` (JSON for a date range), `lib/calendar/edit.ts`, `lib/calendar/load.ts`.
 - Retired: the old block form and the v1 `createBlock/deleteBlock` (they wrote to `time_blocks`).
+
+## Phase 3 — Events as a ghost layer
+
+- New migration `0008_events_layer.sql` (NOT applied): `event_types` (name unique per user, editable color); events get `event_date`/`end_date` (always set; existing events are backfilled in each user's timezone) and `event_type_id`; `start_time`/`end_time` become optional (both or none). A trigger fills the dates for anything that inserts events without them.
+- Calendar: events are a separate layer drawn **on top of the blocks, translucent with a dashed border**, in their type's color. They can overlap blocks and each other (overlapping events sit side by side). Only their title strip is clickable, so the blocks underneath can still be dragged.
+- **Events without time** = metadata of the day: shown as "bubbles" under the day header (click the empty space there to add one). Multi-day events ("Until" date) show on every day, e.g. a hotel stay.
+- New event dialog (title, type with autocomplete — a new name creates the type with a color —, date, optional end date, optional time). "+ Event" in the toolbar; the new-block dialog's "Only this day" option offers "Create an event instead".
+- `/events` page rewritten: upcoming events (60 days) + event types (rename, recolor, remove). Old "fulfills a block" link removed.
+- Today page: events use their type color and dashed border; untimed events listed in the banner; the banner takes the **current block's color** (idea from the LifeOS prototype).
+- Telegram morning summary lists the day's untimed events (📌). `.ics` import: all-day events now come in as events without time (with their real end date).
+- A block with an event on top keeps its habits and tasks (nothing special happens to it).
+- Ideas taken from the LifeOS v3.1 prototype: **live red "taken" preview while dragging** (no overlaps), **Alt + drag = duplicate** (opens the new-block dialog with the same name at the drop time), **auto-scroll** while dragging near the edges, **"Day starts at"** setting (e.g. 6:00, labels show "+1d" after midnight) and **hide days** in week view (⚙ in the calendar toolbar, remembered per browser).

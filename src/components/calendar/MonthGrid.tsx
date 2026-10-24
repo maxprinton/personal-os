@@ -3,7 +3,8 @@
 import { useMemo } from "react";
 import { dateRange, ISO_DAY_SHORT } from "@/lib/time";
 import type { CalendarData } from "@/lib/calendar/types";
-import { textOn } from "@/components/calendar/util";
+import { eventSpanOn } from "@/lib/calendar/overlap";
+import { alpha, textOn } from "@/components/calendar/util";
 
 /** Month overview: small chips per block. Clicking a day opens it in day view. */
 export default function MonthGrid({
@@ -16,6 +17,7 @@ export default function MonthGrid({
   onPickDay: (date: string) => void;
 }) {
   const typeById = useMemo(() => new Map(data.blockTypes.map((t) => [t.id, t])), [data.blockTypes]);
+  const eventColor = useMemo(() => new Map(data.eventTypes.map((t) => [t.id, t.color])), [data.eventTypes]);
   const days = dateRange(data.from, data.to);
   const byDate = useMemo(() => {
     const m = new Map<string, typeof data.occurrences>();
@@ -50,6 +52,21 @@ export default function MonthGrid({
               <span className={`inline-block rounded px-1 ${date === data.today ? "bg-neutral-900 text-white" : ""}`}>
                 {Number(date.slice(8))}
               </span>
+              {data.events
+                .filter((e) => eventSpanOn(e, date))
+                .slice(0, 2)
+                .map((e) => {
+                  const c = (e.event_type_id && eventColor.get(e.event_type_id)) || "#64748b";
+                  return (
+                    <span
+                      key={e.id}
+                      className="block truncate rounded-full border border-dashed px-1"
+                      style={{ borderColor: c, background: alpha(c, 0.12) }}
+                    >
+                      {e.title}
+                    </span>
+                  );
+                })}
               {list.slice(0, 3).map((o) => {
                 const t = typeById.get(o.block_type_id);
                 const color = t?.color ?? "#6366f1";

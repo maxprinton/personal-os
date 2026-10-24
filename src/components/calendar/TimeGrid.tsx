@@ -1,18 +1,26 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { durationOf, spanOn } from "@/lib/calendar/overlap";
-import type { CalendarData, Occurrence } from "@/lib/calendar/types";
+import { addDays, daysBetween, minutesToTime, timeToMinutes } from "@/lib/time";
+import { assignLanes, durationOf, eventSpanOn, findOccurrenceConflict } from "@/lib/calendar/overlap";
+import type { CalendarData, CalEvent, Occurrence } from "@/lib/calendar/types";
 import { alpha, dayLabel, snap, textOn, timeRange } from "@/components/calendar/util";
+
+export type MoveRequest = { id: string; date: string; start: number; end: number; duplicate: boolean };
 
 type Props = {
   days: string[];
   data: CalendarData;
   hourHeight: number;
+  /** Minutes after midnight where each column starts (e.g. 360 = the day starts at 6:00). */
+  dayStart: number;
   readOnly: boolean;
   onCreate: (date: string, start: number, end: number) => void;
+  onCreateEvent: (date: string) => void;
   onOpenOccurrence: (id: string) => void;
-  onMoveOccurrence: (id: string, date: string, start: number, end: number) => void;
+  onOpenEvent: (id: string) => void;
+  onMoveOccurrence: (req: MoveRequest) => void;
+  onBlocked: (message: string) => void;
   onPickDay?: (date: string) => void;
 };
 
@@ -21,31 +29,49 @@ type Drag = {
   mode: "move" | "resize";
   startX: number;
   startY: number;
-  dayIdx: number;
-  start: number;
+  col: number;
+  top: number; // column minutes (0..1440) of the block top when the drag started
   duration: number;
-  grab: number; // minutes between the block's top and the pointer
+  grab: number;
   moved: boolean;
 };
 
-type Preview = { id: string; dayIdx: number; start: number; end: number };
+type Preview = { id: string; col: number; top: number; bottom: number; conflict: boolean };
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
+const EVENT_GRAY = "#64748b";
 
-function hourLabel(h: number) {
-  if (h === 0) return "";
-  const ap = h < 12 ? "am" : "pm";
-  return `${h % 12 === 0 ? 12 : h % 12}${ap}`;
+/** [a, b) in minutes measured from the column date's midnight. */
+function occAbs(o: Occurrence, colDate: string): [number, number] {
+  const a = daysBetween(colDate, o.date) * 1440 + timeToMinutes(o.start_time);
+  return [a, a + durationOf(o.start_time, o.end_time)];
+}
+
+function eventAbs(e: CalEvent, colDate: string): [number, number] | null {
+  if (e.start === null || e.end === null) return null;
+  return [daysBetween(colDate, e.date) * 1440 + e.start, daysBetween(colDate, e.end_date) * 1440 + e.end];
+}
+
+/** Clip [a, b) to the column window [S, S + 1440) and return column minutes, or null. */
+function clip(a: number, b: number, S: number) {
+  const top = Math.max(a, S) - S;
+  const bottom = Math.min(b, S + 1440) - S;
+  if (bottom <= top) return null;
+  return { top, bottom, cutTop: a < S, cutBottom: b > S + 1440 };
 }
 
 export default function TimeGrid({
   days,
   data,
   hourHeight: H,
+  dayStart: S,
   readOnly,
   onCreate,
+  onCreateEvent,
   onOpenOccurrence,
+  onOpenEvent,
   onMoveOccurrence,
+  onBlocked,
   onPickDay,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -54,28 +80,59 @@ export default function TimeGrid({
   const [preview, setPreview] = useState<Preview | null>(null);
 
   const typeById = useMemo(() => new Map(data.blockTypes.map((t) => [t.id, t])), [data.blockTypes]);
+  const eventColor = useMemo(() => {
+    const m = new Map(data.eventTypes.map((t) => [t.id, t.color]));
+    return (e: CalEvent) => (e.event_type_id ? m.get(e.event_type_id) ?? EVENT_GRAY : EVENT_GRAY);
+  }, [data.eventTypes]);
 
-  // Start scrolled near the current hour (or 7am on other days)
+  /** Column date + column minute -> real date + minute of that date. */
+  const toReal = (col: number, y: number) => {
+    const abs = S + y;
+    return { date: addDays(days[col], Math.floor(abs / 1440)), minute: ((abs % 1440) + 1440) % 1440 };
+  };
+
+  // Start scrolled near the current hour (or 7am)
   const firstDay = days[0];
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const showsToday = days.includes(data.today);
-    const minute = showsToday ? data.nowMinutes - 60 : 7 * 60;
-    el.scrollTop = Math.max(0, (minute / 60) * H);
-    // only when the visible range changes
+    const target = days.includes(data.today) ? data.nowMinutes - 60 : 7 * 60;
+    const y = (((target - S) % 1440) + 1440) % 1440;
+    el.scrollTop = Math.max(0, (y / 60) * H);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firstDay, days.length, H]);
+  }, [firstDay, days.length, H, S]);
 
-  const perDay = useMemo(
+  const blocksPerCol = useMemo(
     () =>
       days.map((date) =>
-        data.occurrences
-          .map((o) => ({ o, span: spanOn(o, date) }))
-          .filter((x): x is { o: Occurrence; span: NonNullable<ReturnType<typeof spanOn>> } => x.span !== null)
+        data.occurrences.flatMap((o) => {
+          const [a, b] = occAbs(o, date);
+          const c = clip(a, b, S);
+          return c ? [{ o, ...c, realStart: a }] : [];
+        })
       ),
-    [days, data.occurrences]
+    [days, data.occurrences, S]
   );
+
+  const eventsPerCol = useMemo(
+    () =>
+      days.map((date) => {
+        const timed = data.events.flatMap((e) => {
+          const abs = eventAbs(e, date);
+          if (!abs) return [];
+          const c = clip(abs[0], abs[1], S);
+          return c ? [{ e, start: c.top, end: c.bottom }] : [];
+        });
+        return assignLanes(timed);
+      }),
+    [days, data.events, S]
+  );
+
+  const allDayPerCol = useMemo(
+    () => days.map((date) => data.events.filter((e) => eventSpanOn(e, date)?.allDay)),
+    [days, data.events]
+  );
+  const hasAllDay = allDayPerCol.some((l) => l.length > 0);
 
   function columnAt(clientX: number) {
     let best = 0;
@@ -83,27 +140,41 @@ export default function TimeGrid({
     colRefs.current.forEach((el, i) => {
       if (!el) return;
       const r = el.getBoundingClientRect();
-      if (clientX >= r.left && clientX <= r.right) {
+      const d = clientX < r.left ? r.left - clientX : clientX > r.right ? clientX - r.right : 0;
+      if (d < bestDist) {
         best = i;
-        bestDist = 0;
-      } else {
-        const d = Math.min(Math.abs(clientX - r.left), Math.abs(clientX - r.right));
-        if (d < bestDist) {
-          best = i;
-          bestDist = d;
-        }
+        bestDist = d;
       }
     });
     return best;
   }
 
-  function minuteAt(dayIdx: number, clientY: number) {
-    const el = colRefs.current[dayIdx];
+  function minuteAt(col: number, clientY: number) {
+    const el = colRefs.current[col];
     if (!el) return 0;
     return ((clientY - el.getBoundingClientRect().top) / H) * 60;
   }
 
-  function startDrag(e: React.PointerEvent, o: Occurrence, dayIdx: number, start: number, mode: Drag["mode"]) {
+  function autoScroll(clientY: number) {
+    const el = scrollRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    if (clientY < r.top + 28) el.scrollTop -= 14;
+    else if (clientY > r.bottom - 28) el.scrollTop += 14;
+  }
+
+  function conflictFor(id: string, col: number, top: number, bottom: number) {
+    const { date, minute } = toReal(col, top);
+    return Boolean(
+      findOccurrenceConflict(
+        { date, start_time: minutesToTime(minute), end_time: minutesToTime(minute + (bottom - top)) },
+        data.occurrences,
+        new Set([id])
+      )
+    );
+  }
+
+  function startDrag(e: React.PointerEvent, o: Occurrence, col: number, top: number, mode: Drag["mode"]) {
     if (readOnly || e.button !== 0) return;
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -112,10 +183,10 @@ export default function TimeGrid({
       mode,
       startX: e.clientX,
       startY: e.clientY,
-      dayIdx,
-      start,
+      col,
+      top,
       duration: durationOf(o.start_time, o.end_time),
-      grab: minuteAt(dayIdx, e.clientY) - start,
+      grab: minuteAt(col, e.clientY) - top,
       moved: false,
     };
   }
@@ -125,13 +196,15 @@ export default function TimeGrid({
     if (!d) return;
     if (!d.moved && Math.abs(e.clientX - d.startX) + Math.abs(e.clientY - d.startY) < 5) return;
     d.moved = true;
+    autoScroll(e.clientY);
     if (d.mode === "move") {
-      const dayIdx = columnAt(e.clientX);
-      const start = Math.min(Math.max(0, snap(minuteAt(dayIdx, e.clientY) - d.grab)), 1440 - 15);
-      setPreview({ id: d.id, dayIdx, start, end: start + d.duration });
+      const col = columnAt(e.clientX);
+      const top = Math.min(Math.max(0, snap(minuteAt(col, e.clientY) - d.grab)), 1440 - 15);
+      const bottom = top + d.duration;
+      setPreview({ id: d.id, col, top, bottom, conflict: !e.altKey && conflictFor(d.id, col, top, bottom) });
     } else {
-      const end = Math.max(d.start + 15, Math.min(1440, snap(minuteAt(d.dayIdx, e.clientY))));
-      setPreview({ id: d.id, dayIdx: d.dayIdx, start: d.start, end });
+      const bottom = Math.max(d.top + 15, Math.min(d.top + 1440 - 5, snap(minuteAt(d.col, e.clientY))));
+      setPreview({ id: d.id, col: d.col, top: d.top, bottom, conflict: conflictFor(d.id, d.col, d.top, bottom) });
     }
   }
 
@@ -146,80 +219,135 @@ export default function TimeGrid({
       onOpenOccurrence(d.id);
       return;
     }
-    if (p) onMoveOccurrence(d.id, days[p.dayIdx], p.start, p.end);
+    if (!p) return;
+    const duplicate = d.mode === "move" && e.altKey;
+    if (p.conflict && !duplicate) {
+      onBlocked("That time is taken: blocks can't overlap.");
+      return;
+    }
+    const { date, minute } = toReal(p.col, p.top);
+    onMoveOccurrence({ id: d.id, date, start: minute, end: minute + (p.bottom - p.top), duplicate });
   }
 
-  function clickEmpty(e: React.MouseEvent<HTMLDivElement>, dayIdx: number) {
+  function clickEmpty(e: React.MouseEvent<HTMLDivElement>, col: number) {
     if (readOnly || e.target !== e.currentTarget) return;
-    const start = Math.min(snap(minuteAt(dayIdx, e.clientY) - 15, 30), 1440 - 30);
-    onCreate(days[dayIdx], Math.max(0, start), Math.min(1440, Math.max(0, start) + 60));
+    const y = Math.min(Math.max(0, snap(minuteAt(col, e.clientY) - 15, 30)), 1440 - 30);
+    const { date, minute } = toReal(col, y);
+    onCreate(date, minute, minute + 60);
   }
 
   const lines = `repeating-linear-gradient(to bottom, #e5e5e5 0, #e5e5e5 1px, transparent 1px, transparent ${H}px)`;
+  // Where "now" is drawn: today's column, or yesterday's when the day starts later than now
+  const nowCol = data.nowMinutes >= S ? data.today : addDays(data.today, -1);
+  const nowY = data.nowMinutes >= S ? data.nowMinutes - S : data.nowMinutes + 1440 - S;
 
   return (
     <div className="flex h-full min-h-0 flex-col text-xs">
-      <div className="flex border-b border-neutral-200 pr-[var(--sbw,0px)]">
+      <div className="flex border-b border-neutral-200">
         <div className="w-12 shrink-0" />
-        {days.map((date) => (
-          <button
-            key={date}
-            type="button"
-            onClick={() => onPickDay?.(date)}
-            className={`flex-1 truncate border-l border-neutral-100 px-1 py-1 text-center ${
-              date === data.today ? "font-semibold text-neutral-900" : "text-neutral-500"
-            }`}
-          >
-            {dayLabel(date)}
-          </button>
+        {days.map((date, col) => (
+          <div key={date} className="min-w-0 flex-1 border-l border-neutral-100">
+            <button
+              type="button"
+              onClick={() => onPickDay?.(date)}
+              className={`block w-full truncate px-1 py-1 text-center ${
+                date === data.today ? "font-semibold text-neutral-900" : "text-neutral-500"
+              }`}
+            >
+              {dayLabel(date)}
+            </button>
+            {(hasAllDay || !readOnly) && (
+              <div
+                className={`flex min-h-5 flex-col gap-0.5 px-0.5 pb-1 ${readOnly ? "" : "cursor-cell"}`}
+                onClick={(e) => {
+                  if (!readOnly && e.target === e.currentTarget) onCreateEvent(date);
+                }}
+                title={readOnly ? undefined : "Click to add an event without time"}
+              >
+                {allDayPerCol[col].map((ev) => {
+                  const c = eventColor(ev);
+                  return (
+                    <button
+                      key={ev.id}
+                      type="button"
+                      onClick={() => onOpenEvent(ev.id)}
+                      className="truncate rounded-full border px-1.5 text-left text-[11px]"
+                      style={{ background: alpha(c, 0.15), borderColor: c, color: "#262626" }}
+                      title={ev.title}
+                    >
+                      {ev.title}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         ))}
       </div>
 
       <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto">
         <div className="relative flex" style={{ height: 24 * H }}>
           <div className="relative w-12 shrink-0">
-            {HOURS.map((h) => (
-              <span key={h} className="absolute right-1 -translate-y-1/2 text-[10px] text-neutral-400" style={{ top: h * H }}>
-                {hourLabel(h)}
-              </span>
-            ))}
+            {HOURS.map((h) => {
+              const abs = S + h * 60;
+              const hour = Math.floor(abs / 60) % 24;
+              const next = abs >= 1440;
+              return (
+                <span
+                  key={h}
+                  className={`absolute right-1 -translate-y-1/2 text-[10px] ${next ? "text-neutral-500" : "text-neutral-400"}`}
+                  style={{ top: h * H }}
+                >
+                  {h === 0 && S === 0 ? "" : `${hour % 12 === 0 ? 12 : hour % 12}${hour < 12 ? "am" : "pm"}${next ? " +1d" : ""}`}
+                </span>
+              );
+            })}
           </div>
 
-          {days.map((date, dayIdx) => (
+          {days.map((date, col) => (
             <div
               key={date}
               ref={(el) => {
-                colRefs.current[dayIdx] = el;
+                colRefs.current[col] = el;
               }}
-              onClick={(e) => clickEmpty(e, dayIdx)}
-              className={`relative flex-1 border-l border-neutral-100 ${readOnly ? "" : "cursor-cell"} ${
+              onClick={(e) => clickEmpty(e, col)}
+              className={`relative min-w-0 flex-1 border-l border-neutral-100 ${readOnly ? "" : "cursor-cell"} ${
                 date < data.today ? "bg-neutral-50/60" : ""
               }`}
               style={{ backgroundImage: lines }}
             >
-              {perDay[dayIdx].map(({ o, span }) => {
+              {S > 0 && (
+                <div
+                  className="pointer-events-none absolute inset-x-0 border-t border-dashed border-neutral-300"
+                  style={{ top: ((1440 - S) / 60) * H }}
+                />
+              )}
+
+              {/* Blocks */}
+              {blocksPerCol[col].map(({ o, top, bottom, cutTop, cutBottom }) => {
                 const type = typeById.get(o.block_type_id);
                 const color = type?.color ?? "#6366f1";
                 const dragging = preview?.id === o.id;
-                const top = (span.start / 60) * H;
-                const height = Math.max(((span.end - span.start) / 60) * H, 14);
+                const height = Math.max(((bottom - top) / 60) * H, 14);
                 const muted = o.status === "free_day";
+                const realStart = timeToMinutes(o.start_time);
+                const realEnd = realStart + durationOf(o.start_time, o.end_time);
                 return (
                   <div
                     key={`${o.id}-${date}`}
-                    onPointerDown={(e) => !span.continued && startDrag(e, o, dayIdx, span.start, "move")}
+                    onPointerDown={(e) => !cutTop && startDrag(e, o, col, top, "move")}
                     onPointerMove={moveDrag}
                     onPointerUp={endDrag}
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (readOnly || span.continued) onOpenOccurrence(o.id);
+                      if (readOnly || cutTop) onOpenOccurrence(o.id);
                     }}
-                    title={`${type?.name ?? "Block"} · ${timeRange(span.start, span.end)}`}
+                    title={`${type?.name ?? "Block"} · ${timeRange(realStart, realEnd)}`}
                     className={`absolute inset-x-0.5 overflow-hidden rounded-md px-1.5 py-0.5 shadow-sm ${
-                      readOnly || span.continued ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
+                      readOnly || cutTop ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
                     } ${dragging ? "opacity-40" : ""}`}
                     style={{
-                      top,
+                      top: (top / 60) * H,
                       height,
                       background: muted ? alpha(color, 0.18) : color,
                       color: muted ? "#525252" : textOn(color),
@@ -233,14 +361,14 @@ export default function TimeGrid({
                     </p>
                     {height >= 28 && (
                       <p className="truncate leading-tight opacity-80">
-                        {span.continued ? "…" : ""}
-                        {timeRange(span.start, span.end)}
-                        {span.continues ? "…" : ""}
+                        {cutTop ? "…" : ""}
+                        {timeRange(realStart, realEnd)}
+                        {cutBottom ? "…" : ""}
                       </p>
                     )}
-                    {!readOnly && !span.continued && !span.continues && (
+                    {!readOnly && !cutTop && !cutBottom && (
                       <div
-                        onPointerDown={(e) => startDrag(e, o, dayIdx, span.start, "resize")}
+                        onPointerDown={(e) => startDrag(e, o, col, top, "resize")}
                         onPointerMove={moveDrag}
                         onPointerUp={endDrag}
                         className="absolute inset-x-0 bottom-0 h-1.5 cursor-ns-resize"
@@ -250,22 +378,62 @@ export default function TimeGrid({
                 );
               })}
 
-              {preview && preview.dayIdx === dayIdx && (
+              {/* Events: a translucent, dashed layer on top. Only the title strip is clickable,
+                  so the blocks underneath stay easy to grab. */}
+              {eventsPerCol[col].placed.map(({ item, lane }) => {
+                const { e, start, end } = item;
+                const c = eventColor(e);
+                const lanes = eventsPerCol[col].lanes;
+                return (
+                  <div
+                    key={`ev-${e.id}-${date}`}
+                    className="pointer-events-none absolute z-20 rounded-md border-2 border-dashed"
+                    style={{
+                      top: (start / 60) * H,
+                      height: Math.max(((end - start) / 60) * H, 16),
+                      left: `calc(${(lane / lanes) * 100}% + 2px)`,
+                      width: `calc(${100 / lanes}% - 4px)`,
+                      background: alpha(c, 0.14),
+                      borderColor: c,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        onOpenEvent(e.id);
+                      }}
+                      className="pointer-events-auto block max-w-full truncate rounded-br px-1 text-left text-[11px] font-medium"
+                      style={{ background: alpha(c, 0.85), color: textOn(c) }}
+                      title={e.title}
+                    >
+                      {e.title}
+                    </button>
+                  </div>
+                );
+              })}
+
+              {preview && preview.col === col && (
                 <div
-                  className="pointer-events-none absolute inset-x-0.5 rounded-md border-2 border-dashed border-neutral-900 bg-white/60 px-1.5 py-0.5"
+                  className={`pointer-events-none absolute inset-x-0.5 z-30 rounded-md border-2 border-dashed px-1.5 py-0.5 ${
+                    preview.conflict ? "border-red-600 bg-red-100/80 text-red-700" : "border-neutral-900 bg-white/70"
+                  }`}
                   style={{
-                    top: (preview.start / 60) * H,
-                    height: Math.max(((Math.min(preview.end, 1440) - preview.start) / 60) * H, 14),
+                    top: (preview.top / 60) * H,
+                    height: Math.max(((Math.min(preview.bottom, 1440) - preview.top) / 60) * H, 14),
                   }}
                 >
-                  <p className="truncate font-medium">{timeRange(preview.start, preview.end)}</p>
+                  <p className="truncate font-medium">
+                    {timeRange(toReal(col, preview.top).minute, toReal(col, preview.top).minute + preview.bottom - preview.top)}
+                    {preview.conflict ? " · taken" : ""}
+                  </p>
                 </div>
               )}
 
-              {date === data.today && (
+              {date === nowCol && (
                 <div
                   className="pointer-events-none absolute inset-x-0 z-10 border-t-2 border-red-500"
-                  style={{ top: (data.nowMinutes / 60) * H }}
+                  style={{ top: (nowY / 60) * H }}
                 />
               )}
             </div>

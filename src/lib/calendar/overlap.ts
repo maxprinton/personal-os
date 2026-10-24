@@ -1,6 +1,6 @@
 // Pure time-span math for the calendar (safe in the browser).
 import { addDays, daysBetween, timeToMinutes } from "@/lib/time";
-import type { Occurrence, Slot } from "@/lib/calendar/types";
+import type { CalEvent, Occurrence, Slot } from "@/lib/calendar/types";
 
 const WEEK = 7 * 1440;
 
@@ -69,4 +69,29 @@ export function findOccurrenceConflict(
     const b = absInterval(candidate.date, o.date, o.start_time, o.end_time);
     return a[0] < b[1] && b[0] < a[1];
   });
+}
+
+/** The part of an event on a given date (minutes), or null. Events without time are allDay. */
+export function eventSpanOn(e: CalEvent, date: string) {
+  if (date < e.date || date > e.end_date) return null;
+  if (e.start === null || e.end === null) return { allDay: true as const, start: 0, end: 1440 };
+  const start = date === e.date ? e.start : 0;
+  const end = date === e.end_date ? e.end : 1440;
+  if (end <= start) return null;
+  return { allDay: false as const, start, end };
+}
+
+/** Side-by-side lanes for overlapping timed items (events may overlap each other). */
+export function assignLanes<T extends { start: number; end: number }>(items: T[]) {
+  const sorted = items.slice().sort((a, b) => a.start - b.start || b.end - a.end);
+  const laneEnds: number[] = [];
+  const placed = sorted.map((item) => {
+    let lane = laneEnds.findIndex((end) => end <= item.start);
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(item.end);
+    } else laneEnds[lane] = item.end;
+    return { item, lane };
+  });
+  return { placed, lanes: Math.max(1, laneEnds.length) };
 }

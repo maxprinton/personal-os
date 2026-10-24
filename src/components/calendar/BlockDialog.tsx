@@ -14,6 +14,7 @@ export default function BlockDialog({
   date,
   start,
   end,
+  initialName = "",
   blockTypes,
   run,
   onClose,
@@ -22,13 +23,14 @@ export default function BlockDialog({
   date: string;
   start: number;
   end: number;
+  initialName?: string;
   blockTypes: BlockType[];
   run: (fn: () => Promise<CalResult>) => Promise<boolean>;
   onClose: () => void;
   onMakeEvent?: (date: string, start: string, end: string, title: string) => void;
 }) {
   const live = useMemo(() => blockTypes.filter((t) => !t.removed), [blockTypes]);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(initialName);
   const [color, setColor] = useState("#6366f1");
   const [day, setDay] = useState(date);
   const [from, setFrom] = useState(minutesToTime(start));
@@ -53,7 +55,7 @@ export default function BlockDialog({
   }
 
   return (
-    <Modal title="New block" onClose={onClose}>
+    <Modal title={initialName ? `Duplicate "${initialName}"` : "New block"} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3 text-sm">
         <div>
           <input
