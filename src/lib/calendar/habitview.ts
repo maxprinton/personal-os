@@ -16,9 +16,12 @@ export function habitsForOccurrence(
   const marks = checks.filter((c) => c.occurrence_id === occ.id);
   const byId = new Map(habits.map((h) => [h.id, h]));
   if (occ.date < today) {
-    return marks
-      .map((c) => ({ habit: byId.get(c.habit_id), state: c.state }))
-      .filter((x): x is OccurrenceHabit => Boolean(x.habit));
+    const out: OccurrenceHabit[] = [];
+    for (const c of marks) {
+      const habit = byId.get(c.habit_id);
+      if (habit) out.push({ habit, state: c.state });
+    }
+    return out;
   }
   const current = habits.filter(
     (h) => !h.removed && h.block_type_id === occ.block_type_id && h.active_from <= occ.date
