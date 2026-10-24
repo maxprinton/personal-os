@@ -6,6 +6,7 @@ import { formatDateLong, formatMinutes, localNow, timeToMinutes, ISO_DAY_SHORT }
 import Nav from "@/components/Nav";
 import BlockTypeCard from "@/components/BlockTypeCard";
 import type { Slot } from "@/lib/calendar/types";
+import { isMobileRequest } from "@/lib/device";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,7 @@ export default async function BlocksPage() {
   if (!userId) return null;
   const today = localNow(await userTimezone(supabase, userId)).date;
   const [types, slots] = await Promise.all([getBlockTypes(supabase, userId), getSlots(supabase, userId, today)]);
+  const mobile = await isMobileRequest();
 
   return (
     <>
@@ -44,6 +46,7 @@ export default async function BlocksPage() {
               name={t.name}
               color={t.color}
               slots={slots.filter((s) => s.block_type_id === t.id).map((s) => describe(s, today))}
+              readOnly={mobile}
             />
           ))}
           {types.length === 0 && (

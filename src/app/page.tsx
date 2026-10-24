@@ -16,6 +16,7 @@ import MorningRitual from "@/components/MorningRitual";
 import { getRitual, getTaskPlaces } from "@/lib/calendar/tasks";
 import { getDuePayments, getFinanceOptions } from "@/lib/calendar/payments";
 import { PaymentDraft } from "@/components/PaymentForms";
+import { isMobileRequest } from "@/lib/device";
 import MetricWidget from "@/components/MetricWidget";
 import QuickCapture from "@/components/QuickCapture";
 import { markInsightRead } from "@/app/settings-actions";
@@ -35,6 +36,7 @@ export default async function CommandCenter() {
   await supabase.rpc("rollover_my_tasks");
   const { timezone } = await getSettings(supabase);
   const userId = await currentUserId(supabase);
+  const mobile = await isMobileRequest();
   if (userId) await runMaintenance(supabase, userId, timezone);
   const now = localNow(timezone);
   const items = await getAgenda(supabase, now.date, timezone);
@@ -132,7 +134,7 @@ export default async function CommandCenter() {
 
         <QuickCapture />
 
-        {ritual && !ritual.seen && (ritual.items.length > 0 || ritual.unassigned > 0) && <MorningRitual ritual={ritual} />}
+        {ritual && !ritual.seen && (ritual.items.length > 0 || ritual.unassigned > 0) && <MorningRitual ritual={ritual} readOnly={mobile} />}
 
         {duePayments.length > 0 && financeOptions && (
           <section className="space-y-3 rounded-xl border border-green-200 bg-green-50 p-4">
@@ -146,6 +148,7 @@ export default async function CommandCenter() {
                   template={p.template}
                   options={financeOptions}
                   today={now.date}
+                  readOnly={mobile}
                 />
               </div>
             ))}
@@ -228,7 +231,7 @@ export default async function CommandCenter() {
                       {h.blockName} {formatMinutes(Number(t.start.slice(0, 2)) * 60 + Number(t.start.slice(3, 5)))} · streak {h.current} · best {h.best}
                     </p>
                   </div>
-                  <HabitControls habitId={h.habit.id} occurrenceId={t.occurrenceId} state={t.state} />
+                  <HabitControls habitId={h.habit.id} occurrenceId={t.occurrenceId} state={t.state} readOnly={mobile} />
                 </li>
               ))}
             </ul>

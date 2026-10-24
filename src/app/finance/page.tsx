@@ -26,6 +26,7 @@ import { currentUserId } from "@/lib/calendar/model";
 import { getDuePayments, getPaymentTemplates } from "@/lib/calendar/payments";
 import { describeRepeat } from "@/lib/calendar/recurrence";
 import { addDays } from "@/lib/time";
+import { isMobileRequest } from "@/lib/device";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,7 @@ export default async function FinancePage() {
   const today = localNow(timezone).date;
   const { accounts, categories, budgets, snapshots, txns } = await getFinance(supabase, timezone);
   const userId = await currentUserId(supabase);
+  const mobile = await isMobileRequest();
   const templates = userId ? await getPaymentTemplates(supabase, userId) : [];
   const due = userId ? await getDuePayments(supabase, userId, today) : [];
   const { data: upcomingData } = await supabase
@@ -117,7 +119,7 @@ export default async function FinancePage() {
           </p>
           {due.map((p) => (
             <div key={p.eventId} className="rounded-lg border border-green-200 bg-green-50 p-3">
-              <PaymentDraft eventId={p.eventId} title={p.title} date={p.date} template={p.template} options={payOptions} today={today} />
+              <PaymentDraft eventId={p.eventId} title={p.title} date={p.date} template={p.template} options={payOptions} today={today} readOnly={mobile} />
             </div>
           ))}
           {upcoming.length > 0 && (
@@ -145,12 +147,12 @@ export default async function FinancePage() {
                       {t.type === "income" ? " · income" : ""}
                     </span>
                   </span>
-                  <StopPaymentButton id={t.id} name={t.name} />
+                  {!mobile && <StopPaymentButton id={t.id} name={t.name} />}
                 </li>
               ))}
             </ul>
           )}
-          <PaymentForm options={payOptions} date={today} />
+          {!mobile && <PaymentForm options={payOptions} date={today} />}
         </section>
 
         <section className="space-y-3">

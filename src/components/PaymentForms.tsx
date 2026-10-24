@@ -146,6 +146,7 @@ export function PaymentDraft({
   today,
   run,
   onDone,
+  readOnly = false,
 }: {
   eventId: string;
   title: string;
@@ -155,6 +156,7 @@ export function PaymentDraft({
   today: string;
   run?: (fn: () => Promise<CalResult>) => Promise<boolean>;
   onDone?: () => void;
+  readOnly?: boolean;
 }) {
   const { go, msg, busy } = useRun(run);
   const [amount, setAmount] = useState(template?.expected_amount ? String(template.expected_amount) : "");
@@ -163,6 +165,13 @@ export function PaymentDraft({
   const [on, setOn] = useState(date > today ? today : date);
   const kind = template?.type ?? "expense";
 
+  if (readOnly) {
+    return (
+      <p className="text-sm">
+        💳 {title} <span className="text-neutral-500">· due {date}{template?.expected_amount ? ` · expected $${template.expected_amount.toFixed(2)}` : ""} · confirm it on the computer</span>
+      </p>
+    );
+  }
   if (date > today) {
     return (
       <p className="text-sm text-neutral-500">

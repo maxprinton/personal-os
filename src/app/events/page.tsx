@@ -5,6 +5,7 @@ import { getEvents, getEventTypes } from "@/lib/calendar/events";
 import { addDays, localNow } from "@/lib/time";
 import Nav from "@/components/Nav";
 import EventsPanel from "@/components/EventsPanel";
+import { isMobileRequest } from "@/lib/device";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export default async function EventsPage() {
             day. Next 60 days.
           </p>
         </div>
-        <EventsPanel events={events} eventTypes={eventTypes} today={today} />
+        <EventsPanel events={events} eventTypes={eventTypes} today={today} readOnly={await isMobileRequest()} />
       </main>
     </>
   );

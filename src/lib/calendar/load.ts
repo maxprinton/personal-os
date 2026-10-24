@@ -14,7 +14,13 @@ export async function userTimezone(sb: SupabaseClient, userId: string) {
   return (data?.timezone as string | undefined) ?? "America/Guayaquil";
 }
 
-export async function loadCalendar(sb: SupabaseClient, userId: string, from: string, to: string): Promise<CalendarData> {
+export async function loadCalendar(
+  sb: SupabaseClient,
+  userId: string,
+  from: string,
+  to: string,
+  opts: { readOnly?: boolean } = {}
+): Promise<CalendarData> {
   const timezone = await userTimezone(sb, userId);
   const { data: s } = await sb.from("user_settings").select("past_edit_until").eq("user_id", userId).maybeSingle();
   const until = (s?.past_edit_until as string | null | undefined) ?? null;
@@ -51,5 +57,6 @@ export async function loadCalendar(sb: SupabaseClient, userId: string, from: str
     freeDays: freeDays as CalendarData["freeDays"],
     finance,
     pastEditUntil,
+    readOnly: Boolean(opts.readOnly),
   };
 }

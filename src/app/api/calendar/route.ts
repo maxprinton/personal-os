@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { loadCalendar } from "@/lib/calendar/load";
 import { daysBetween, isDate } from "@/lib/time";
+import { isMobileUA } from "@/lib/device";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,7 @@ export async function GET(req: Request) {
   if (!isDate(from) || !isDate(to) || to < from || daysBetween(from, to) > 62) {
     return NextResponse.json({ error: "Invalid range" }, { status: 400 });
   }
-  const data = await loadCalendar(supabase, user.id, from, to);
+  const mobile = req.headers.get("sec-ch-ua-mobile") === "?1" || isMobileUA(req.headers.get("user-agent"));
+  const data = await loadCalendar(supabase, user.id, from, to, { readOnly: mobile });
   return NextResponse.json(data, { headers: { "cache-control": "no-store" } });
 }

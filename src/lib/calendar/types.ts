@@ -131,6 +131,8 @@ export type CalendarData = {
   finance: FinanceOptions;
   /** ISO time until which past days can be edited (null = the past is locked). */
   pastEditUntil: string | null;
+  /** True on a phone: view only (no dragging, no editing). */
+  readOnly: boolean;
 };
 
 /** Result of every calendar server action. */

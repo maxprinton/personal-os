@@ -85,3 +85,11 @@ Rule for phases 1–9: code only, no tests or builds. Everything is tested in ph
 - Changes to a past day **affect only that day** and never carry forward ("From today on" is not offered for past days; a new block on a past day can only be "Only this day"). Editing past habit marks recalculates that block's status.
 - Marking past days as free afterwards removes their automatic "missed" marks, so those streaks pause instead of breaking.
 - Telegram can't edit the past (its buttons only work for today).
+
+## Phase 9 — Phone = read-only
+
+- `src/lib/device.ts`: detects phones/tablets from the browser (User-Agent / `Sec-CH-UA-Mobile`).
+- **Enforced on the server**: every calendar action (blocks, events, habits marks, task placement, free days, payments, edit-the-past) refuses requests from a phone with a clear message. Nothing can be dragged or moved there even by accident.
+- **UI on the phone**: the calendar opens in **day view** (week available), no dragging (normal scrolling), no "+ Block / + Event / Free day" buttons, dialogs show details only, and a small "View only on the phone" line. Today, Habits, Blocks, Events and Finance → Scheduled payments show their information without edit buttons (morning ritual and payment drafts say "do it on the computer").
+- On the go, **Telegram** remains the way to mark habits and complete tasks (buttons only).
+- Not changed on the phone (decide in phase 10 if you want them read-only too): Quick capture (offline PWA capture), Tasks page buttons, Notes, Finance transactions/accounts/budgets forms, Settings.

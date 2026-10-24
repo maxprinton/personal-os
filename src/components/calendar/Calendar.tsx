@@ -67,7 +67,16 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
   // When the day starts after midnight, the last column also shows the next morning
   const fetchTo = dayStart > 0 && view !== "month" ? addDays(to, 1) : to;
   const { data, error, loading, reload } = useCalendarData(from, fetchTo, mounted);
-  const readOnly = false;
+  // Phones are view-only (the server says so from the browser; small touch screens too, as a backup)
+  const [touchPhone, setTouchPhone] = useState(false);
+  useEffect(() => {
+    try {
+      setTouchPhone(window.matchMedia("(max-width: 640px) and (pointer: coarse)").matches);
+    } catch {
+      setTouchPhone(false);
+    }
+  }, []);
+  const readOnly = Boolean(data?.readOnly) || touchPhone;
 
   // The server knows the user's real "today" (their timezone); follow it once
   useEffect(() => {
@@ -253,7 +262,12 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
       </div>
 
       {error && !data && <p className="p-4 text-sm text-red-600">{error}</p>}
-      {data?.pastEditUntil && (
+      {readOnly && data && (
+        <div className="border-b border-neutral-200 bg-neutral-50 px-3 py-1 text-xs text-neutral-500">
+          View only on the phone. Edit on the computer; mark habits and complete tasks from Telegram.
+        </div>
+      )}
+      {!readOnly && data?.pastEditUntil && (
         <div className="flex items-center gap-2 border-b border-violet-200 bg-violet-50 px-3 py-1 text-xs text-violet-900">
           ✎ Editing the past until{" "}
           {new Date(data.pastEditUntil).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: data.timezone })}

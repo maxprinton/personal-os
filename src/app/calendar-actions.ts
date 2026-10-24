@@ -23,9 +23,15 @@ import { autoPlaceTasks, countMove, getTask, nextOccurrenceAfter } from "@/lib/c
 import { applyFreeDays, undoFreeDays } from "@/lib/calendar/freedays";
 import { ensurePaymentEvents } from "@/lib/calendar/payments";
 import type { RepeatUnit } from "@/lib/calendar/recurrence";
+import { isMobileRequest, READ_ONLY_MESSAGE } from "@/lib/device";
+
+/** Thrown when an edit comes from a phone (the calendar is read-only there). */
+class ReadOnlyError extends Error {}
 import type { CalResult, EditScope, FreeDayPolicy, HabitState } from "@/lib/calendar/types";
 
 async function ctx() {
+  // Every action in this file edits the calendar: never from a phone
+  if (await isMobileRequest()) throw new ReadOnlyError(READ_ONLY_MESSAGE);
   const sb = await createClient();
   const {
     data: { user },
@@ -90,6 +96,7 @@ function done(): CalResult {
 }
 
 function fail(e: unknown): CalResult {
+  if (e instanceof ReadOnlyError) return { error: e.message, code: "READ_ONLY" };
   return { error: e instanceof Error ? e.message : "Something went wrong." };
 }
 

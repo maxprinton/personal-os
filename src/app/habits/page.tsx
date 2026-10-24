@@ -13,6 +13,7 @@ import HabitControls from "@/components/HabitControls";
 import { HabitEditRow, NewHabitForm } from "@/components/HabitEditors";
 import MetricWidget from "@/components/MetricWidget";
 import MetricForm from "@/components/MetricForm";
+import { isMobileRequest } from "@/lib/device";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,17 @@ const CELL: Record<string, string> = {
   missed: "bg-red-500",
 };
 
-function HabitCard({ h, blocks, today }: { h: HabitSummary; blocks: { id: string; name: string }[]; today: string }) {
+function HabitCard({
+  h,
+  blocks,
+  today,
+  readOnly,
+}: {
+  h: HabitSummary;
+  blocks: { id: string; name: string }[];
+  today: string;
+  readOnly: boolean;
+}) {
   return (
     <li className="space-y-3 rounded-lg border border-neutral-200 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -63,14 +74,14 @@ function HabitCard({ h, blocks, today }: { h: HabitSummary; blocks: { id: string
           {h.today.map((t) => (
             <li key={t.occurrenceId} className="flex flex-wrap items-center gap-2 text-sm">
               <span className="text-neutral-500">Today {formatMinutes(timeToMinutes(t.start))}</span>
-              <HabitControls habitId={h.habit.id} occurrenceId={t.occurrenceId} state={t.state} />
+              <HabitControls habitId={h.habit.id} occurrenceId={t.occurrenceId} state={t.state} readOnly={readOnly} />
             </li>
           ))}
         </ul>
       ) : (
         <p className="text-sm text-neutral-400">{h.blockName ? `${h.blockName} is not on the calendar today.` : "Not in a block yet."}</p>
       )}
-      <HabitEditRow id={h.habit.id} name={h.habit.name} blockTypeId={h.habit.block_type_id} blocks={blocks} />
+      {!readOnly && <HabitEditRow id={h.habit.id} name={h.habit.name} blockTypeId={h.habit.block_type_id} blocks={blocks} />}
     </li>
   );
 }
@@ -81,6 +92,7 @@ export default async function HabitsPage() {
   if (!userId) return null;
   const timezone = await userTimezone(supabase, userId);
   await runMaintenance(supabase, userId, timezone);
+  const mobile = await isMobileRequest();
   const today = localNow(timezone).date;
   const [habits, types, { metrics, values }] = await Promise.all([
     getHabitSummaries(supabase, userId, today),
@@ -107,7 +119,11 @@ export default async function HabitsPage() {
               Free days pause streaks.
             </p>
           </div>
-          <NewHabitForm blocks={blocks} />
+          {mobile ? (
+            <p className="text-xs text-neutral-500">View only on the phone. Mark habits from Telegram; edit them on the computer.</p>
+          ) : (
+            <NewHabitForm blocks={blocks} />
+          )}
           {habits.length === 0 && (
             <p className="text-sm text-neutral-500">
               No habits yet. Add one above, or open a block in the <Link href="/calendar" className="underline">calendar</Link>.
@@ -122,7 +138,7 @@ export default async function HabitsPage() {
               </h2>
               <ul className="space-y-3">
                 {g.items.map((h) => (
-                  <HabitCard key={h.habit.id} h={h} blocks={blocks} today={today} />
+                  <HabitCard key={h.habit.id} h={h} blocks={blocks} today={today} readOnly={mobile} />
                 ))}
               </ul>
             </div>
