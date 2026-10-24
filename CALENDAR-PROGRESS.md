@@ -93,3 +93,64 @@ Rule for phases 1–9: code only, no tests or builds. Everything is tested in ph
 - **UI on the phone**: the calendar opens in **day view** (week available), no dragging (normal scrolling), no "+ Block / + Event / Free day" buttons, dialogs show details only, and a small "View only on the phone" line. Today, Habits, Blocks, Events and Finance → Scheduled payments show their information without edit buttons (morning ritual and payment drafts say "do it on the computer").
 - On the go, **Telegram** remains the way to mark habits and complete tasks (buttons only).
 - Not changed on the phone (decide in phase 10 if you want them read-only too): Quick capture (offline PWA capture), Tasks page buttons, Notes, Finance transactions/accounts/budgets forms, Settings.
+
+---
+
+## Steps only you can do (before / during phase 10)
+
+**1. Back up first.** In the live app: Settings → Export (ZIP). Keep it.
+
+**2. Apply the migrations in Supabase** (SQL Editor), **one file per run, in this order**, and check each says "Success":
+
+| # | File | Notes |
+|---|------|-------|
+| 1 | `0006_calendar_enums.sql` | **Alone**, before 0007 (a new enum value can only be used after it's committed). |
+| 2 | `0007_calendar_model.sql` | Creates block types/slots/occurrences and copies your current blocks. |
+| 3 | `0008_events_layer.sql` | Event types, dates, optional time. |
+| 4 | `0009_habits_in_blocks.sql` | Habits + marks, copies your habit history; rewrites weekly insights. |
+| 5 | `0010_tasks_home_block.sql` | Home blocks, task day log; stops the old silent "move to tomorrow". |
+| 6 | `0011_free_days.sql` | Free days. |
+| 7 | `0012_payments.sql` | Payments as events. |
+| 8 | `0013_past_edit.sql` | Edit-the-past window. |
+
+If the app later says a column "is not in the schema cache", run `notify pgrst, 'reload schema';` once in the SQL Editor.
+All files are written to be safe to run twice. `time_blocks` and `activity_logs` are kept untouched as a backup.
+
+**3. Cron job — nothing new to create.** The existing pg_cron job (every 5 min → `/api/cron/reminders`) now also runs the end-of-day routine for every user. Check it's still active: `select jobid, schedule, active from cron.job;`. The hourly `task-rollover` job can stay (it now only handles "backlog" / "failed" tasks).
+
+**4. Vercel — no new environment variables.** `SUPABASE_SECRET_KEY` must stay set (the cron routine needs it). Telegram webhook: no change.
+
+**5. Settings in the app (after deploy):** Settings → Telegram reminders has a new option "Keep reminding me (11:00 and 16:00) while tasks have no block" (on by default) — review it and press Save once.
+
+**6. Git / publishing.**
+- Your project folder is now **on branch `calendar-v2`** (9 local commits, nothing pushed). `main` is untouched.
+- **Do not run `SUBIR-CAMBIOS.cmd` until phase 10 is finished**: it builds, commits and pushes whatever branch is checked out.
+- Running `npm run dev` on this branch before applying the migrations will show errors (the new tables don't exist yet).
+- To go back to the current version at any time: `git checkout main`. When phase 10 passes: merge `calendar-v2` into `main`, then run `SUBIR-CAMBIOS.cmd`.
+- `.git/stale-locks/` holds lock files git left behind (this session can't delete files in your folder, so I moved them aside). Safe to delete that folder.
+
+**7. Decisions to confirm in phase 10.**
+- Phone read-only currently covers the calendar and everything that edits it (blocks, events, habits, task placement, ritual, free days, payment drafts). Quick capture, the Tasks page buttons, Notes and the Finance forms still work on the phone — tell me if those should be read-only too.
+- Telegram quick capture ("task: …", "spent 12 on lunch") still works, besides the habit/task buttons.
+
+## Phase 10 — what to test (not done yet)
+
+1. `npx tsc --noEmit` and `npm run build` (nothing was compiled during phases 1–9, so expect a few type fixes).
+2. After the migrations: your old blocks appear as block types with weekly slots; old habit streaks look right on /habits.
+3. Calendar: create weekly / several days / one day; reuse a name; overlap refused (and red while dragging); drag + "Only this day" vs "From today on"; resize; Alt+drag duplicate; rename/recolor; day starts at 6:00; hide weekend; month view.
+4. Events: untimed bubbles, multi-day, timed ghosts over blocks, overlapping events side by side, types & colors, .ics import.
+5. Habits: ✓/Skip per occurrence, block twice a day = two marks, 4th skip in a row breaks, missed at end of day, quick ✓ on a block, Telegram evening buttons.
+6. Tasks: home block auto-placement, ritual options, moved counter (+1 end of day, +1 manual move, 0 auto), one linked task in several appearances, tasks in events, unassigned tray drag & drop, Telegram ✓ and 11:00/16:00 reminders.
+7. Free days: three task policies, streak pause, dimmed blocks, events visible, removing a range.
+8. Payments: from Finance and from the calendar, recurring events, draft → confirm → transaction, skip, delete transaction → due again, Telegram morning list.
+9. Past: locked, confirm → 1-hour banner, day-only changes, expiry asks again.
+10. Phone: day view, no dragging, no edit buttons, server refuses edits.
+11. Then apply to the real database (with the ZIP backup), merge and publish.
+
+## Ideas from the LifeOS v3.1 prototype — not built (proposals)
+
+- **Named week layouts** ("Normal", "Travel", "Exams") you can switch, duplicate, rename — would sit next to free days.
+- **Inventory / stash** of blocks kept off the calendar, to place again with one click.
+- **Marquee multi-select** to move several blocks at once.
+- **Per-block AI instructions, prompt manager, smart exporter** (left out: no AI key by choice).
+- Built from it already: live collision preview, Alt+drag duplicate, auto-scroll, day start hour, hide days, untimed events as bubbles, quick ✓ + week progress bar, banner in the current block's color, "every N units" repeats (payments).
