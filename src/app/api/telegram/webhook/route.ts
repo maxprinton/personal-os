@@ -4,6 +4,7 @@ import { botToken, HELP, sendMessage, tg, unpackId, webhookSecret } from "@/lib/
 import { CaptureError, processCapture, undoSaved } from "@/lib/capture";
 import { completeTaskFromBot, markHabitFromBot } from "@/lib/reminders";
 import { parseHabitCommand, runHabitCommand } from "@/lib/bot-habits";
+import { isTodayRequest, todayStatus } from "@/lib/bot-today";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -154,6 +155,17 @@ export async function POST(req: Request) {
     return ok();
   }
   const userId = settings.user_id as string;
+
+  // ---- "/hoy": what's pending today, the block I'm in, what's left ------------
+  if (isTodayRequest(text)) {
+    try {
+      const r = await todayStatus(admin, userId, (settings.timezone as string | null) ?? "America/Guayaquil");
+      await tg("sendMessage", { chat_id: chatId, text: r.text, ...(r.keyboard.length ? { reply_markup: { inline_keyboard: r.keyboard } } : {}) });
+    } catch {
+      await sendMessage(chatId, "Sorry, I could not load today. Try again in a minute.");
+    }
+    return ok();
+  }
 
   // ---- /undo -------------------------------------------------------------
   if (/^\/undo\b/i.test(text)) {
