@@ -46,13 +46,18 @@ export async function addTransaction(_prev: ActionState, form: FormData): Promis
 }
 
 /** Picks (or clears) the account of an existing transaction; balances follow automatically. */
-export async function setTransactionAccount(form: FormData) {
-  const id = String(form.get("id") ?? "");
-  if (!id) return;
-  const accountId = String(form.get("account_id") ?? "") || null;
+export async function setTransactionAccount(id: string, accountId: string | null): Promise<{ ok?: boolean; error?: string }> {
+  if (!id) return { error: "Missing transaction." };
   const supabase = await createClient();
-  await supabase.from("transactions").update({ account_id: accountId }).eq("id", id);
+  const { data, error } = await supabase
+    .from("transactions")
+    .update({ account_id: accountId || null })
+    .eq("id", id)
+    .select("id");
+  if (error) return { error: error.message };
+  if (!data?.length) return { error: "Could not save (transaction not found)." };
   refresh();
+  return { ok: true };
 }
 
 /** Moves money between two of the user's accounts. Not income or expense. */
