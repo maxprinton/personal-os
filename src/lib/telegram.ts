@@ -34,7 +34,9 @@ export function sendMessage(chatId: number, text: string, undoId?: string) {
 export const HELP = [
   "Send me anything and I'll file it in Personal OS:",
   "• spent 12 on lunch  → expense",
+  "• spent 12 lunch from Pichincha → expense on that account",
   "• received 1500 salary → income",
+  "• transfer 50 from cash to Pichincha → move money between accounts",
   "• task: call mom tomorrow → task",
   "• note: idea… → note",
   "• plain short text → task",

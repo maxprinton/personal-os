@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { botToken, HELP, sendMessage, tg, unpackId, webhookSecret } from "@/lib/telegram";
-import { parseMessage, saveParsed, undoSaved, userContext } from "@/lib/capture";
+import { CaptureError, processCapture, undoSaved } from "@/lib/capture";
 import { completeTaskFromBot, markHabitFromBot } from "@/lib/reminders";
 
 export const runtime = "nodejs";
@@ -198,9 +198,7 @@ export async function POST(req: Request) {
     .select("id")
     .single();
   try {
-    const ctx = await userContext(admin, userId);
-    const { parsed, by } = await parseMessage(text, ctx.today, ctx.categories.map((c) => c.name));
-    const saved = await saveParsed(admin, userId, parsed, "telegram_bot", ctx);
+    const { saved, parsed, by } = await processCapture(admin, userId, text, "telegram_bot");
     if (bm) {
       await admin
         .from("bot_messages")
@@ -211,7 +209,10 @@ export async function POST(req: Request) {
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";
     if (bm) await admin.from("bot_messages").update({ status: "failed", error: message }).eq("id", bm.id);
-    await sendMessage(chatId, "Sorry, I could not save that. Try rephrasing, e.g. \"spent 12 on lunch\".");
+    await sendMessage(
+      chatId,
+      e instanceof CaptureError ? e.message : "Sorry, I could not save that. Try rephrasing, e.g. \"spent 12 on lunch\"."
+    );
   }
   return ok();
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { addAccount, addCategory, addTransaction, setBudget } from "@/app/finance-actions";
+import { addAccount, addCategory, addTransaction, addTransfer, setBudget } from "@/app/finance-actions";
 import type { ActionState } from "@/app/actions";
 
 type Opt = { id: string; name: string };
@@ -59,7 +59,7 @@ export function TransactionForm({
           ))}
         </select>
         <select name="account_id" defaultValue={accounts[0]?.id ?? ""} className={input}>
-          <option value="">No account</option>
+          <option value="">Unassigned</option>
           {accounts.map((a) => (
             <option key={a.id} value={a.id}>{a.name}</option>
           ))}
@@ -135,6 +135,34 @@ export function BudgetForm({ categories }: { categories: Opt[] }) {
         Set budget
       </button>
       <div className="col-span-2 sm:col-span-4"><Feedback state={state} ok="Budget saved." /></div>
+    </form>
+  );
+}
+
+export function TransferForm({ today, accounts }: { today: string; accounts: Opt[] }) {
+  const [state, action, pending] = useActionState<ActionState, FormData>(addTransfer, {});
+  const ref = useResetOnOk(state);
+  return (
+    <form ref={ref} action={action} className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <select name="from_account_id" required defaultValue="" className={input}>
+        <option value="" disabled>From account</option>
+        {accounts.map((a) => (
+          <option key={a.id} value={a.id}>{a.name}</option>
+        ))}
+      </select>
+      <select name="to_account_id" required defaultValue="" className={input}>
+        <option value="" disabled>To account</option>
+        {accounts.map((a) => (
+          <option key={a.id} value={a.id}>{a.name}</option>
+        ))}
+      </select>
+      <input name="amount" required inputMode="decimal" placeholder="Amount (USD)" className={input} />
+      <input type="date" name="date" defaultValue={today} className={input} />
+      <input name="note" placeholder="Note (optional)" className={`${input} col-span-2 sm:col-span-3`} />
+      <button disabled={pending} className="rounded-md bg-neutral-900 px-3 py-2 text-sm text-white disabled:opacity-50">
+        {pending ? "Moving..." : "Transfer"}
+      </button>
+      <div className="col-span-2 sm:col-span-4"><Feedback state={state} ok="Transfer saved." /></div>
     </form>
   );
 }

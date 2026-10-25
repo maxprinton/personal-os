@@ -26,6 +26,7 @@ const TABLES = [
   "accounts",
   "budgets",
   "balance_snapshots",
+  "transfers",
   "tags",
   "entity_tags",
   "entity_relations",

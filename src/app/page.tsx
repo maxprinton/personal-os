@@ -132,7 +132,7 @@ export default async function CommandCenter() {
           )}
         </section>
 
-        <QuickCapture />
+        <QuickCapture accounts={finance.accounts.map((a) => ({ id: a.id, name: a.name }))} />
 
         {ritual && !ritual.seen && (ritual.items.length > 0 || ritual.unassigned > 0) && <MorningRitual ritual={ritual} readOnly={mobile} />}
 

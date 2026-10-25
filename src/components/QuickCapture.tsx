@@ -8,13 +8,20 @@ import { addToOutbox, flushOutbox, listOutbox } from "@/lib/outbox";
  * One box for everything: "spent 12 on lunch", "task: call mom tomorrow", "note: idea…".
  * Works offline: items wait in the device and sync when the connection is back.
  */
-export default function QuickCapture({ autoFocus = false }: { autoFocus?: boolean }) {
+export default function QuickCapture({
+  autoFocus = false,
+  accounts = [],
+}: {
+  autoFocus?: boolean;
+  accounts?: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, setPending] = useState(0);
   const [online, setOnline] = useState(true);
+  const [accountId, setAccountId] = useState("");
 
   useEffect(() => {
     const refresh = () => listOutbox().then((l) => setPending(l.length)).catch(() => {});
@@ -49,7 +56,7 @@ export default function QuickCapture({ autoFocus = false }: { autoFocus?: boolea
       const res = await fetch("/api/capture", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: value }),
+        body: JSON.stringify({ text: value, accountId: accountId || null }),
       });
       const data = (await res.json().catch(() => ({}))) as { summary?: string; error?: string };
       if (!res.ok) {
@@ -61,7 +68,7 @@ export default function QuickCapture({ autoFocus = false }: { autoFocus?: boolea
         router.refresh();
       }
     } catch {
-      await addToOutbox(value);
+      await addToOutbox(value, accountId || null);
       setText("");
       setMsg({ ok: true, text: "Saved on this device. It will sync when you are back online." });
     } finally {
@@ -79,6 +86,20 @@ export default function QuickCapture({ autoFocus = false }: { autoFocus?: boolea
           placeholder='Quick capture: "spent 12 on lunch", "task: call mom tomorrow"…'
           className="min-w-0 flex-1 rounded-md border border-neutral-300 px-3 py-2 text-sm"
         />
+        {accounts.length > 0 && (
+          <select
+            value={accountId}
+            onChange={(e) => setAccountId(e.target.value)}
+            aria-label="Account for money captures"
+            title="Account used when you capture an expense or income (an account named in the text wins)"
+            className="max-w-[9rem] rounded-md border border-neutral-300 px-2 py-2 text-sm"
+          >
+            <option value="">Account: auto</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
+          </select>
+        )}
         <button disabled={busy} className="rounded-md bg-neutral-900 px-3 py-2 text-sm text-white disabled:opacity-50">
           {busy ? "…" : "Save"}
         </button>

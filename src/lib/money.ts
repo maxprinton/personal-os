@@ -12,6 +12,15 @@ export type Txn = {
   occurred_at: string; // ISO UTC
   localDate: string; // YYYY-MM-DD in the user's timezone
 };
+export type Transfer = {
+  id: string;
+  from_account_id: string;
+  to_account_id: string;
+  amount: number;
+  note: string | null;
+  occurred_at: string; // ISO UTC
+  localDate: string;
+};
 export type Snapshot = { id: string; account_id: string; amount: number; recorded_at: string };
 export type Budget = { id: string; category_id: string; limit_amount: number; period: "weekly" | "monthly" };
 
@@ -27,10 +36,10 @@ export function signed(t: Pick<Txn, "type" | "amount">) {
 }
 
 /**
- * Current balance of an account = latest manual snapshot + transactions after it.
+ * Current balance of an account = latest manual snapshot + transactions and transfers after it.
  * Without a snapshot, it is just the sum of the account's transactions.
  */
-export function accountBalance(accountId: string, snapshots: Snapshot[], txns: Txn[]) {
+export function accountBalance(accountId: string, snapshots: Snapshot[], txns: Txn[], transfers: Transfer[] = []) {
   const latest = snapshots
     .filter((s) => s.account_id === accountId)
     .sort((a, b) => (a.recorded_at < b.recorded_at ? 1 : -1))[0];
@@ -38,7 +47,10 @@ export function accountBalance(accountId: string, snapshots: Snapshot[], txns: T
   const delta = txns
     .filter((t) => t.account_id === accountId && (!cutoff || t.occurred_at > cutoff))
     .reduce((sum, t) => sum + signed(t), 0);
-  return { balance: round2((latest?.amount ?? 0) + delta), snapshotAt: cutoff };
+  const moved = transfers
+    .filter((t) => !cutoff || t.occurred_at > cutoff)
+    .reduce((sum, t) => sum + (t.to_account_id === accountId ? t.amount : 0) - (t.from_account_id === accountId ? t.amount : 0), 0);
+  return { balance: round2((latest?.amount ?? 0) + delta + moved), snapshotAt: cutoff };
 }
 
 /** First day of the month and first day of next month for a local date. */

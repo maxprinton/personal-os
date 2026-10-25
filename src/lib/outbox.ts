@@ -1,7 +1,7 @@
 // Offline outbox: captures are stored in IndexedDB when there is no connection
 // and sent to /api/capture as soon as the device is back online.
 
-export type OutboxItem = { id: string; text: string; createdAt: string };
+export type OutboxItem = { id: string; text: string; createdAt: string; accountId?: string | null };
 
 const DB = "personal-os";
 const STORE = "outbox";
@@ -26,8 +26,8 @@ async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBReq
   });
 }
 
-export async function addToOutbox(text: string) {
-  const item: OutboxItem = { id: crypto.randomUUID(), text, createdAt: new Date().toISOString() };
+export async function addToOutbox(text: string, accountId: string | null = null) {
+  const item: OutboxItem = { id: crypto.randomUUID(), text, createdAt: new Date().toISOString(), accountId };
   await tx("readwrite", (s) => s.put(item));
   window.dispatchEvent(new Event("outbox-changed"));
   return item;
@@ -54,7 +54,7 @@ export async function flushOutbox(): Promise<number> {
       const res = await fetch("/api/capture", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: item.text }),
+        body: JSON.stringify({ text: item.text, accountId: item.accountId ?? null }),
       }).catch(() => null);
       if (!res) break; // still offline
       if (res.ok || res.status === 400) {

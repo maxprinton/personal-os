@@ -17,10 +17,12 @@ import {
   deleteBudget,
   deleteCategory,
   deleteTransaction,
+  deleteTransfer,
   updateBalance,
 } from "@/app/finance-actions";
 import Nav from "@/components/Nav";
-import { AccountForm, BudgetForm, CategoryForm, TransactionForm } from "@/components/FinanceForms";
+import TxnAccountSelect from "@/components/TxnAccountSelect";
+import { AccountForm, BudgetForm, CategoryForm, TransactionForm, TransferForm } from "@/components/FinanceForms";
 import { PaymentDraft, PaymentForm, StopPaymentButton } from "@/components/PaymentForms";
 import { currentUserId } from "@/lib/calendar/model";
 import { getDuePayments, getPaymentTemplates } from "@/lib/calendar/payments";
@@ -42,7 +44,7 @@ export default async function FinancePage() {
   const supabase = await createClient();
   const { timezone } = await getSettings(supabase);
   const today = localNow(timezone).date;
-  const { accounts, categories, budgets, snapshots, txns } = await getFinance(supabase, timezone);
+  const { accounts, categories, budgets, snapshots, txns, transfers } = await getFinance(supabase, timezone);
   const userId = await currentUserId(supabase);
   const mobile = await isMobileRequest();
   const templates = userId ? await getPaymentTemplates(supabase, userId) : [];
@@ -66,10 +68,12 @@ export default async function FinancePage() {
   const monthTxns = txns.filter((t) => inRange(t, month));
   const sums = totals(monthTxns);
   const catName = new Map(categories.map((c) => [c.id, c.name]));
-  const accName = new Map(accounts.map((a) => [a.id, a.name]));
   const expenseCats = categories.filter((c) => c.kind === "expense");
-  const balances = accounts.map((a) => ({ account: a, ...accountBalance(a.id, snapshots, txns) }));
+  const balances = accounts.map((a) => ({ account: a, ...accountBalance(a.id, snapshots, txns, transfers) }));
   const netWorth = balances.reduce((s, b) => s + b.balance, 0);
+  const accountNameById = new Map(accounts.map((a) => [a.id, a.name]));
+  const accountOpts = accounts.map((a) => ({ id: a.id, name: a.name }));
+  const unassigned = accounts.length > 0 ? txns.filter((t) => !t.account_id) : [];
   const monthName = new Date(`${today}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
 
   return (
@@ -95,6 +99,32 @@ export default async function FinancePage() {
           ))}
         </section>
 
+        {unassigned.length > 0 && (
+          <section className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
+            <h2 className="text-sm font-medium text-amber-900">
+              {unassigned.length} transaction{unassigned.length > 1 ? "s" : ""} without an account
+            </h2>
+            <p className="text-xs text-amber-800">
+              They count in your monthly totals but not in any account balance. Pick the account and balances update.
+            </p>
+            <ul className="space-y-1">
+              {unassigned.slice(0, 30).map((t) => (
+                <li key={t.id} className="flex items-center gap-2 text-sm">
+                  <span className="w-12 shrink-0 text-neutral-500">{t.localDate.slice(5)}</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {t.description || (t.category_id ? catName.get(t.category_id) : null) || (t.type === "income" ? "Income" : "Expense")}
+                  </span>
+                  <span className={t.type === "income" ? "text-green-700" : ""}>
+                    {t.type === "income" ? "+" : "−"}{formatUSD(t.amount)}
+                  </span>
+                  <TxnAccountSelect id={t.id} accountId={null} accounts={accountOpts} />
+                </li>
+              ))}
+            </ul>
+            {unassigned.length > 30 && <p className="text-xs text-amber-800">Showing the 30 most recent.</p>}
+          </section>
+        )}
+
         <section className="space-y-2">
           <h2 className="text-sm font-medium text-neutral-500">Add a transaction</h2>
           {categories.length === 0 && (
@@ -110,6 +140,35 @@ export default async function FinancePage() {
             accounts={accounts.map((a) => ({ id: a.id, name: a.name }))}
           />
         </section>
+
+        {accounts.length >= 2 && (
+          <section className="space-y-2">
+            <h2 className="text-sm font-medium text-neutral-500">Transfer between accounts</h2>
+            <p className="text-xs text-neutral-500">
+              Moves money from one account to another. It is not income or expense, so monthly totals and budgets do not change.
+              From Telegram: <code>transfer 50 from cash to Pichincha</code>.
+            </p>
+            <TransferForm today={today} accounts={accountOpts} />
+            {transfers.length > 0 && (
+              <ul className="space-y-1">
+                {transfers.slice(0, 10).map((t) => (
+                  <li key={t.id} className="flex items-center gap-3 border-b border-neutral-100 py-1.5 text-sm">
+                    <span className="w-12 shrink-0 text-neutral-500">{t.localDate.slice(5)}</span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {accountNameById.get(t.from_account_id) ?? "Removed account"} → {accountNameById.get(t.to_account_id) ?? "Removed account"}
+                      {t.note && <span className="text-xs text-neutral-400"> · {t.note}</span>}
+                    </span>
+                    <span>{formatUSD(t.amount)}</span>
+                    <form action={deleteTransfer}>
+                      <input type="hidden" name="id" value={t.id} />
+                      <button aria-label="Delete transfer" className="text-xs text-neutral-400 hover:text-red-600">×</button>
+                    </form>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
 
         <section className="space-y-3">
           <h2 className="text-sm font-medium text-neutral-500">Scheduled payments</h2>
@@ -244,9 +303,9 @@ export default async function FinancePage() {
                   {t.description || (t.category_id ? catName.get(t.category_id) : null) || (t.type === "income" ? "Income" : "Expense")}
                   <span className="text-xs text-neutral-400">
                     {t.category_id && t.description ? ` · ${catName.get(t.category_id) ?? ""}` : ""}
-                    {t.account_id ? ` · ${accName.get(t.account_id) ?? ""}` : ""}
                   </span>
                 </span>
+                {accounts.length > 0 && <TxnAccountSelect id={t.id} accountId={t.account_id} accounts={accountOpts} />}
                 <span className={t.type === "income" ? "text-green-700" : ""}>
                   {t.type === "income" ? "+" : "−"}{formatUSD(t.amount)}
                 </span>

@@ -4,6 +4,7 @@
 export type Parsed =
   | { kind: "task"; title: string; date: string | null }
   | { kind: "note"; title: string; content: string }
+  | { kind: "transfer"; amount: number; from: string; to: string; date: string | null }
   | {
       kind: "transaction";
       txnType: "income" | "expense";
@@ -62,6 +63,39 @@ function extractDay(text: string, today: string): { text: string; date: string |
 const toAmount = (s: string) => Math.round(Number(s.replace(",", ".")) * 100) / 100;
 const clean = (s: string) => s.replace(/^(on|for|at|en|de|por|para)\s+/i, "").trim();
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+const MOVE_STRICT = String.raw`(?:transfer|transfers|transferred|transferir|transfiere|transferí|transferi)`;
+const MOVE_SOFT = String.raw`(?:move|moved|mover|moví|movi)`;
+
+/**
+ * "transfer 50 from cash to Pichincha", "transferí 50 de efectivo a visa hoy", "move 20 cash to visa".
+ * Returns the raw account fragments; capture.ts resolves them against the user's accounts.
+ * strict = the verb is unambiguous (an error is shown if the accounts are not found).
+ */
+export function ruleTransfer(input: string, today: string): { parsed: Extract<Parsed, { kind: "transfer" }>; strict: boolean } | null {
+  const text = input.trim();
+  const m = new RegExp(`^(${MOVE_STRICT}|${MOVE_SOFT})\\s+${NUM}\\s+([\\s\\S]+)$`, "i").exec(text);
+  if (!m) return null;
+  const strict = new RegExp(`^${MOVE_STRICT}$`, "i").test(m[1]);
+  const d = extractDay(m[3].trim(), today);
+  const rest = d.text;
+  const TO = "(?:to|a|hacia|into|para)";
+  const FROM = "(?:from|de|desde)";
+  let from: string | undefined;
+  let to: string | undefined;
+  let r = new RegExp(`^${FROM}\\s+(.+?)\\s+${TO}\\s+(.+)$`, "i").exec(rest);
+  if (r) { from = r[1]; to = r[2]; }
+  if (!r) {
+    r = new RegExp(`^${TO}\\s+(.+?)\\s+${FROM}\\s+(.+)$`, "i").exec(rest);
+    if (r) { to = r[1]; from = r[2]; }
+  }
+  if (!r) {
+    r = new RegExp(`^(.+?)\\s+${TO}\\s+(.+)$`, "i").exec(rest);
+    if (r) { from = r[1]; to = r[2]; }
+  }
+  if (!from || !to) return strict ? { parsed: { kind: "transfer", amount: toAmount(m[2]), from: "", to: "", date: d.date }, strict } : null;
+  return { parsed: { kind: "transfer", amount: toAmount(m[2]), from: from.trim(), to: to.trim(), date: d.date }, strict };
+}
 
 export function ruleParse(input: string, today: string, categories: string[] = []): Parsed {
   const text = input.trim();
@@ -183,6 +217,10 @@ export async function aiParse(text: string, today: string, categories: string[])
 }
 
 export function describe(p: Parsed) {
+  if (p.kind === "transfer") {
+    const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(p.amount);
+    return `Transfer: ${money} · ${p.from} → ${p.to}${p.date ? ` (${p.date})` : ""}`;
+  }
   if (p.kind === "task") return `Task: ${p.title}${p.date ? ` (${p.date})` : ""}`;
   if (p.kind === "note") return `Note: ${p.title}`;
   const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(p.amount);

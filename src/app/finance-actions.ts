@@ -45,6 +45,51 @@ export async function addTransaction(_prev: ActionState, form: FormData): Promis
   return { ok: true, at: Date.now() };
 }
 
+/** Picks (or clears) the account of an existing transaction; balances follow automatically. */
+export async function setTransactionAccount(form: FormData) {
+  const id = String(form.get("id") ?? "");
+  if (!id) return;
+  const accountId = String(form.get("account_id") ?? "") || null;
+  const supabase = await createClient();
+  await supabase.from("transactions").update({ account_id: accountId }).eq("id", id);
+  refresh();
+}
+
+/** Moves money between two of the user's accounts. Not income or expense. */
+export async function addTransfer(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const from = String(form.get("from_account_id") ?? "");
+  const to = String(form.get("to_account_id") ?? "");
+  const amount = money(form.get("amount"));
+  if (!from || !to) return { error: "Pick both accounts." };
+  if (from === to) return { error: "Pick two different accounts." };
+  if (amount === null || amount <= 0) return { error: "Enter an amount greater than 0." };
+
+  const supabase = await createClient();
+  const { timezone } = await getSettings(supabase);
+  const today = localNow(timezone).date;
+  const date = String(form.get("date") ?? "") || today;
+  const occurred_at = date === today ? new Date().toISOString() : zonedToUtc(date, "12:00", timezone).toISOString();
+
+  const { error } = await supabase.from("transfers").insert({
+    from_account_id: from,
+    to_account_id: to,
+    amount,
+    occurred_at,
+    note: String(form.get("note") ?? "").trim() || null,
+  });
+  if (error) return { error: error.message };
+  refresh();
+  return { ok: true, at: Date.now() };
+}
+
+export async function deleteTransfer(form: FormData) {
+  const id = String(form.get("id") ?? "");
+  if (!id) return;
+  const supabase = await createClient();
+  await supabase.from("transfers").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+  refresh();
+}
+
 export async function deleteTransaction(form: FormData) {
   const id = String(form.get("id") ?? "");
   if (!id) return;
