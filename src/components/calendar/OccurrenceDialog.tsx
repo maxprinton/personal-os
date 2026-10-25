@@ -28,12 +28,15 @@ export default function OccurrenceDialog({
   readOnly,
   run,
   onClose,
+  onDuplicate,
 }: {
   occ: Occurrence;
   data: CalendarData;
   readOnly: boolean;
   run: (fn: () => Promise<CalResult>) => Promise<boolean>;
   onClose: () => void;
+  /** Opens "New block" pre-filled with this block (name, day and times). */
+  onDuplicate?: () => void;
 }) {
   const type = data.blockTypes.find((t) => t.id === occ.block_type_id);
   const [date, setDate] = useState(occ.date);
@@ -199,6 +202,11 @@ export default function OccurrenceDialog({
               >
                 Remove…
               </button>
+              {onDuplicate && (
+                <button type="button" onClick={onDuplicate} className={btnSecondary} title="Make a copy of this block">
+                  Duplicate…
+                </button>
+              )}
             </div>
           )}
         </section>

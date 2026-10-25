@@ -167,3 +167,13 @@ All files are written to be safe to run twice. `time_blocks` and `activity_logs`
 - Always "only those days" — weekly patterns are still changed one block at a time from the block dialog.
 - Server actions: moveOccurrences, removeOccurrences, setOccurrencesDone (past lock and overlap rules apply; max 100 blocks).
 - To test: select 3 blocks on different days → drag → they move together; try a move onto another block → refused; Delete → confirm → gone only that day.
+
+## LifeOS group A (added 2026-10-24) — all in Calendar ⚙ unless noted
+- "Click on a block: opens it / marks it done". In "marks it done" a ✏️ in the corner opens the block; future blocks say their day hasn't come.
+- Grabbing a block that isn't selected drops the old selection (Ctrl/⌘/Shift keep it), as in LifeOS.
+- Auto-scroll while dragging is proportional (faster near the edge) and keeps going while the pointer rests there.
+- "After moving a block: ask every time / only that day (with Undo) / that day on, every week".
+- "Progress: done so far / whole range".
+- "Page color of the current block": soft tint of the whole app (components/calendar/NowTint.tsx in the layout).
+- "Duplicate…" button in the block window (opens New block pre-filled).
+- To test: switch each setting and check the behaviour; click a past/today block in "marks it done" mode → ticks; click again → undo.

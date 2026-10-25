@@ -48,6 +48,9 @@ type Props = {
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
   onMoveGroup: (shift: GroupShift) => void;
+  onClearSelection: () => void;
+  /** What a plain click on a block does: open its details (default) or tick it done, like LifeOS. */
+  clickMode: "open" | "done";
 };
 
 type Drag = {
@@ -106,6 +109,8 @@ export default function TimeGrid({
   selected,
   onToggleSelect,
   onMoveGroup,
+  onClearSelection,
+  clickMode,
 }: Props) {
   const [dropOn, setDropOn] = useState<string | null>(null);
   const dropHandlers = (key: string, target: Omit<TaskDrop, "taskId">) =>
@@ -131,6 +136,8 @@ export default function TimeGrid({
   const scrollRef = useRef<HTMLDivElement>(null);
   const colRefs = useRef<(HTMLDivElement | null)[]>([]);
   const dragRef = useRef<Drag | null>(null);
+  const pointerRef = useRef<{ x: number; y: number; alt: boolean } | null>(null);
+  const scrollLoop = useRef<number | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [groupPreview, setGroupPreview] = useState<(GroupShift & { conflict: boolean }) | null>(null);
   const selectedOccs = useMemo(() => data.occurrences.filter((o) => selected.has(o.id)), [data.occurrences, selected]);
@@ -211,12 +218,40 @@ export default function TimeGrid({
     return ((clientY - el.getBoundingClientRect().top) / H) * 60;
   }
 
-  function autoScroll(clientY: number) {
+  /** Speed of the auto-scroll: faster the closer the pointer is to the edge (LifeOS feel). 0 = not near an edge. */
+  function edgeSpeed(clientY: number) {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el) return 0;
     const r = el.getBoundingClientRect();
-    if (clientY < r.top + 28) el.scrollTop -= 14;
-    else if (clientY > r.bottom - 28) el.scrollTop += 14;
+    const ZONE = 60;
+    const MAX = 15;
+    if (clientY < r.top + ZONE) return -MAX * (1 - Math.max(0, clientY - r.top) / ZONE);
+    if (clientY > r.bottom - ZONE) return MAX * (1 - Math.max(0, r.bottom - clientY) / ZONE);
+    return 0;
+  }
+
+  /** Keeps scrolling while the pointer rests near an edge during a drag, updating the preview as it goes. */
+  function runScrollLoop() {
+    if (scrollLoop.current !== null) return;
+    const tick = () => {
+      const d = dragRef.current;
+      const p = pointerRef.current;
+      const el = scrollRef.current;
+      const speed = d?.moved && p ? edgeSpeed(p.y) : 0;
+      if (!d || !p || !el || speed === 0) {
+        scrollLoop.current = null;
+        return;
+      }
+      el.scrollTop += speed;
+      updateDrag(p.x, p.y, p.alt);
+      scrollLoop.current = requestAnimationFrame(tick);
+    };
+    scrollLoop.current = requestAnimationFrame(tick);
+  }
+
+  function stopScrollLoop() {
+    if (scrollLoop.current !== null) cancelAnimationFrame(scrollLoop.current);
+    scrollLoop.current = null;
   }
 
   function conflictFor(id: string, col: number, top: number, bottom: number) {
@@ -233,6 +268,9 @@ export default function TimeGrid({
   function startDrag(e: React.PointerEvent, o: Occurrence, col: number, top: number, mode: Drag["mode"]) {
     if (readOnly || e.button !== 0) return;
     e.stopPropagation();
+    // Grabbing a block that isn't selected drops the old selection (as in LifeOS); Ctrl/⌘/Shift keep it
+    const modifier = e.ctrlKey || e.metaKey || e.shiftKey;
+    if (!modifier && selected.size > 0 && !selected.has(o.id)) onClearSelection();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     dragRef.current = {
       id: o.id,
@@ -251,22 +289,30 @@ export default function TimeGrid({
   function moveDrag(e: React.PointerEvent) {
     const d = dragRef.current;
     if (!d) return;
+    pointerRef.current = { x: e.clientX, y: e.clientY, alt: e.altKey };
     if (!d.moved && Math.abs(e.clientX - d.startX) + Math.abs(e.clientY - d.startY) < 5) return;
     d.moved = true;
-    autoScroll(e.clientY);
+    updateDrag(e.clientX, e.clientY, e.altKey);
+    if (edgeSpeed(e.clientY) !== 0) runScrollLoop();
+  }
+
+  /** Recomputes the drag preview for a pointer position (also called while auto-scrolling). */
+  function updateDrag(clientX: number, clientY: number, altKey: boolean) {
+    const d = dragRef.current;
+    if (!d) return;
     if (d.mode === "move" && d.group) {
-      const col = columnAt(e.clientX);
-      const top = Math.min(Math.max(0, snap(minuteAt(col, e.clientY) - d.grab)), 1440 - 15);
+      const col = columnAt(clientX);
+      const top = Math.min(Math.max(0, snap(minuteAt(col, clientY) - d.grab)), 1440 - 15);
       const shift = { dayShift: daysBetween(days[d.col], days[col]), minuteShift: top - d.top };
       const conflict = selectedOccs.some((o) => Boolean(findOccurrenceConflict(shiftOcc(o, shift), data.occurrences, selected)));
       setGroupPreview({ ...shift, conflict });
     } else if (d.mode === "move") {
-      const col = columnAt(e.clientX);
-      const top = Math.min(Math.max(0, snap(minuteAt(col, e.clientY) - d.grab)), 1440 - 15);
+      const col = columnAt(clientX);
+      const top = Math.min(Math.max(0, snap(minuteAt(col, clientY) - d.grab)), 1440 - 15);
       const bottom = top + d.duration;
-      setPreview({ id: d.id, col, top, bottom, conflict: !e.altKey && conflictFor(d.id, col, top, bottom) });
+      setPreview({ id: d.id, col, top, bottom, conflict: !altKey && conflictFor(d.id, col, top, bottom) });
     } else {
-      const bottom = Math.max(d.top + 15, Math.min(d.top + 1440 - 5, snap(minuteAt(d.col, e.clientY))));
+      const bottom = Math.max(d.top + 15, Math.min(d.top + 1440 - 5, snap(minuteAt(d.col, clientY))));
       setPreview({ id: d.id, col: d.col, top: d.top, bottom, conflict: conflictFor(d.id, d.col, d.top, bottom) });
     }
   }
@@ -274,6 +320,8 @@ export default function TimeGrid({
   function endDrag(e: React.PointerEvent) {
     const d = dragRef.current;
     dragRef.current = null;
+    pointerRef.current = null;
+    stopScrollLoop();
     if (!d) return;
     e.stopPropagation();
     const p = preview;
@@ -282,7 +330,7 @@ export default function TimeGrid({
     setGroupPreview(null);
     if (!d.moved) {
       if (e.ctrlKey || e.metaKey || e.shiftKey) onToggleSelect(d.id);
-      else onOpenOccurrence(d.id);
+      else clickBlock(d.id);
       return;
     }
     if (d.group) {
@@ -306,6 +354,24 @@ export default function TimeGrid({
     }
     const { date, minute } = toReal(p.col, p.top);
     onMoveOccurrence({ id: d.id, date, start: minute, end: minute + (p.bottom - p.top), duplicate });
+  }
+
+  /** Plain click on a block: open it, or (click mode "done") tick it done / undo, like LifeOS. */
+  function clickBlock(id: string) {
+    if (readOnly || clickMode === "open") {
+      onOpenOccurrence(id);
+      return;
+    }
+    const o = data.occurrences.find((x) => x.id === id);
+    if (!o || o.status === "free_day") {
+      onOpenOccurrence(id);
+      return;
+    }
+    if (o.date > data.today) {
+      onBlocked("This block's day hasn't come yet. Use ✏️ to edit it.");
+      return;
+    }
+    onToggleDone(id);
   }
 
   function clickEmpty(e: React.MouseEvent<HTMLDivElement>, col: number) {
@@ -440,9 +506,12 @@ export default function TimeGrid({
                     onClick={(e) => {
                       e.stopPropagation();
                       if (!readOnly && cutTop && (e.ctrlKey || e.metaKey || e.shiftKey)) onToggleSelect(o.id);
-                      else if (readOnly || cutTop) onOpenOccurrence(o.id);
+                      else if (readOnly) onOpenOccurrence(o.id);
+                      else if (cutTop) clickBlock(o.id);
                     }}
-                    title={`${type?.name ?? "Block"} · ${timeRange(realStart, realEnd)}${readOnly ? "" : " · Ctrl+click to select several"}`}
+                    title={`${type?.name ?? "Block"} · ${timeRange(realStart, realEnd)}${
+                      readOnly ? "" : clickMode === "done" ? " · click = done/undo · ✏️ = edit · Ctrl+click = select" : " · Ctrl+click to select several"
+                    }`}
                     className={`absolute inset-x-0.5 overflow-hidden rounded-md px-1.5 py-0.5 shadow-sm ${
                       readOnly || cutTop ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
                     } ${dragging ? "opacity-40" : ""} ${
@@ -460,7 +529,7 @@ export default function TimeGrid({
                       touchAction: readOnly ? "auto" : "none",
                     }}
                   >
-                    <p className={`truncate font-medium leading-tight ${canTick ? "pr-4" : ""}`}>
+                    <p className={`truncate font-medium leading-tight ${canTick || (!readOnly && clickMode === "done") ? "pr-4" : ""}`}>
                       {o.status === "done" ? "✓ " : o.status === "partial" ? "◐ " : ""}
                       {type?.name ?? "Block"}
                       {muted ? " · free day" : ""}
@@ -469,7 +538,21 @@ export default function TimeGrid({
                         <span className="ml-1 font-normal opacity-80">· {blockTasks.length} task{blockTasks.length > 1 ? "s" : ""}</span>
                       ) : null}
                     </p>
-                    {canTick && (
+                    {!readOnly && clickMode === "done" && (
+                      <button
+                        type="button"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenOccurrence(o.id);
+                        }}
+                        title="Edit this block"
+                        className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center text-[10px] leading-none opacity-70 hover:opacity-100"
+                      >
+                        ✏️
+                      </button>
+                    )}
+                    {canTick && clickMode === "open" && (
                       <button
                         type="button"
                         onPointerDown={(e) => e.stopPropagation()}

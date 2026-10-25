@@ -23,7 +23,7 @@ import MonthGrid from "@/components/calendar/MonthGrid";
 import BlockDialog from "@/components/calendar/BlockDialog";
 import EventDialog from "@/components/calendar/EventDialog";
 import OccurrenceDialog from "@/components/calendar/OccurrenceDialog";
-import ScopeDialog from "@/components/calendar/ScopeDialog";
+import ScopeDialog, { forwardLabel } from "@/components/calendar/ScopeDialog";
 import { useCalendarData } from "@/components/calendar/useCalendarData";
 import {
   browserToday,
@@ -36,6 +36,16 @@ import {
   writePref,
   type View,
 } from "@/components/calendar/util";
+
+type ClickMode = "open" | "done";
+type MoveScope = "ask" | "this_day" | "forward";
+type ProgressMode = "sofar" | "week";
+type Toast = { ok: boolean; text: string; action?: { label: string; fn: () => void } };
+
+/** Tells the page tint (and other calendars) that a calendar preference changed. */
+function emitPrefsChanged() {
+  window.dispatchEvent(new Event("calendar-prefs"));
+}
 
 type Dialog =
   | { kind: "new-block"; date: string; start: number; end: number; name?: string }
@@ -54,7 +64,11 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
   const [anchor, setAnchor] = useState<string>(() => browserToday());
   const [anchorSynced, setAnchorSynced] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
-  const [toast, setToast] = useState<{ ok: boolean; text: string } | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
+  const [clickMode, setClickMode] = useState<ClickMode>("open");
+  const [moveScope, setMoveScope] = useState<MoveScope>("ask");
+  const [progressMode, setProgressMode] = useState<ProgressMode>("sofar");
+  const [tint, setTint] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [dayStart, setDayStart] = useState(0);
   const [hidden, setHidden] = useState<number[]>([]);
@@ -71,6 +85,11 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
     if (Number.isInteger(ds) && ds >= 0 && ds < 1440) setDayStart(ds);
     const hd = (readPref("cal.hiddenDays") ?? "").split(",").map(Number).filter((n) => n >= 1 && n <= 7);
     setHidden(hd);
+    setClickMode(readPref("cal.click") === "done" ? "done" : "open");
+    const ms = readPref("cal.moveScope");
+    setMoveScope(ms === "this_day" || ms === "forward" ? ms : "ask");
+    setProgressMode(readPref("cal.progress") === "week" ? "week" : "sofar");
+    setTint(readPref("cal.tint") === "1");
     setMounted(true);
   }, [variant]);
 
@@ -137,7 +156,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), toast.ok ? 2500 : 6000);
+    const t = setTimeout(() => setToast(null), toast.action ? 8000 : toast.ok ? 2500 : 6000);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -149,6 +168,12 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
   function changeDayStart(min: number) {
     setDayStart(min);
     writePref("cal.dayStart", String(min));
+  }
+
+  function pref<T extends string>(key: string, value: T, set: (v: T) => void) {
+    set(value);
+    writePref(key, value);
+    emitPrefsChanged();
   }
 
   function toggleHidden(w: number) {
@@ -195,7 +220,28 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
       setDialog({ kind: "new-block", date: req.date, start: req.start, end: req.end, name });
       return;
     }
-    setDialog({ kind: "move", id: req.id, date: req.date, start: req.start, end: req.end });
+    const o = data.occurrences.find((x) => x.id === req.id);
+    if (!o || moveScope === "ask") {
+      setDialog({ kind: "move", id: req.id, date: req.date, start: req.start, end: req.end });
+      return;
+    }
+    // No question: apply the chosen default, then offer to undo
+    const scope: EditScope = moveScope === "forward" && forwardLabel(o, data.today) ? "forward" : "this_day";
+    const before = { id: o.id, date: o.date, start: o.start_time.slice(0, 5), end: o.end_time.slice(0, 5) };
+    void (async () => {
+      const ok = await run(() =>
+        editOccurrence({ id: req.id, date: req.date, start: minutesToTime(req.start), end: minutesToTime(req.end), scope })
+      );
+      if (!ok) return;
+      setToast({
+        ok: true,
+        text: scope === "forward" ? "Moved from this day on." : "Moved (only this day).",
+        action:
+          scope === "this_day"
+            ? { label: "Undo", fn: () => void run(() => editOccurrence({ ...before, scope: "this_day" })) }
+            : undefined,
+      });
+    })();
   }
 
   const occ =
@@ -208,7 +254,13 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
 
   // Progress of the visible week/day so far (idea from the LifeOS prototype): done = 1, partial = ½
   const scored = (data?.occurrences ?? []).filter(
-    (o) => o.date >= from && o.date <= to && data && o.date <= data.today && o.status !== "free_day" && o.status !== "cancelled"
+    (o) =>
+      o.date >= from &&
+      o.date <= to &&
+      data &&
+      (progressMode === "week" || o.date <= data.today) &&
+      o.status !== "free_day" &&
+      o.status !== "cancelled"
   );
   const progress = scored.length
     ? Math.round((scored.reduce((s, o) => s + (o.status === "done" ? 1 : o.status === "partial" ? 0.5 : 0), 0) / scored.length) * 100)
@@ -234,7 +286,11 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
         </div>
         <span className="font-medium">{rangeLabel(view, anchor)}</span>
         {progress !== null && view !== "month" && (
-          <span className="flex items-center gap-1 text-xs text-neutral-500" title="Blocks done so far in this range (partly done counts half)">
+          <span className="flex items-center gap-1 text-xs text-neutral-500" title={
+              progressMode === "week"
+                ? "Blocks done out of all blocks in this range (partly done counts half)"
+                : "Blocks done so far in this range (partly done counts half)"
+            }>
             <span className="inline-block h-1.5 w-16 overflow-hidden rounded-full bg-neutral-200">
               <span className="block h-full bg-green-600" style={{ width: `${progress}%` }} />
             </span>
@@ -296,6 +352,48 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="flex items-center gap-1" title="LifeOS style: a click ticks the block; ✏️ opens it">
+              Click on a block:
+              <select
+                value={clickMode}
+                onChange={(e) => pref("cal.click", e.target.value as ClickMode, setClickMode)}
+                className="rounded border border-neutral-300 px-1 py-0.5"
+              >
+                <option value="open">opens it</option>
+                <option value="done">marks it done</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-1" title="What happens after you drag or resize a block">
+              After moving a block:
+              <select
+                value={moveScope}
+                onChange={(e) => pref("cal.moveScope", e.target.value as MoveScope, setMoveScope)}
+                className="rounded border border-neutral-300 px-1 py-0.5"
+              >
+                <option value="ask">ask every time</option>
+                <option value="this_day">only that day (with Undo)</option>
+                <option value="forward">that day on, every week</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-1">
+              Progress:
+              <select
+                value={progressMode}
+                onChange={(e) => pref("cal.progress", e.target.value as ProgressMode, setProgressMode)}
+                className="rounded border border-neutral-300 px-1 py-0.5"
+              >
+                <option value="sofar">done so far</option>
+                <option value="week">whole range</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-1" title="Tints every page with the color of the block you are in right now">
+              <input
+                type="checkbox"
+                checked={tint}
+                onChange={(e) => pref("cal.tint", e.target.checked ? "1" : "0", (v) => setTint(v === "1"))}
+              />
+              Page color of the current block
             </label>
             <span className="flex items-center gap-1">
               Show in week:
@@ -402,6 +500,8 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
               selected={selected}
               onToggleSelect={toggleSelect}
               onMoveGroup={(shift) => run(() => moveOccurrences({ ids: [...selected], ...shift }))}
+              onClearSelection={clearSelection}
+              clickMode={clickMode}
               onPickDay={(d) => {
                 setAnchor(d);
                 changeView("day");
@@ -436,6 +536,19 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
           }`}
         >
           {toast.text}
+          {toast.action && (
+            <button
+              type="button"
+              onClick={() => {
+                const fn = toast.action?.fn;
+                setToast(null);
+                fn?.();
+              }}
+              className="ml-3 font-medium underline"
+            >
+              {toast.action.label}
+            </button>
+          )}
         </div>
       )}
 
@@ -485,7 +598,24 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
         />
       )}
       {data && dialog?.kind === "occurrence" && occ && (
-        <OccurrenceDialog occ={occ} data={data} readOnly={readOnly} run={run} onClose={() => setDialog(null)} />
+        <OccurrenceDialog
+          occ={occ}
+          data={data}
+          readOnly={readOnly}
+          run={run}
+          onClose={() => setDialog(null)}
+          onDuplicate={() => {
+            const start = Number(occ.start_time.slice(0, 2)) * 60 + Number(occ.start_time.slice(3, 5));
+            const end = Number(occ.end_time.slice(0, 2)) * 60 + Number(occ.end_time.slice(3, 5));
+            setDialog({
+              kind: "new-block",
+              date: occ.date,
+              start,
+              end: end > start ? end : end + 1440,
+              name: data.blockTypes.find((t) => t.id === occ.block_type_id)?.name ?? "",
+            });
+          }}
+        />
       )}
       {data && dialog?.kind === "bulk-remove" && (
         <Modal title={`Remove ${selected.size} block${selected.size > 1 ? "s" : ""}?`} onClose={() => setDialog(null)}>
