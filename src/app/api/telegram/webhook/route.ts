@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { botToken, HELP, sendMessage, tg, unpackId, webhookSecret } from "@/lib/telegram";
 import { CaptureError, processCapture, undoSaved } from "@/lib/capture";
 import { completeTaskFromBot, markHabitFromBot } from "@/lib/reminders";
+import { parseHabitCommand, runHabitCommand } from "@/lib/bot-habits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -147,7 +148,7 @@ export async function POST(req: Request) {
     return ok();
   }
 
-  const { data: settings } = await admin.from("user_settings").select("user_id").eq("telegram_chat_id", chatId).maybeSingle();
+  const { data: settings } = await admin.from("user_settings").select("user_id,timezone").eq("telegram_chat_id", chatId).maybeSingle();
   if (!settings) {
     await sendMessage(chatId, "This chat is not linked yet. In Personal OS open Settings → Telegram, get a code and send: /link CODE");
     return ok();
@@ -188,6 +189,29 @@ export async function POST(req: Request) {
     .gte("received_at", since);
   if ((count ?? 0) >= DAILY_LIMIT) {
     await sendMessage(chatId, `Daily limit of ${DAILY_LIMIT} messages reached. Try again tomorrow.`);
+    return ok();
+  }
+
+  // ---- Habits: "habit: Stretch in Gym", "done stretch", "skip stretch" ------
+  const habitCmd = parseHabitCommand(text);
+  if (habitCmd) {
+    const tz = (settings.timezone as string | null) ?? "America/Guayaquil";
+    try {
+      const r = await runHabitCommand(admin, userId, tz, habitCmd);
+      let undoId: string | undefined;
+      if (r.createdId) {
+        // Logged like a capture, so /undo and the Undo button remove the new habit
+        const { data: hm } = await admin
+          .from("bot_messages")
+          .insert({ user_id: userId, raw_text: text.slice(0, 4000), status: "saved", parsed: { ...habitCmd, kind: "habit_create" }, entity_type: "habit", entity_id: r.createdId })
+          .select("id")
+          .single();
+        undoId = hm?.id;
+      }
+      await sendMessage(chatId, r.text, undoId);
+    } catch {
+      await sendMessage(chatId, "Sorry, I could not do that with your habits. Try again or use the app.");
+    }
     return ok();
   }
 

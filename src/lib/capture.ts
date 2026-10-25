@@ -208,7 +208,7 @@ export async function saveParsed(
   };
 }
 
-const TABLE: Record<string, string> = { task: "tasks", note: "notes", transaction: "transactions", transfer: "transfers" };
+const TABLE: Record<string, string> = { task: "tasks", note: "notes", transaction: "transactions", transfer: "transfers", habit: "habits" };
 
 /** Soft-deletes what a capture created. */
 export async function undoSaved(supabase: SupabaseClient, userId: string, entityType: string, id: string) {

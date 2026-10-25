@@ -40,6 +40,8 @@ export const HELP = [
   "• task: call mom tomorrow → task",
   "• note: idea… → note",
   "• plain short text → task",
+  "• habit: Stretch in Gym → new habit inside a block",
+  "• done stretch / skip stretch → mark today's habit",
   "",
   "/undo removes the last thing I saved.",
 ].join("\n");
