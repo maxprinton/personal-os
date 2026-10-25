@@ -480,22 +480,22 @@ export default function TimeGrid({
     onCreate(date, minute, minute + 60);
   }
 
-  const lines = `repeating-linear-gradient(to bottom, #e5e5e5 0, #e5e5e5 1px, transparent 1px, transparent ${H}px)`;
+  const lines = `repeating-linear-gradient(to bottom, var(--line) 0, var(--line) 1px, transparent 1px, transparent ${H}px)`;
   // Where "now" is drawn: today's column, or yesterday's when the day starts later than now
   const nowCol = data.nowMinutes >= S ? data.today : addDays(data.today, -1);
   const nowY = data.nowMinutes >= S ? data.nowMinutes - S : data.nowMinutes + 1440 - S;
 
   return (
     <div className="flex h-full min-h-0 flex-col text-xs">
-      <div className="flex border-b border-neutral-200">
+      <div className="flex border-b border-line">
         <div className="w-12 shrink-0" />
         {days.map((date, col) => (
-          <div key={date} className="min-w-0 flex-1 border-l border-neutral-100">
+          <div key={date} className="min-w-0 flex-1 border-l border-line">
             <button
               type="button"
               onClick={() => onPickDay?.(date)}
               className={`block w-full truncate px-1 py-1 text-center ${
-                date === data.today ? "font-semibold text-neutral-900" : "text-neutral-500"
+                date === data.today ? "font-semibold text-fg" : "text-muted"
               }`}
             >
               {dayLabel(date)}
@@ -506,7 +506,7 @@ export default function TimeGrid({
                 <button
                   type="button"
                   onClick={() => onOpenFreeDay(free.id)}
-                  className="mx-0.5 mb-0.5 block w-[calc(100%-4px)] truncate rounded bg-emerald-100 px-1 text-[11px] text-emerald-800"
+                  className="mx-0.5 mb-0.5 block w-[calc(100%-4px)] truncate rounded bg-success-soft px-1 text-[11px] text-success"
                   title={free.note ?? "Free day"}
                 >
                   🌴 {free.note ?? "Free day"}
@@ -529,7 +529,7 @@ export default function TimeGrid({
                       type="button"
                       onClick={() => onOpenEvent(ev.id)}
                       className="truncate rounded-full border px-1.5 text-left text-[11px]"
-                      style={{ background: alpha(c, 0.15), borderColor: c, color: "#262626" }}
+                      style={{ background: alpha(c, 0.15), borderColor: c, color: "var(--fg)" }}
                       title={ev.title}
                     >
                       {ev.is_payment ? (ev.payment_status === "paid" ? "✓💳 " : ev.payment_status === "skipped" ? "–💳 " : "💳 ") : ""}
@@ -547,7 +547,7 @@ export default function TimeGrid({
         <div ref={contentRef} className="relative flex" style={{ height: 24 * H }}>
           {marquee && (
             <div
-              className="pointer-events-none absolute z-40 rounded-sm border border-sky-500 bg-sky-400/10"
+              className="pointer-events-none absolute z-40 rounded-sm border border-info bg-info/10"
               style={{ left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height }}
             />
           )}
@@ -559,7 +559,7 @@ export default function TimeGrid({
               return (
                 <span
                   key={h}
-                  className={`absolute right-1 -translate-y-1/2 text-[10px] ${next ? "text-neutral-500" : "text-neutral-400"}`}
+                  className={`absolute right-1 -translate-y-1/2 text-[10px] ${next ? "text-muted" : "text-faint"}`}
                   style={{ top: h * H }}
                 >
                   {h === 0 && S === 0 ? "" : `${hour % 12 === 0 ? 12 : hour % 12}${hour < 12 ? "am" : "pm"}${next ? " +1d" : ""}`}
@@ -579,14 +579,14 @@ export default function TimeGrid({
               onPointerMove={moveMarquee}
               onPointerUp={endMarquee}
               onPointerCancel={endMarquee}
-              className={`relative min-w-0 flex-1 border-l border-neutral-100 ${readOnly ? "" : "cursor-cell"} ${
-                date < data.today ? "bg-neutral-50/60" : ""
+              className={`relative min-w-0 flex-1 border-l border-line ${readOnly ? "" : "cursor-cell"} ${
+                date < data.today ? "bg-subtle/60" : ""
               }`}
               style={{ backgroundImage: lines }}
             >
               {S > 0 && (
                 <div
-                  className="pointer-events-none absolute inset-x-0 border-t border-dashed border-neutral-300"
+                  className="pointer-events-none absolute inset-x-0 border-t border-dashed border-edge"
                   style={{ top: ((1440 - S) / 60) * H }}
                 />
               )}
@@ -628,16 +628,16 @@ export default function TimeGrid({
                       readOnly || cutTop ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
                     } ${dragging ? "opacity-40" : ""} ${
                       dropOn === `occ-${o.id}-${date}`
-                        ? "ring-2 ring-neutral-900 ring-offset-1"
+                        ? "ring-2 ring-accent ring-offset-1"
                         : isSelected
-                          ? "ring-2 ring-sky-500 ring-offset-1"
+                          ? "ring-2 ring-info ring-offset-1"
                           : ""
                     }`}
                     style={{
                       top: (top / 60) * H,
                       height,
                       background: muted ? alpha(color, 0.18) : color,
-                      color: muted ? "#525252" : textOn(color),
+                      color: muted ? "var(--muted)" : textOn(color),
                       touchAction: readOnly ? "auto" : "none",
                     }}
                   >
@@ -748,7 +748,7 @@ export default function TimeGrid({
                       }}
                       {...(date >= data.today ? dropHandlers(dropKey, { eventId: e.id, date }) : {})}
                       className={`pointer-events-auto block max-w-full truncate rounded-br px-1 text-left text-[11px] font-medium ${
-                        dropOn === dropKey ? "ring-2 ring-neutral-900" : ""
+                        dropOn === dropKey ? "ring-2 ring-accent" : ""
                       }`}
                       style={{ background: alpha(c, 0.85), color: textOn(c) }}
                       title={`${e.title}${evTasks.length ? ` · ${evTasks.length} task(s)` : ""} — drop a task here to put it in this event`}
@@ -771,7 +771,7 @@ export default function TimeGrid({
                     <div
                       key={`ghost-${o.id}-${date}`}
                       className={`pointer-events-none absolute inset-x-0.5 z-30 rounded-md border-2 border-dashed px-1.5 py-0.5 ${
-                        groupPreview.conflict ? "border-red-600 bg-red-100/80 text-red-700" : "border-sky-600 bg-white/70"
+                        groupPreview.conflict ? "border-danger bg-danger-soft/80 text-danger" : "border-info bg-surface/70"
                       }`}
                       style={{ top: (c.top / 60) * H, height: Math.max(((c.bottom - c.top) / 60) * H, 14) }}
                     >
@@ -787,7 +787,7 @@ export default function TimeGrid({
               {preview && preview.col === col && (
                 <div
                   className={`pointer-events-none absolute inset-x-0.5 z-30 rounded-md border-2 border-dashed px-1.5 py-0.5 ${
-                    preview.conflict ? "border-red-600 bg-red-100/80 text-red-700" : "border-neutral-900 bg-white/70"
+                    preview.conflict ? "border-danger bg-danger-soft/80 text-danger" : "border-accent bg-surface/70"
                   }`}
                   style={{
                     top: (preview.top / 60) * H,
@@ -804,7 +804,7 @@ export default function TimeGrid({
 
               {date === nowCol && (
                 <div
-                  className="pointer-events-none absolute inset-x-0 z-10 border-t-2 border-red-500"
+                  className="pointer-events-none absolute inset-x-0 z-10 border-t-2 border-danger"
                   style={{ top: (nowY / 60) * H }}
                 />
               )}

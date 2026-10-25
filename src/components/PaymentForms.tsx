@@ -7,7 +7,7 @@ import type { CalResult, FinanceOptions, PaymentTemplate } from "@/lib/calendar/
 import type { RepeatUnit } from "@/lib/calendar/recurrence";
 import { emitCalendarChanged } from "@/components/calendar/util";
 
-const input = "rounded-md border border-neutral-300 px-3 py-2 text-sm";
+const input = "rounded-md border border-line-strong px-3 py-2 text-sm";
 
 function useRun(run?: (fn: () => Promise<CalResult>) => Promise<boolean>) {
   const router = useRouter();
@@ -79,7 +79,7 @@ export function PaymentForm({
           onDone?.();
         }
       }}
-      className="space-y-2 rounded-lg border border-neutral-200 p-3 text-sm"
+      className="space-y-2 rounded-lg border border-line p-3 text-sm bg-surface shadow-card"
     >
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Rent, Internet…" className={`${input} col-span-2`} />
@@ -102,11 +102,11 @@ export function PaymentForm({
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
         </select>
-        <label className="text-xs text-neutral-500">
+        <label className="text-xs text-muted">
           First date
           <input type="date" required value={start} onChange={(e) => setStart(e.target.value)} className={`${input} w-full`} />
         </label>
-        <label className="text-xs text-neutral-500">
+        <label className="text-xs text-muted">
           Ends (optional)
           <input type="date" value={end} min={start} onChange={(e) => setEnd(e.target.value)} className={`${input} w-full`} />
         </label>
@@ -126,12 +126,12 @@ export function PaymentForm({
             <input type="number" min={1} max={366} value={every} onChange={(e) => setEvery(Number(e.target.value))} className={`${input} w-20`} />
           </label>
         )}
-        <button disabled={busy} className="ml-auto rounded-md bg-neutral-900 px-3 py-2 text-white disabled:opacity-50">
+        <button disabled={busy} className="ml-auto rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-2 text-accent-fg disabled:opacity-50">
           {busy ? "Saving…" : "Schedule payment"}
         </button>
       </div>
-      <p className="text-xs text-neutral-500">It shows on the calendar as an event. On its day you get a pre-filled draft: write the real amount and confirm.</p>
-      {msg && <p className="text-red-600">{msg}</p>}
+      <p className="text-xs text-muted">It shows on the calendar as an event. On its day you get a pre-filled draft: write the real amount and confirm.</p>
+      {msg && <p className="text-danger">{msg}</p>}
     </form>
   );
 }
@@ -168,13 +168,13 @@ export function PaymentDraft({
   if (readOnly) {
     return (
       <p className="text-sm">
-        💳 {title} <span className="text-neutral-500">· due {date}{template?.expected_amount ? ` · expected $${template.expected_amount.toFixed(2)}` : ""} · confirm it on the computer</span>
+        💳 {title} <span className="text-muted">· due {date}{template?.expected_amount ? ` · expected $${template.expected_amount.toFixed(2)}` : ""} · confirm it on the computer</span>
       </p>
     );
   }
   if (date > today) {
     return (
-      <p className="text-sm text-neutral-500">
+      <p className="text-sm text-muted">
         Upcoming payment{template?.expected_amount ? ` · expected $${template.expected_amount.toFixed(2)}` : ""}. The draft opens on {date}.
       </p>
     );
@@ -188,7 +188,7 @@ export function PaymentDraft({
       className="space-y-2 text-sm"
     >
       <p className="font-medium">
-        💳 {title} <span className="font-normal text-neutral-500">· due {date}{template?.expected_amount ? ` · expected $${template.expected_amount.toFixed(2)}` : ""}</span>
+        💳 {title} <span className="font-normal text-muted">· due {date}{template?.expected_amount ? ` · expected $${template.expected_amount.toFixed(2)}` : ""}</span>
       </p>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <input required autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="Real amount $" className={input} />
@@ -209,7 +209,7 @@ export function PaymentDraft({
         <input type="date" value={on} max={today} onChange={(e) => setOn(e.target.value)} className={input} />
       </div>
       <div className="flex gap-2">
-        <button disabled={busy} className="rounded-md bg-green-700 px-3 py-1.5 text-white disabled:opacity-50">
+        <button disabled={busy} className="rounded-md bg-success-solid px-3 py-1.5 text-white font-medium disabled:opacity-50">
           Confirm
         </button>
         <button
@@ -218,12 +218,12 @@ export function PaymentDraft({
           onClick={async () => {
             if (await go(() => skipPayment({ eventId }))) onDone?.();
           }}
-          className="rounded-md border border-neutral-300 px-3 py-1.5 disabled:opacity-50"
+          className="rounded-md border border-edge transition-colors hover:bg-subtle px-3 py-1.5 disabled:opacity-50"
         >
           Not this time
         </button>
       </div>
-      {msg && <p className="text-red-600">{msg}</p>}
+      {msg && <p className="text-danger">{msg}</p>}
     </form>
   );
 }
@@ -234,7 +234,7 @@ export function StopPaymentButton({ id, name }: { id: string; name: string }) {
     <button
       disabled={busy}
       onClick={() => window.confirm(`Stop "${name}"? Upcoming unpaid ones are removed; paid ones stay.`) && go(() => stopPaymentTemplate({ id }))}
-      className="text-xs text-neutral-500 hover:text-red-600"
+      className="text-xs text-muted hover:text-danger"
     >
       Stop
     </button>

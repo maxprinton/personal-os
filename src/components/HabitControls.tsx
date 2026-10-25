@@ -7,7 +7,7 @@ import type { CalResult, HabitState } from "@/lib/calendar/types";
 import { emitCalendarChanged } from "@/components/calendar/util";
 
 const LABEL: Record<HabitState, string> = { done: "Done", skipped: "Skipped", missed: "Missed" };
-const COLOR: Record<HabitState, string> = { done: "text-green-700", skipped: "text-amber-700", missed: "text-red-600" };
+const COLOR: Record<HabitState, string> = { done: "text-success", skipped: "text-warning", missed: "text-danger" };
 
 /** ✓ / Skip for one habit in one block occurrence (skips keep the streak, up to 3 in a row). */
 export default function HabitControls({
@@ -50,24 +50,24 @@ export default function HabitControls({
       <span className="flex flex-wrap items-center gap-2">
         <span className={`text-xs ${COLOR[state]}`}>{LABEL[state]}</span>
         {!readOnly && (
-          <button disabled={busy} onClick={() => set(null)} className={`${btn} border-neutral-300 text-neutral-500`}>
+          <button disabled={busy} onClick={() => set(null)} className={`${btn} border-edge text-muted`}>
             Undo
           </button>
         )}
-        {err && <span className="text-xs text-red-600">{err}</span>}
+        {err && <span className="text-xs text-danger">{err}</span>}
       </span>
     );
   }
-  if (readOnly) return <span className="text-xs text-neutral-400">Not marked</span>;
+  if (readOnly) return <span className="text-xs text-faint">Not marked</span>;
   return (
     <span className="flex flex-wrap items-center gap-1">
-      <button disabled={busy} onClick={() => set("done")} className={`${btn} border-green-600 text-green-700`}>
+      <button disabled={busy} onClick={() => set("done")} className={`${btn} border-success text-success`}>
         ✓ Done
       </button>
-      <button disabled={busy} onClick={() => set("skipped")} className={`${btn} border-amber-500 text-amber-700`}>
+      <button disabled={busy} onClick={() => set("skipped")} className={`${btn} border-warning-solid text-warning`}>
         Skip
       </button>
-      {err && <span className="text-xs text-red-600">{err}</span>}
+      {err && <span className="text-xs text-danger">{err}</span>}
     </span>
   );
 }

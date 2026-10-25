@@ -29,11 +29,11 @@ export default function MorningRitual({ ritual, readOnly = false }: { ritual: Ri
   }
 
   return (
-    <section className="space-y-3 rounded-xl border border-sky-200 bg-sky-50 p-4">
+    <section className="space-y-3 rounded-xl border border-info/30 bg-info-soft p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-medium text-sky-900">☀️ Morning ritual</h2>
-          <p className="text-xs text-sky-800">
+          <h2 className="text-sm font-medium text-info">☀️ Morning ritual</h2>
+          <p className="text-xs text-info">
             {ritual.items.length
               ? `${ritual.items.length} task${ritual.items.length > 1 ? "s" : ""} not done yesterday (marked as skipped there).`
               : "Nothing left from yesterday."}
@@ -41,46 +41,46 @@ export default function MorningRitual({ ritual, readOnly = false }: { ritual: Ri
           </p>
         </div>
         {!readOnly && (
-          <button disabled={busy} onClick={() => run(() => dismissRitual())} className="shrink-0 text-xs text-sky-900 underline">
+          <button disabled={busy} onClick={() => run(() => dismissRitual())} className="shrink-0 text-xs text-info underline">
             Done for today
           </button>
         )}
       </div>
       <ul className="space-y-2">
         {ritual.items.map((it) => (
-          <li key={it.task.id} className="space-y-1 rounded-lg bg-white p-3 text-sm">
+          <li key={it.task.id} className="space-y-1 rounded-lg bg-surface p-3 text-sm">
             <p className="font-medium">
               {it.task.title}
               {it.task.moved > 0 && (
-                <span className="ml-2 rounded-full bg-amber-100 px-1.5 text-xs font-normal text-amber-800">moved {it.task.moved}×</span>
+                <span className="ml-2 rounded-full bg-warning-soft px-1.5 text-xs font-normal text-warning">moved {it.task.moved}×</span>
               )}
             </p>
             {it.placedIn ? (
-              <p className="text-xs text-green-700">
+              <p className="text-xs text-success">
                 ✓ Placed in {it.placedIn.blockName} at {it.placedIn.start} (its home block)
               </p>
             ) : readOnly ? (
-              <p className="text-xs text-neutral-500">Waiting for a block — place it on the computer.</p>
+              <p className="text-xs text-muted">Waiting for a block — place it on the computer.</p>
             ) : (
               <div className="flex flex-wrap items-center gap-2">
                 {it.homeName && !it.homeToday && it.nextHome && (
                   <button
                     disabled={busy}
                     onClick={() => run(() => moveTaskToNextHome({ taskId: it.task.id }))}
-                    className="rounded-md border border-sky-400 px-2 py-1 text-xs text-sky-900"
+                    className="rounded-md border border-info px-2 py-1 text-xs text-info"
                   >
                     Move to next {it.homeName} ({dayLabel(it.nextHome.date)})
                   </button>
                 )}
                 {it.homeName && !it.homeToday && !it.nextHome && (
-                  <span className="text-xs text-neutral-500">{it.homeName} is not on the calendar soon.</span>
+                  <span className="text-xs text-muted">{it.homeName} is not on the calendar soon.</span>
                 )}
                 {ritual.todayBlocks.length > 0 && (
                   <select
                     disabled={busy}
                     defaultValue=""
                     onChange={(e) => e.target.value && run(() => placeTask({ taskId: it.task.id, occurrenceId: e.target.value }))}
-                    className="rounded-md border border-neutral-300 px-2 py-1 text-xs"
+                    className="rounded-md border border-line-strong px-2 py-1 text-xs"
                   >
                     <option value="">{it.homeName ? "Or another block today…" : "Pick a block today…"}</option>
                     {ritual.todayBlocks.map((b) => (
@@ -90,13 +90,13 @@ export default function MorningRitual({ ritual, readOnly = false }: { ritual: Ri
                     ))}
                   </select>
                 )}
-                {!it.homeName && <span className="text-xs text-neutral-500">No home block · it stays in “unassigned”.</span>}
+                {!it.homeName && <span className="text-xs text-muted">No home block · it stays in “unassigned”.</span>}
               </div>
             )}
           </li>
         ))}
       </ul>
-      {msg && <p className="text-sm text-red-600">{msg}</p>}
+      {msg && <p className="text-sm text-danger">{msg}</p>}
     </section>
   );
 }

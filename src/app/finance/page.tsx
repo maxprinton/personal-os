@@ -20,7 +20,6 @@ import {
   deleteTransfer,
   updateBalance,
 } from "@/app/finance-actions";
-import Nav from "@/components/Nav";
 import TxnAccountSelect from "@/components/TxnAccountSelect";
 import { AccountForm, BudgetForm, CategoryForm, TransactionForm, TransferForm } from "@/components/FinanceForms";
 import { PaymentDraft, PaymentForm, StopPaymentButton } from "@/components/PaymentForms";
@@ -78,264 +77,275 @@ export default async function FinancePage() {
 
   return (
     <>
-      <Nav active="/finance" />
-      <main className="mx-auto max-w-3xl space-y-8 px-4 py-6">
+      <main className="@container mx-auto w-full max-w-6xl space-y-8 px-4 py-6 sm:px-6 lg:py-8">
         <div>
-          <h1 className="text-2xl font-semibold">Finance</h1>
-          <p className="text-sm text-neutral-500">Log what you can. A balance update fixes the rest.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Finance</h1>
+          <p className="text-sm text-muted">Log what you can. A balance update fixes the rest.</p>
         </div>
 
         <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
-            { label: `${monthName} income`, value: sums.income, cls: "text-green-700" },
-            { label: `${monthName} spent`, value: sums.expense, cls: "text-red-600" },
-            { label: "Net this month", value: sums.net, cls: sums.net >= 0 ? "text-green-700" : "text-red-600" },
+            { label: `${monthName} income`, value: sums.income, cls: "text-success" },
+            { label: `${monthName} spent`, value: sums.expense, cls: "text-danger" },
+            { label: "Net this month", value: sums.net, cls: sums.net >= 0 ? "text-success" : "text-danger" },
             { label: "All accounts", value: netWorth, cls: "" },
           ].map((c) => (
-            <div key={c.label} className="rounded-lg border border-neutral-200 p-3">
-              <p className="text-xs text-neutral-500">{c.label}</p>
-              <p className={`text-lg font-semibold ${c.cls}`}>{formatUSD(c.value)}</p>
+            <div key={c.label} className="card p-4">
+              <p className="text-xs text-muted">{c.label}</p>
+              <p className={`text-2xl font-semibold tabular-nums tracking-tight ${c.cls}`}>{formatUSD(c.value)}</p>
             </div>
           ))}
         </section>
 
         {unassigned.length > 0 && (
-          <section className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
-            <h2 className="text-sm font-medium text-amber-900">
+          <section className="space-y-2 rounded-lg border border-warning/40 bg-warning-soft p-3">
+            <h2 className="text-sm font-medium text-warning">
               {unassigned.length} transaction{unassigned.length > 1 ? "s" : ""} without an account
             </h2>
-            <p className="text-xs text-amber-800">
+            <p className="text-xs text-warning">
               They count in your monthly totals but not in any account balance. Pick the account and balances update.
             </p>
             <ul className="space-y-1">
               {unassigned.slice(0, 30).map((t) => (
                 <li key={t.id} className="flex items-center gap-2 text-sm">
-                  <span className="w-12 shrink-0 text-neutral-500">{t.localDate.slice(5)}</span>
+                  <span className="w-12 shrink-0 text-muted">{t.localDate.slice(5)}</span>
                   <span className="min-w-0 flex-1 truncate">
                     {t.description || (t.category_id ? catName.get(t.category_id) : null) || (t.type === "income" ? "Income" : "Expense")}
                   </span>
-                  <span className={t.type === "income" ? "text-green-700" : ""}>
+                  <span className={t.type === "income" ? "text-success" : ""}>
                     {t.type === "income" ? "+" : "−"}{formatUSD(t.amount)}
                   </span>
                   <TxnAccountSelect id={t.id} accountId={null} accounts={accountOpts} />
                 </li>
               ))}
             </ul>
-            {unassigned.length > 30 && <p className="text-xs text-amber-800">Showing the 30 most recent.</p>}
+            {unassigned.length > 30 && <p className="text-xs text-warning">Showing the 30 most recent.</p>}
           </section>
         )}
 
-        <section className="space-y-2">
-          <h2 className="text-sm font-medium text-neutral-500">Add a transaction</h2>
-          {categories.length === 0 && (
-            <form action={addStarterCategories}>
-              <button className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm">
-                Add starter categories (Food, Transport, Home, Health, Fun, Salary…)
-              </button>
-            </form>
-          )}
-          <TransactionForm
-            today={today}
-            categories={categories.map((c) => ({ id: c.id, name: c.name, kind: c.kind }))}
-            accounts={accounts.map((a) => ({ id: a.id, name: a.name }))}
-          />
-        </section>
-
-        {accounts.length >= 2 && (
+        <div className="grid grid-cols-1 items-start gap-8 @4xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+          <div className="min-w-0 space-y-8">
           <section className="space-y-2">
-            <h2 className="text-sm font-medium text-neutral-500">Transfer between accounts</h2>
-            <p className="text-xs text-neutral-500">
-              Moves money from one account to another. It is not income or expense, so monthly totals and budgets do not change.
-              From Telegram: <code>transfer 50 from cash to Pichincha</code>.
-            </p>
-            <TransferForm today={today} accounts={accountOpts} />
-            {transfers.length > 0 && (
-              <ul className="space-y-1">
-                {transfers.slice(0, 10).map((t) => (
-                  <li key={t.id} className="flex items-center gap-3 border-b border-neutral-100 py-1.5 text-sm">
-                    <span className="w-12 shrink-0 text-neutral-500">{t.localDate.slice(5)}</span>
-                    <span className="min-w-0 flex-1 truncate">
-                      {accountNameById.get(t.from_account_id) ?? "Removed account"} → {accountNameById.get(t.to_account_id) ?? "Removed account"}
-                      {t.note && <span className="text-xs text-neutral-400"> · {t.note}</span>}
+            <h2 className="section-title">Add a transaction</h2>
+            {categories.length === 0 && (
+              <form action={addStarterCategories}>
+                <button className="rounded-md border border-edge transition-colors hover:bg-subtle px-3 py-1.5 text-sm">
+                  Add starter categories (Food, Transport, Home, Health, Fun, Salary…)
+                </button>
+              </form>
+            )}
+            <TransactionForm
+              today={today}
+              categories={categories.map((c) => ({ id: c.id, name: c.name, kind: c.kind }))}
+              accounts={accounts.map((a) => ({ id: a.id, name: a.name }))}
+            />
+          </section>
+
+          <section className="space-y-2">
+            <h2 className="section-title">Recent transactions</h2>
+            <ul className="card divide-y divide-line overflow-hidden">
+              {txns.slice(0, 40).map((t) => (
+                <li key={t.id} className="flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-subtle/60">
+                  <span className="w-12 shrink-0 tabular-nums text-muted">{t.localDate.slice(5)}</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {t.description || (t.category_id ? catName.get(t.category_id) : null) || (t.type === "income" ? "Income" : "Expense")}
+                    <span className="text-xs text-faint">
+                      {t.category_id && t.description ? ` · ${catName.get(t.category_id) ?? ""}` : ""}
                     </span>
-                    <span>{formatUSD(t.amount)}</span>
-                    <form action={deleteTransfer}>
-                      <input type="hidden" name="id" value={t.id} />
-                      <button aria-label="Delete transfer" className="text-xs text-neutral-400 hover:text-red-600">×</button>
-                    </form>
+                  </span>
+                  {accounts.length > 0 && <TxnAccountSelect id={t.id} accountId={t.account_id} accounts={accountOpts} />}
+                  <span className={`tabular-nums font-medium ${t.type === "income" ? "text-success" : ""}`}>
+                    {t.type === "income" ? "+" : "−"}{formatUSD(t.amount)}
+                  </span>
+                  <form action={deleteTransaction}>
+                    <input type="hidden" name="id" value={t.id} />
+                    <button className="text-xs text-faint hover:text-danger">×</button>
+                  </form>
+                </li>
+              ))}
+              {txns.length === 0 && <li className="p-4 text-sm text-faint">No transactions yet.</li>}
+            </ul>
+          </section>
+
+          {accounts.length >= 2 && (
+            <section className="space-y-2">
+              <h2 className="section-title">Transfer between accounts</h2>
+              <p className="text-xs text-muted">
+                Moves money from one account to another. It is not income or expense, so monthly totals and budgets do not change.
+                From Telegram: <code>transfer 50 from cash to Pichincha</code>.
+              </p>
+              <TransferForm today={today} accounts={accountOpts} />
+              {transfers.length > 0 && (
+                <ul className="card divide-y divide-line overflow-hidden">
+                  {transfers.slice(0, 10).map((t) => (
+                    <li key={t.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                      <span className="w-12 shrink-0 text-muted">{t.localDate.slice(5)}</span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {accountNameById.get(t.from_account_id) ?? "Removed account"} → {accountNameById.get(t.to_account_id) ?? "Removed account"}
+                        {t.note && <span className="text-xs text-faint"> · {t.note}</span>}
+                      </span>
+                      <span>{formatUSD(t.amount)}</span>
+                      <form action={deleteTransfer}>
+                        <input type="hidden" name="id" value={t.id} />
+                        <button aria-label="Delete transfer" className="text-xs text-faint hover:text-danger">×</button>
+                      </form>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+
+          <section className="space-y-3">
+            <h2 className="section-title">Scheduled payments</h2>
+            <p className="text-xs text-muted">
+              Payments are events on the calendar. On the day, a pre-filled draft appears here and on Today: write the real amount
+              and confirm. Recurring ones create their own events.
+            </p>
+            {due.map((p) => (
+              <div key={p.eventId} className="rounded-lg border border-success/30 bg-success-soft p-3">
+                <PaymentDraft eventId={p.eventId} title={p.title} date={p.date} template={p.template} options={payOptions} today={today} readOnly={mobile} />
+              </div>
+            ))}
+            {upcoming.length > 0 && (
+              <ul className="space-y-1 text-sm">
+                {upcoming.map((e) => {
+                  const t = templates.find((x) => x.id === e.payment_template_id);
+                  return (
+                    <li key={e.id} className="flex justify-between border-b border-line py-1">
+                      <span>💳 {e.title} <span className="text-faint">· {formatDateLong(e.event_date)}</span></span>
+                      <span className="text-muted">{t?.expected_amount ? formatUSD(t.expected_amount) : "—"}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {templates.length > 0 && (
+              <ul className="space-y-1 text-sm">
+                {templates.map((t) => (
+                  <li key={t.id} className="flex items-center justify-between gap-2 rounded-md bg-subtle px-3 py-1.5">
+                    <span>
+                      {t.name}{" "}
+                      <span className="text-xs text-muted">
+                        · {describeRepeat(t.repeat_unit, t.repeat_every)} from {t.start_date}
+                        {t.expected_amount ? ` · ${formatUSD(t.expected_amount)}` : ""}
+                        {t.type === "income" ? " · income" : ""}
+                      </span>
+                    </span>
+                    {!mobile && <StopPaymentButton id={t.id} name={t.name} />}
                   </li>
                 ))}
               </ul>
             )}
+            {!mobile && <PaymentForm options={payOptions} date={today} />}
           </section>
-        )}
 
-        <section className="space-y-3">
-          <h2 className="text-sm font-medium text-neutral-500">Scheduled payments</h2>
-          <p className="text-xs text-neutral-500">
-            Payments are events on the calendar. On the day, a pre-filled draft appears here and on Today: write the real amount
-            and confirm. Recurring ones create their own events.
-          </p>
-          {due.map((p) => (
-            <div key={p.eventId} className="rounded-lg border border-green-200 bg-green-50 p-3">
-              <PaymentDraft eventId={p.eventId} title={p.title} date={p.date} template={p.template} options={payOptions} today={today} readOnly={mobile} />
-            </div>
-          ))}
-          {upcoming.length > 0 && (
-            <ul className="space-y-1 text-sm">
-              {upcoming.map((e) => {
-                const t = templates.find((x) => x.id === e.payment_template_id);
+          </div>
+          <div className="min-w-0 space-y-8">
+          <section className="space-y-3">
+            <h2 className="section-title">Accounts</h2>
+            <ul className="space-y-2">
+              {balances.map(({ account, balance, snapshotAt }) => (
+                <li key={account.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line p-3 bg-surface shadow-card">
+                  <div>
+                    <p className="font-medium">{account.name}</p>
+                    <p className="text-xs text-muted">
+                      {KIND_LABEL[account.kind] ?? account.kind}
+                      {snapshotAt ? ` · balance set ${formatDateLong(utcToLocal(snapshotAt, timezone).date)}` : " · no balance set"}
+                    </p>
+                  </div>
+                  <p className={`text-lg font-semibold tabular-nums ${balance < 0 ? "text-danger" : ""}`}>{formatUSD(balance)}</p>
+                  <div className="flex w-full items-center justify-end gap-2">
+                    <form action={updateBalance} className="flex items-center gap-1">
+                      <input type="hidden" name="account_id" value={account.id} />
+                      <input name="amount" inputMode="decimal" placeholder="Real balance" className="w-28 rounded-md border border-line-strong px-2 py-1 text-xs" />
+                      <button className="rounded-md border border-edge transition-colors hover:bg-subtle px-2 py-1 text-xs">Update</button>
+                    </form>
+                    <form action={deleteAccount}>
+                      <input type="hidden" name="id" value={account.id} />
+                      <button className="text-xs text-faint hover:text-danger">Remove</button>
+                    </form>
+                  </div>
+                </li>
+              ))}
+              {accounts.length === 0 && <p className="text-sm text-faint">No accounts yet.</p>}
+            </ul>
+            <AccountForm />
+          </section>
+
+          <section className="space-y-3">
+            <h2 className="section-title">Budgets</h2>
+            <ul className="space-y-2">
+              {budgets.map((b) => {
+                const u = budgetUsage(b, txns, today);
+                const over = u.spent > u.limit;
                 return (
-                  <li key={e.id} className="flex justify-between border-b border-neutral-100 py-1">
-                    <span>💳 {e.title} <span className="text-neutral-400">· {formatDateLong(e.event_date)}</span></span>
-                    <span className="text-neutral-500">{t?.expected_amount ? formatUSD(t.expected_amount) : "—"}</span>
+                  <li key={b.id} className="space-y-1 rounded-lg border border-line p-3 bg-surface shadow-card">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="font-medium">
+                        {catName.get(b.category_id) ?? "Category"}{" "}
+                        <span className="text-xs font-normal text-muted">{b.period}</span>
+                      </p>
+                      <p className={`text-sm ${over ? "text-danger" : "text-muted"}`}>
+                        {formatUSD(u.spent)} / {formatUSD(u.limit)} · {over ? `${formatUSD(-u.left)} over` : `${formatUSD(u.left)} left`}
+                      </p>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-subtle-2">
+                      <div
+                        className={`h-1.5 rounded-full ${over ? "bg-danger-solid" : u.pct > 80 ? "bg-warning-solid" : "bg-success-solid"}`}
+                        style={{ width: `${Math.min(100, u.pct)}%` }}
+                      />
+                    </div>
+                    <form action={deleteBudget} className="text-right">
+                      <input type="hidden" name="id" value={b.id} />
+                      <button className="text-xs text-faint hover:text-danger">Remove</button>
+                    </form>
                   </li>
                 );
               })}
+              {budgets.length === 0 && <p className="text-sm text-faint">No budgets yet.</p>}
             </ul>
-          )}
-          {templates.length > 0 && (
-            <ul className="space-y-1 text-sm">
-              {templates.map((t) => (
-                <li key={t.id} className="flex items-center justify-between gap-2 rounded-md bg-neutral-50 px-3 py-1.5">
-                  <span>
-                    {t.name}{" "}
-                    <span className="text-xs text-neutral-500">
-                      · {describeRepeat(t.repeat_unit, t.repeat_every)} from {t.start_date}
-                      {t.expected_amount ? ` · ${formatUSD(t.expected_amount)}` : ""}
-                      {t.type === "income" ? " · income" : ""}
-                    </span>
-                  </span>
-                  {!mobile && <StopPaymentButton id={t.id} name={t.name} />}
+            {expenseCats.length > 0 && <BudgetForm categories={expenseCats.map((c) => ({ id: c.id, name: c.name }))} />}
+          </section>
+
+          <section className="space-y-2">
+            <h2 className="section-title">{monthName} spending by category</h2>
+            <ul className="card space-y-2.5 p-4 text-sm">
+              {spendingByCategory(monthTxns).map(([id, amount]) => (
+                <li key={id || "none"} className="space-y-1">
+                  <div className="flex justify-between gap-2">
+                    <span className="truncate">{id ? catName.get(id) ?? "Category" : "Uncategorized"}</span>
+                    <span className="tabular-nums text-muted">{formatUSD(amount)}</span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-subtle-2">
+                    <div className="h-full rounded-full bg-accent" style={{ width: `${sums.expense ? Math.round((amount / sums.expense) * 100) : 0}%` }} />
+                  </div>
                 </li>
               ))}
+              {sums.expense === 0 && <li className="text-faint">No expenses this month.</li>}
             </ul>
-          )}
-          {!mobile && <PaymentForm options={payOptions} date={today} />}
-        </section>
+          </section>
 
-        <section className="space-y-3">
-          <h2 className="text-sm font-medium text-neutral-500">Budgets</h2>
-          <ul className="space-y-2">
-            {budgets.map((b) => {
-              const u = budgetUsage(b, txns, today);
-              const over = u.spent > u.limit;
-              return (
-                <li key={b.id} className="space-y-1 rounded-lg border border-neutral-200 p-3">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <p className="font-medium">
-                      {catName.get(b.category_id) ?? "Category"}{" "}
-                      <span className="text-xs font-normal text-neutral-500">{b.period}</span>
-                    </p>
-                    <p className={`text-sm ${over ? "text-red-600" : "text-neutral-500"}`}>
-                      {formatUSD(u.spent)} / {formatUSD(u.limit)} · {over ? `${formatUSD(-u.left)} over` : `${formatUSD(u.left)} left`}
-                    </p>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-neutral-100">
-                    <div
-                      className={`h-1.5 rounded-full ${over ? "bg-red-500" : u.pct > 80 ? "bg-amber-500" : "bg-neutral-900"}`}
-                      style={{ width: `${Math.min(100, u.pct)}%` }}
-                    />
-                  </div>
-                  <form action={deleteBudget} className="text-right">
-                    <input type="hidden" name="id" value={b.id} />
-                    <button className="text-xs text-neutral-400 hover:text-red-600">Remove</button>
+          <section className="space-y-2">
+            <h2 className="section-title">Categories</h2>
+            <ul className="flex flex-wrap gap-2">
+              {categories.map((c) => (
+                <li key={c.id} className="flex items-center gap-1 rounded-full bg-subtle py-0.5 pl-3 pr-1 text-sm">
+                  {c.name}
+                  <span className="text-xs text-faint">{c.kind === "income" ? "income" : "expense"}</span>
+                  <form action={deleteCategory}>
+                    <input type="hidden" name="id" value={c.id} />
+                    <button aria-label={`Delete ${c.name}`} title="Delete category (past transactions become Uncategorized)" className="rounded-full px-1.5 text-faint hover:text-danger">×</button>
                   </form>
                 </li>
-              );
-            })}
-            {budgets.length === 0 && <p className="text-sm text-neutral-400">No budgets yet.</p>}
-          </ul>
-          {expenseCats.length > 0 && <BudgetForm categories={expenseCats.map((c) => ({ id: c.id, name: c.name }))} />}
-        </section>
+              ))}
+              {categories.length === 0 && <li className="text-sm text-muted">None yet.</li>}
+            </ul>
+            <CategoryForm />
+          </section>
 
-        <section className="space-y-3">
-          <h2 className="text-sm font-medium text-neutral-500">Accounts</h2>
-          <ul className="space-y-2">
-            {balances.map(({ account, balance, snapshotAt }) => (
-              <li key={account.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-200 p-3">
-                <div>
-                  <p className="font-medium">{account.name}</p>
-                  <p className="text-xs text-neutral-500">
-                    {KIND_LABEL[account.kind] ?? account.kind}
-                    {snapshotAt ? ` · balance set ${formatDateLong(utcToLocal(snapshotAt, timezone).date)}` : " · no balance set"}
-                  </p>
-                </div>
-                <p className={`text-lg font-semibold ${balance < 0 ? "text-red-600" : ""}`}>{formatUSD(balance)}</p>
-                <div className="flex w-full items-center justify-end gap-2">
-                  <form action={updateBalance} className="flex items-center gap-1">
-                    <input type="hidden" name="account_id" value={account.id} />
-                    <input name="amount" inputMode="decimal" placeholder="Real balance" className="w-28 rounded-md border border-neutral-300 px-2 py-1 text-xs" />
-                    <button className="rounded-md border border-neutral-300 px-2 py-1 text-xs">Update</button>
-                  </form>
-                  <form action={deleteAccount}>
-                    <input type="hidden" name="id" value={account.id} />
-                    <button className="text-xs text-neutral-400 hover:text-red-600">Remove</button>
-                  </form>
-                </div>
-              </li>
-            ))}
-            {accounts.length === 0 && <p className="text-sm text-neutral-400">No accounts yet.</p>}
-          </ul>
-          <AccountForm />
-        </section>
-
-        <section className="space-y-2">
-          <h2 className="text-sm font-medium text-neutral-500">{monthName} spending by category</h2>
-          <ul className="space-y-1 text-sm">
-            {spendingByCategory(monthTxns).map(([id, amount]) => (
-              <li key={id || "none"} className="flex justify-between border-b border-neutral-100 py-1">
-                <span>{id ? catName.get(id) ?? "Category" : "Uncategorized"}</span>
-                <span>{formatUSD(amount)}</span>
-              </li>
-            ))}
-            {sums.expense === 0 && <p className="text-neutral-400">No expenses this month.</p>}
-          </ul>
-        </section>
-
-        <section className="space-y-2">
-          <h2 className="text-sm font-medium text-neutral-500">Recent transactions</h2>
-          <ul className="space-y-1">
-            {txns.slice(0, 40).map((t) => (
-              <li key={t.id} className="flex items-center gap-3 border-b border-neutral-100 py-2 text-sm">
-                <span className="w-24 shrink-0 text-neutral-500">{t.localDate.slice(5)}</span>
-                <span className="flex-1">
-                  {t.description || (t.category_id ? catName.get(t.category_id) : null) || (t.type === "income" ? "Income" : "Expense")}
-                  <span className="text-xs text-neutral-400">
-                    {t.category_id && t.description ? ` · ${catName.get(t.category_id) ?? ""}` : ""}
-                  </span>
-                </span>
-                {accounts.length > 0 && <TxnAccountSelect id={t.id} accountId={t.account_id} accounts={accountOpts} />}
-                <span className={t.type === "income" ? "text-green-700" : ""}>
-                  {t.type === "income" ? "+" : "−"}{formatUSD(t.amount)}
-                </span>
-                <form action={deleteTransaction}>
-                  <input type="hidden" name="id" value={t.id} />
-                  <button className="text-xs text-neutral-400 hover:text-red-600">×</button>
-                </form>
-              </li>
-            ))}
-            {txns.length === 0 && <p className="text-sm text-neutral-400">No transactions yet.</p>}
-          </ul>
-        </section>
-
-        <section className="space-y-2">
-          <h2 className="text-sm font-medium text-neutral-500">Categories</h2>
-          <ul className="flex flex-wrap gap-2">
-            {categories.map((c) => (
-              <li key={c.id} className="flex items-center gap-1 rounded-full bg-neutral-100 py-0.5 pl-3 pr-1 text-sm">
-                {c.name}
-                <span className="text-xs text-neutral-400">{c.kind === "income" ? "income" : "expense"}</span>
-                <form action={deleteCategory}>
-                  <input type="hidden" name="id" value={c.id} />
-                  <button aria-label={`Delete ${c.name}`} title="Delete category (past transactions become Uncategorized)" className="rounded-full px-1.5 text-neutral-400 hover:text-red-600">×</button>
-                </form>
-              </li>
-            ))}
-            {categories.length === 0 && <li className="text-sm text-neutral-500">None yet.</li>}
-          </ul>
-          <CategoryForm />
-        </section>
+          </div>
+        </div>
       </main>
     </>
   );

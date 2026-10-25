@@ -3,7 +3,6 @@ import { currentUserId } from "@/lib/calendar/model";
 import { userTimezone } from "@/lib/calendar/load";
 import { getEvents, getEventTypes } from "@/lib/calendar/events";
 import { addDays, localNow } from "@/lib/time";
-import Nav from "@/components/Nav";
 import EventsPanel from "@/components/EventsPanel";
 import { isMobileRequest } from "@/lib/device";
 
@@ -22,11 +21,10 @@ export default async function EventsPage() {
 
   return (
     <>
-      <Nav active="/events" />
-      <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
+      <main className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 lg:py-8">
         <div>
-          <h1 className="text-2xl font-semibold">Events</h1>
-          <p className="text-sm text-neutral-500">
+          <h1 className="text-2xl font-semibold tracking-tight">Events</h1>
+          <p className="text-sm text-muted">
             Dated things, in their own layer over your blocks (they may overlap them). Without a time they are notes of the
             day. Next 60 days.
           </p>

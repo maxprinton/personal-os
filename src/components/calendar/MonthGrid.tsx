@@ -31,9 +31,9 @@ export default function MonthGrid({
 
   return (
     <div className="flex h-full min-h-0 flex-col text-xs">
-      <div className="grid grid-cols-7 border-b border-neutral-200">
+      <div className="grid grid-cols-7 border-b border-line">
         {ISO_DAY_SHORT.map((d) => (
-          <div key={d} className="px-1 py-1 text-center text-neutral-500">{d}</div>
+          <div key={d} className="px-1 py-1 text-center text-muted">{d}</div>
         ))}
       </div>
       <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-7 overflow-y-auto">
@@ -45,11 +45,11 @@ export default function MonthGrid({
               key={date}
               type="button"
               onClick={() => onPickDay(date)}
-              className={`min-h-16 space-y-0.5 border-b border-l border-neutral-100 p-1 text-left align-top ${
-                inMonth ? "" : "bg-neutral-50 text-neutral-400"
+              className={`min-h-16 space-y-0.5 border-b border-l border-line p-1 text-left align-top ${
+                inMonth ? "" : "bg-subtle text-faint"
               }`}
             >
-              <span className={`inline-block rounded px-1 ${date === data.today ? "bg-neutral-900 text-white" : ""}`}>
+              <span className={`inline-block rounded px-1 ${date === data.today ? "bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover text-accent-fg" : ""}`}>
                 {Number(date.slice(8))}
               </span>
               {data.freeDays.some((f) => f.from_date <= date && date <= f.to_date) && <span className="ml-1">🌴</span>}
@@ -81,7 +81,7 @@ export default function MonthGrid({
                   </span>
                 );
               })}
-              {list.length > 3 && <span className="block text-neutral-400">+{list.length - 3} more</span>}
+              {list.length > 3 && <span className="block text-faint">+{list.length - 3} more</span>}
             </button>
           );
         })}

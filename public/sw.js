@@ -1,6 +1,6 @@
 // Personal OS service worker: makes the app open offline.
 // Pages: network first, fall back to the last copy seen. Static assets: cache first.
-const CACHE = "personal-os-v1";
+const CACHE = "personal-os-v2";
 const PRECACHE = ["/capture", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {

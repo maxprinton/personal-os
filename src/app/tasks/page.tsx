@@ -6,7 +6,6 @@ import { getEvents } from "@/lib/calendar/events";
 import { getTaskPlaces } from "@/lib/calendar/tasks";
 import { getTagsFor, idsWithTag } from "@/lib/tags";
 import { addDays, localNow, utcToLocal } from "@/lib/time";
-import Nav from "@/components/Nav";
 import TaskForm from "@/components/TaskForm";
 import TaskRow, { type TaskRowData } from "@/components/TaskRow";
 
@@ -56,11 +55,10 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
 
   return (
     <>
-      <Nav active="/tasks" />
-      <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
+      <main className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 lg:py-8">
         <div>
-          <h1 className="text-2xl font-semibold">Tasks</h1>
-          <p className="text-sm text-neutral-500">
+          <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
+          <p className="text-sm text-muted">
             Each task has a home block: every morning it goes into that block if the block is on the calendar that day. Nothing moves silently: undone tasks show up in the morning ritual on Today.
             {tag && (
               <>
@@ -73,7 +71,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
         {groups.map((g) =>
           g.items.length || g.empty ? (
             <section key={g.title} className="space-y-2">
-              <h2 className="text-sm font-medium text-neutral-500">
+              <h2 className="section-title">
                 {g.title} {g.items.length ? `(${g.items.length})` : ""}
               </h2>
               {g.items.length ? (
@@ -83,7 +81,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-neutral-400">{g.empty}</p>
+                <p className="text-sm text-faint">{g.empty}</p>
               )}
             </section>
           ) : null

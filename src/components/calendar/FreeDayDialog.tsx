@@ -35,12 +35,12 @@ export default function FreeDayDialog({
   if (existing) {
     return (
       <Modal title="🌴 Free days" onClose={onClose}>
-        <p className="text-sm text-neutral-600">
+        <p className="text-sm text-muted">
           {dayLabel(existing.from_date)}
           {existing.to_date !== existing.from_date ? ` → ${dayLabel(existing.to_date)}` : ""}
           {existing.note ? ` · ${existing.note}` : ""}
         </p>
-        <p className="text-xs text-neutral-500">Blocks are paused: no missed habits, streaks on hold, no reminders. Events stay visible.</p>
+        <p className="text-xs text-muted">Blocks are paused: no missed habits, streaks on hold, no reminders. Events stay visible.</p>
         {!readOnly && (
           <button
             disabled={busy}
@@ -72,7 +72,7 @@ export default function FreeDayDialog({
         className="space-y-3 text-sm"
       >
         <div className="grid grid-cols-2 gap-2">
-          <label className="text-xs text-neutral-500">
+          <label className="text-xs text-muted">
             From
             <input
               type="date"
@@ -85,25 +85,25 @@ export default function FreeDayDialog({
               className={inputCls}
             />
           </label>
-          <label className="text-xs text-neutral-500">
+          <label className="text-xs text-muted">
             To
             <input type="date" required min={from} value={to} onChange={(e) => setTo(e.target.value)} className={inputCls} />
           </label>
         </div>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional): Trip to Cuenca" className={inputCls} />
         <fieldset className="space-y-1">
-          <legend className="mb-1 text-xs text-neutral-500">The tasks of those days:</legend>
+          <legend className="mb-1 text-xs text-muted">The tasks of those days:</legend>
           {POLICIES.map((p) => (
             <label key={p.value} className="flex items-start gap-2">
               <input type="radio" checked={policy === p.value} onChange={() => setPolicy(p.value)} className="mt-1" />
               <span>
                 {p.label}
-                <span className="block text-xs text-neutral-500">{p.hint}</span>
+                <span className="block text-xs text-muted">{p.hint}</span>
               </span>
             </label>
           ))}
         </fieldset>
-        <p className="text-xs text-neutral-500">Blocks show dimmed as “free day”, habits aren't marked missed (streaks pause), nothing nags. Events stay visible.</p>
+        <p className="text-xs text-muted">Blocks show dimmed as “free day”, habits aren't marked missed (streaks pause), nothing nags. Events stay visible.</p>
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className={btnSecondary}>
             Cancel

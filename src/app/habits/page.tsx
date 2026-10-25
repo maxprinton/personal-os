@@ -8,7 +8,6 @@ import { SKIP_LIMIT } from "@/lib/calendar/streaks";
 import { getMetrics } from "@/lib/habits";
 import { addDays, formatMinutes, localNow, timeToMinutes } from "@/lib/time";
 import { addStarterMetrics, deleteMetric } from "@/app/habit-actions";
-import Nav from "@/components/Nav";
 import HabitControls from "@/components/HabitControls";
 import { HabitEditRow, NewHabitForm } from "@/components/HabitEditors";
 import MetricWidget from "@/components/MetricWidget";
@@ -18,9 +17,9 @@ import { isMobileRequest } from "@/lib/device";
 export const dynamic = "force-dynamic";
 
 const CELL: Record<string, string> = {
-  done: "bg-green-600",
-  skipped: "bg-amber-400",
-  missed: "bg-red-500",
+  done: "bg-success-solid",
+  skipped: "bg-warning-solid",
+  missed: "bg-danger-solid",
 };
 
 function HabitCard({
@@ -35,26 +34,26 @@ function HabitCard({
   readOnly: boolean;
 }) {
   return (
-    <li className="space-y-3 rounded-lg border border-neutral-200 p-4">
+    <li className="space-y-3 rounded-lg border border-line p-4 bg-surface shadow-card">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-medium">{h.habit.name}</p>
-          <p className="text-xs text-neutral-500">
+          <p className="text-xs text-muted">
             Skips left in a row: {h.skipsLeft} of {SKIP_LIMIT}
           </p>
         </div>
         <div className="flex gap-4 text-right">
           <div>
-            <p className="text-2xl font-semibold">{h.current}</p>
-            <p className="text-xs text-neutral-500">streak</p>
+            <p className={`text-2xl font-semibold tabular-nums ${h.current > 0 ? "text-accent" : ""}`}>{h.current}</p>
+            <p className="text-xs text-muted">streak</p>
           </div>
           <div>
-            <p className="text-2xl font-semibold text-neutral-400">{h.best}</p>
-            <p className="text-xs text-neutral-500">best</p>
+            <p className="text-2xl font-semibold text-faint">{h.best}</p>
+            <p className="text-xs text-muted">best</p>
           </div>
           <div>
-            <p className="text-2xl font-semibold text-neutral-400">{h.rate === null ? "—" : `${h.rate}%`}</p>
-            <p className="text-xs text-neutral-500">last 30</p>
+            <p className="text-2xl font-semibold text-faint">{h.rate === null ? "—" : `${h.rate}%`}</p>
+            <p className="text-xs text-muted">last 30</p>
           </div>
         </div>
       </div>
@@ -64,7 +63,7 @@ function HabitCard({
             <div
               key={`${d.date}-${i}`}
               title={`${d.date}: ${d.state ?? (d.date === today ? "pending" : "missed")}`}
-              className={`h-5 flex-1 rounded-sm ${d.state ? CELL[d.state] : d.date === today ? "border border-neutral-300" : "bg-neutral-200"}`}
+              className={`h-5 flex-1 rounded-sm ${d.state ? CELL[d.state] : d.date === today ? "border border-edge" : "bg-subtle-2"}`}
             />
           ))}
         </div>
@@ -73,13 +72,13 @@ function HabitCard({
         <ul className="space-y-1">
           {h.today.map((t) => (
             <li key={t.occurrenceId} className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-neutral-500">Today {formatMinutes(timeToMinutes(t.start))}</span>
+              <span className="text-muted">Today {formatMinutes(timeToMinutes(t.start))}</span>
               <HabitControls habitId={h.habit.id} occurrenceId={t.occurrenceId} state={t.state} readOnly={readOnly} />
             </li>
           ))}
         </ul>
       ) : (
-        <p className="text-sm text-neutral-400">{h.blockName ? `${h.blockName} is not on the calendar today.` : "Not in a block yet."}</p>
+        <p className="text-sm text-faint">{h.blockName ? `${h.blockName} is not on the calendar today.` : "Not in a block yet."}</p>
       )}
       {!readOnly && <HabitEditRow id={h.habit.id} name={h.habit.name} blockTypeId={h.habit.block_type_id} blocks={blocks} />}
     </li>
@@ -108,33 +107,32 @@ export default async function HabitsPage() {
 
   return (
     <>
-      <Nav active="/habits" />
-      <main className="mx-auto max-w-3xl space-y-8 px-4 py-6">
+      <main className="mx-auto w-full max-w-3xl space-y-8 px-4 py-6 sm:px-6 lg:py-8">
         <section className="space-y-3">
           <div>
-            <h1 className="text-2xl font-semibold">Habits</h1>
-            <p className="text-sm text-neutral-500">
+            <h1 className="text-2xl font-semibold tracking-tight">Habits</h1>
+            <p className="text-sm text-muted">
               Habits live inside blocks: every time the block appears you get one mark. Skipping on purpose keeps the streak
               (up to {SKIP_LIMIT} in a row; the next one breaks it). Anything not marked by the end of the day counts as missed.
               Free days pause streaks.
             </p>
           </div>
           {mobile ? (
-            <p className="text-xs text-neutral-500">View only on the phone. Mark habits from Telegram; edit them on the computer.</p>
+            <p className="text-xs text-muted">View only on the phone. Mark habits from Telegram; edit them on the computer.</p>
           ) : (
             <NewHabitForm blocks={blocks} />
           )}
           {habits.length === 0 && (
-            <p className="text-sm text-neutral-500">
+            <p className="text-sm text-muted">
               No habits yet. Add one above, or open a block in the <Link href="/calendar" className="underline">calendar</Link>.
             </p>
           )}
           {groups.map((g) => (
             <div key={g.key} className="space-y-2">
-              <h2 className="flex items-center gap-2 text-sm font-medium text-neutral-600">
+              <h2 className="flex items-center gap-2 text-sm font-medium text-muted">
                 {g.color && <span className="h-3 w-3 rounded-full" style={{ background: g.color }} />}
                 {g.title}
-                {g.key === "none" && <span className="font-normal text-neutral-400">· place them in a block to start tracking</span>}
+                {g.key === "none" && <span className="font-normal text-faint">· place them in a block to start tracking</span>}
               </h2>
               <ul className="space-y-3">
                 {g.items.map((h) => (
@@ -149,11 +147,11 @@ export default async function HabitsPage() {
           <div className="flex items-end justify-between">
             <div>
               <h2 className="text-xl font-semibold">Daily metrics</h2>
-              <p className="text-sm text-neutral-500">Ambient numbers you log once a day.</p>
+              <p className="text-sm text-muted">Ambient numbers you log once a day.</p>
             </div>
             {metrics.length === 0 && (
               <form action={addStarterMetrics}>
-                <button className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm">Add Water + Mood</button>
+                <button className="rounded-md border border-edge transition-colors hover:bg-subtle px-3 py-1.5 text-sm">Add Water + Mood</button>
               </form>
             )}
           </div>
@@ -166,7 +164,7 @@ export default async function HabitsPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-neutral-500">
+                  <tr className="text-left text-muted">
                     <th className="py-1 pr-2 font-normal">Last 7 days</th>
                     {week.map((d) => (
                       <th key={d} className="px-1 py-1 text-right font-normal">{d.slice(5)}</th>
@@ -176,15 +174,15 @@ export default async function HabitsPage() {
                 </thead>
                 <tbody>
                   {metrics.map((m) => (
-                    <tr key={m.id} className="border-t border-neutral-100">
-                      <td className="py-1 pr-2">{m.name} <span className="text-neutral-400">({m.unit})</span></td>
+                    <tr key={m.id} className="border-t border-line">
+                      <td className="py-1 pr-2">{m.name} <span className="text-faint">({m.unit})</span></td>
                       {week.map((d) => (
                         <td key={d} className="px-1 py-1 text-right">{values.get(m.id)?.get(d) ?? "·"}</td>
                       ))}
                       <td className="pl-2 text-right">
                         <form action={deleteMetric}>
                           <input type="hidden" name="id" value={m.id} />
-                          <button className="text-xs text-neutral-400 hover:text-red-600">Remove</button>
+                          <button className="text-xs text-faint hover:text-danger">Remove</button>
                         </form>
                       </td>
                     </tr>

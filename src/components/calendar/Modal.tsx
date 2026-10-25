@@ -24,7 +24,7 @@ export default function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/30 p-4 pt-[8vh]"
+      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-[2px] pt-[8vh]"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -32,11 +32,11 @@ export default function Modal({
       <div
         role="dialog"
         aria-label={title}
-        className={`w-full ${wide ? "max-w-xl" : "max-w-md"} space-y-4 rounded-xl bg-white p-5 shadow-xl`}
+        className={`w-full ${wide ? "max-w-xl" : "max-w-md"} space-y-4 rounded-xl border border-line bg-surface p-5 shadow-pop`}
       >
         <div className="flex items-start justify-between gap-3">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <button onClick={onClose} aria-label="Close" className="text-neutral-400 hover:text-neutral-900">
+          <button onClick={onClose} aria-label="Close" className="text-faint hover:text-fg">
             ✕
           </button>
         </div>
@@ -46,6 +46,6 @@ export default function Modal({
   );
 }
 
-export const inputCls = "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm";
-export const btnPrimary = "rounded-md bg-neutral-900 px-3 py-2 text-sm text-white disabled:opacity-50";
-export const btnSecondary = "rounded-md border border-neutral-300 px-3 py-2 text-sm disabled:opacity-50";
+export const inputCls = "w-full rounded-md border border-line-strong px-3 py-2 text-sm";
+export const btnPrimary = "rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-2 text-sm text-accent-fg disabled:opacity-50";
+export const btnSecondary = "rounded-md border border-edge transition-colors hover:bg-subtle px-3 py-2 text-sm disabled:opacity-50";

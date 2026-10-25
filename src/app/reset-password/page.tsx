@@ -1,5 +1,6 @@
 "use client";
 
+import Icon from "@/components/ui/Icon";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -31,9 +32,15 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-4">
-      <div className="w-full max-w-sm space-y-6">
-        <h1 className="text-2xl font-semibold">Set a new password</h1>
+    <main className="flex min-h-dvh items-center justify-center bg-app p-4">
+      <div className="card w-full max-w-sm space-y-6 p-6 sm:p-8">
+        <div className="flex items-center gap-2 font-semibold tracking-tight">
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-accent-fg">
+            <Icon name="logo" size={16} />
+          </span>
+          Personal OS
+        </div>
+        <h1 className="text-xl font-semibold tracking-tight">Set a new password</h1>
         <form onSubmit={onSubmit} className="space-y-3">
           <input
             type="password"
@@ -43,7 +50,7 @@ export default function ResetPasswordPage() {
             placeholder="New password (min. 8 characters)"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-md border border-neutral-300 px-3 py-2"
+            className="w-full rounded-md border border-line-strong px-3 py-2"
           />
           <input
             type="password"
@@ -53,16 +60,16 @@ export default function ResetPasswordPage() {
             placeholder="Repeat new password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
-            className="w-full rounded-md border border-neutral-300 px-3 py-2"
+            className="w-full rounded-md border border-line-strong px-3 py-2"
           />
           <button
             type="submit"
             disabled={busy}
-            className="w-full rounded-md bg-neutral-900 px-3 py-2 text-white disabled:opacity-50"
+            className="w-full rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-2 text-accent-fg disabled:opacity-50"
           >
             {busy ? "Saving..." : "Save password"}
           </button>
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-sm text-danger">{error}</p>}
         </form>
       </div>
     </main>

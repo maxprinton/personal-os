@@ -9,7 +9,7 @@ export default function TagChips({ tags, base }: { tags: Tag[]; base: string }) 
         <Link
           key={t.name}
           href={`${base}?tag=${encodeURIComponent(t.name)}`}
-          className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 hover:bg-neutral-200"
+          className="rounded-full bg-subtle px-2 py-0.5 text-xs text-muted hover:bg-subtle-2"
         >
           #{t.name}
         </Link>

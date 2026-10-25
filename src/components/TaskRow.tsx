@@ -2,6 +2,7 @@ import { updateTask } from "@/app/task-actions";
 import TagChips from "@/components/TagChips";
 import type { Tag } from "@/lib/tags";
 import { formatDateLong } from "@/lib/time";
+import Icon from "@/components/ui/Icon";
 
 export type TaskRowData = {
   id: string;
@@ -30,7 +31,9 @@ function OpButton({ id, op, label }: { id: string; op: string; label: string }) 
     <form action={updateTask}>
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="op" value={op} />
-      <button className="text-xs text-neutral-500 hover:text-neutral-900">{label}</button>
+      <button className={`compact rounded-md px-2 py-1 text-xs transition-colors ${op === "delete" ? "text-faint hover:bg-danger-soft hover:text-danger" : "text-muted hover:bg-subtle hover:text-fg"}`}>
+        {label}
+      </button>
     </form>
   );
 }
@@ -53,30 +56,36 @@ export default function TaskRow({
   const failed = task.status === "failed";
   const overdue = task.status === "pending" && task.scheduled_for !== null && task.scheduled_for < today;
   return (
-    <li className="flex items-start gap-3 rounded-lg border border-neutral-200 p-3">
+    <li className="group flex flex-wrap items-start gap-x-3 gap-y-1 sm:flex-nowrap rounded-xl border border-line bg-surface p-3 shadow-card transition-colors hover:border-edge">
       <form action={updateTask} className="pt-0.5">
         <input type="hidden" name="id" value={task.id} />
         <input type="hidden" name="op" value={done ? "reopen" : "complete"} />
         <button
           aria-label={done ? "Mark as not done" : "Mark as done"}
-          className={`h-5 w-5 rounded border ${done ? "border-neutral-900 bg-neutral-900" : "border-neutral-400"}`}
-        />
+          className={`compact grid h-5 w-5 place-items-center rounded-full border-2 transition-colors ${
+            done ? "border-success-solid bg-success-solid text-white" : "border-line-strong text-transparent hover:border-success-solid hover:text-success"
+          }`}
+        >
+          <Icon name="check" size={12} />
+        </button>
       </form>
-      <div className="flex-1 space-y-1">
-        <p className={`font-medium ${done ? "text-neutral-400 line-through" : ""} ${failed ? "text-red-600" : ""}`}>
+      <div className="min-w-0 flex-1 basis-[calc(100%-2.5rem)] space-y-1 sm:basis-0">
+        <p className={`font-medium ${done ? "text-faint line-through" : ""} ${failed ? "text-danger" : ""}`}>
           {task.title}
           {task.rolled_over_count > 0 && (
             <span
               title="Moved counter: +1 each time a day ends with it undone, +1 per manual move to another day"
-              className="ml-2 rounded-full bg-amber-100 px-1.5 text-xs font-normal text-amber-800"
+              className={`ml-2 inline-block rounded-full px-2 py-px align-middle text-[11px] font-medium ${
+                task.rolled_over_count >= 4 ? "bg-danger-soft text-danger" : "bg-warning-soft text-warning"
+              }`}
             >
               moved {task.rolled_over_count}×
             </span>
           )}
         </p>
-        <p className="text-xs text-neutral-500">
+        <p className="text-xs text-muted">
           {task.scheduled_for ? formatDateLong(task.scheduled_for) : "No date"}
-          {overdue ? " · overdue" : ""}
+          {overdue ? <span className="font-medium text-danger"> · overdue</span> : ""}
           {task.status === "pending" ? ` · ${POLICY_LABEL[task.rollover_policy] ?? ""}` : ""}
           {home ? ` · home: ${home}` : ""}
           {task.status === "pending" && placed ? ` · in ${placed}` : ""}
@@ -87,7 +96,7 @@ export default function TaskRow({
         </p>
         <TagChips tags={tags} base="/tasks" />
       </div>
-      <div className="flex flex-col items-end gap-1">
+      <div className="-mr-1 ml-8 flex shrink-0 flex-wrap items-center gap-0.5 sm:ml-0 sm:flex-nowrap sm:justify-end">
         {task.status !== "pending" || task.scheduled_for !== today ? (
           <OpButton id={task.id} op="today" label="Do today" />
         ) : null}

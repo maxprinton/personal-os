@@ -7,7 +7,6 @@ import { getTagsFor } from "@/lib/tags";
 import { localNow, zonedToUtc } from "@/lib/time";
 import { deleteNote } from "@/app/note-actions";
 import { removeLink } from "@/app/task-actions";
-import Nav from "@/components/Nav";
 import NoteEditor from "@/components/NoteEditor";
 import LinkForm from "@/components/LinkForm";
 import { renderMarkdown } from "@/lib/markdown";
@@ -37,9 +36,8 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
 
   return (
     <>
-      <Nav active="/notes" />
-      <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
-        <Link href="/notes" className="text-sm text-neutral-500 hover:text-neutral-900">← All notes</Link>
+      <main className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 lg:py-8">
+        <Link href="/notes" className="text-sm text-muted hover:text-fg">← All notes</Link>
         <NoteEditor
           id={note.id}
           title={note.title}
@@ -47,15 +45,15 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
           tags={(tags.get(id) ?? []).map((t) => t.name).join(", ")}
         />
         {note.content.trim() && (
-          <section className="space-y-2 rounded-lg border border-neutral-200 p-4">
-            <h2 className="text-sm font-medium text-neutral-500">Preview</h2>
+          <section className="space-y-2 rounded-lg border border-line p-4 bg-surface shadow-card">
+            <h2 className="section-title">Preview</h2>
             <div className="space-y-3 text-[15px] leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMarkdown(note.content) }} />
           </section>
         )}
 
-        <section className="space-y-2 rounded-lg border border-neutral-200 p-4">
+        <section className="space-y-2 rounded-lg border border-line p-4 bg-surface shadow-card">
           <h2 className="text-sm font-medium">Linked to</h2>
-          <p className="text-xs text-neutral-500">
+          <p className="text-xs text-muted">
             Linked notes show up on the Today screen 5 minutes before an event starts, and during a block.
           </p>
           <ul className="space-y-1">
@@ -65,17 +63,17 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
                 <form action={removeLink}>
                   <input type="hidden" name="relation_id" value={l.relationId} />
                   <input type="hidden" name="back" value={`/notes/${id}`} />
-                  <button className="text-xs text-neutral-500 hover:text-red-600">Remove</button>
+                  <button className="text-xs text-muted hover:text-danger">Remove</button>
                 </form>
               </li>
             ))}
-            {links.length === 0 && <li className="text-sm text-neutral-400">Not linked yet.</li>}
+            {links.length === 0 && <li className="text-sm text-faint">Not linked yet.</li>}
           </ul>
           <LinkForm sourceType="note" sourceId={id} options={options} />
         </section>
         <form action={deleteNote}>
           <input type="hidden" name="id" value={id} />
-          <button className="text-sm text-neutral-500 hover:text-red-600">Delete note</button>
+          <button className="text-sm text-muted hover:text-danger">Delete note</button>
         </form>
       </main>
     </>

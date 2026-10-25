@@ -73,12 +73,12 @@ export default function BlockDialog({
             ))}
           </datalist>
           {match ? (
-            <p className="mt-1 flex items-center gap-2 text-xs text-neutral-600">
+            <p className="mt-1 flex items-center gap-2 text-xs text-muted">
               <span className="inline-block h-3 w-3 rounded-full" style={{ background: match.color }} />
               Existing block — keeps its color and habits, adds a new time slot.
             </p>
           ) : close.length > 0 ? (
-            <p className="mt-1 text-xs text-amber-700">
+            <p className="mt-1 text-xs text-warning">
               Did you mean{" "}
               {close.slice(0, 3).map((t, i) => (
                 <span key={t.id}>
@@ -91,27 +91,27 @@ export default function BlockDialog({
               ?
             </p>
           ) : name.trim() ? (
-            <label className="mt-1 flex items-center gap-2 text-xs text-neutral-600">
+            <label className="mt-1 flex items-center gap-2 text-xs text-muted">
               New block · color <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
             </label>
           ) : null}
         </div>
 
         <div className="grid grid-cols-3 gap-2">
-          <label className="text-xs text-neutral-500">
+          <label className="text-xs text-muted">
             Date
             <input type="date" required value={day} onChange={(e) => setDay(e.target.value)} className={inputCls} />
           </label>
-          <label className="text-xs text-neutral-500">
+          <label className="text-xs text-muted">
             Start
             <input type="time" required value={from} onChange={(e) => setFrom(e.target.value)} className={inputCls} />
           </label>
-          <label className="text-xs text-neutral-500">
+          <label className="text-xs text-muted">
             End
             <input type="time" required value={to} onChange={(e) => setTo(e.target.value)} className={inputCls} />
           </label>
         </div>
-        {to && from && to < from && <p className="text-xs text-neutral-500">Ends the next day.</p>}
+        {to && from && to < from && <p className="text-xs text-muted">Ends the next day.</p>}
 
         <fieldset className="space-y-1">
           <label className="flex items-center gap-2">
@@ -132,7 +132,7 @@ export default function BlockDialog({
                     key={d}
                     type="button"
                     onClick={() => setWeekdays(on ? weekdays.filter((x) => x !== w) : [...weekdays, w])}
-                    className={`rounded-md border px-2 py-1 text-xs ${on ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-300"}`}
+                    className={`rounded-md border px-2 py-1 text-xs ${on ? "border-accent bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover text-accent-fg" : "border-edge"}`}
                   >
                     {d}
                   </button>
@@ -145,7 +145,7 @@ export default function BlockDialog({
             Only this day
           </label>
           {repeat === "this_day" && (
-            <p className="pl-6 text-xs text-neutral-500">
+            <p className="pl-6 text-xs text-muted">
               A one-day thing is usually an event.
               {onMakeEvent && (
                 <>

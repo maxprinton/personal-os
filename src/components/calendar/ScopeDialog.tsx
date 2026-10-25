@@ -59,10 +59,10 @@ export default function ScopeDialog({
 }) {
   return (
     <Modal title={title} onClose={onClose}>
-      {detail && <p className="text-sm text-neutral-600">{detail}</p>}
+      {detail && <p className="text-sm text-muted">{detail}</p>}
       <ScopeButtons occ={occ} today={today} verb={verb} onPick={onPick} />
       {!forwardLabel(occ, today) && (
-        <p className="text-xs text-neutral-500">
+        <p className="text-xs text-muted">
           {occ.date < today ? "Past days only change for that day." : "This block was only for one day."}
         </p>
       )}

@@ -36,7 +36,7 @@ export default function TxnAccountSelect({
         onChange={(e) => setValue(e.target.value)}
         aria-label="Account"
         className={`max-w-[9rem] rounded-md border px-1.5 py-1 text-xs ${
-          value ? "border-neutral-200 text-neutral-600" : "border-amber-400 bg-amber-50 text-amber-800"
+          value ? "border-line text-muted" : "border-warning-solid bg-warning-soft text-warning"
         }`}
       >
         <option value="">Unassigned</option>
@@ -49,12 +49,12 @@ export default function TxnAccountSelect({
           type="button"
           onClick={save}
           disabled={pending}
-          className="rounded-md bg-neutral-900 px-2 py-1 text-xs text-white disabled:opacity-50"
+          className="rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-2 py-1 text-xs text-accent-fg disabled:opacity-50"
         >
           {pending ? "…" : "Save"}
         </button>
       )}
-      {error && <span className="text-xs text-red-600">{error}</span>}
+      {error && <span className="text-xs text-danger">{error}</span>}
     </span>
   );
 }

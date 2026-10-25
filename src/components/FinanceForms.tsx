@@ -7,7 +7,7 @@ import type { ActionState } from "@/app/actions";
 type Opt = { id: string; name: string };
 type CatOpt = Opt & { kind: "income" | "expense" };
 
-const input = "rounded-md border border-neutral-300 px-3 py-2 text-sm";
+const input = "rounded-md border border-line-strong px-3 py-2 text-sm";
 
 function useResetOnOk(state: ActionState) {
   const ref = useRef<HTMLFormElement>(null);
@@ -18,8 +18,8 @@ function useResetOnOk(state: ActionState) {
 }
 
 function Feedback({ state, ok }: { state: ActionState; ok: string }) {
-  if (state.error) return <p className="text-sm text-red-600">{state.error}</p>;
-  if (state.ok) return <p className="text-sm text-green-700">{ok}</p>;
+  if (state.error) return <p className="text-sm text-danger">{state.error}</p>;
+  if (state.ok) return <p className="text-sm text-success">{ok}</p>;
   return null;
 }
 
@@ -38,12 +38,12 @@ export function TransactionForm({
   const cats = categories.filter((c) => c.kind === type);
 
   return (
-    <form ref={ref} action={action} className="space-y-3 rounded-lg border border-neutral-200 p-4">
+    <form ref={ref} action={action} className="space-y-3 rounded-lg border border-line p-4 bg-surface shadow-card">
       <div className="flex gap-2">
         {(["expense", "income"] as const).map((t) => (
           <label
             key={t}
-            className={`cursor-pointer rounded-md border px-3 py-1 text-sm ${type === t ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-300"}`}
+            className={`cursor-pointer rounded-md border px-3 py-1 text-sm ${type === t ? "border-accent bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover text-accent-fg" : "border-edge"}`}
           >
             <input type="radio" name="type" value={t} checked={type === t} onChange={() => setType(t)} className="sr-only" />
             {t === "expense" ? "Expense" : "Income"}
@@ -66,7 +66,7 @@ export function TransactionForm({
         </select>
         <input type="date" name="date" defaultValue={today} className={input} />
         <input name="description" placeholder="Description (optional)" className={`${input} col-span-2 sm:col-span-3`} />
-        <button disabled={pending} className="rounded-md bg-neutral-900 px-3 py-2 text-sm text-white disabled:opacity-50">
+        <button disabled={pending} className="rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-2 text-sm text-accent-fg disabled:opacity-50">
           {pending ? "Saving..." : "Add"}
         </button>
       </div>
@@ -89,7 +89,7 @@ export function AccountForm() {
         <option value="other">Other</option>
       </select>
       <input name="balance" inputMode="decimal" placeholder="Current balance" className={input} />
-      <button disabled={pending} className="rounded-md border border-neutral-300 px-3 py-2 text-sm disabled:opacity-50">
+      <button disabled={pending} className="rounded-md border border-edge transition-colors hover:bg-subtle px-3 py-2 text-sm disabled:opacity-50">
         Add account
       </button>
       <div className="col-span-2 sm:col-span-4"><Feedback state={state} ok="Account added." /></div>
@@ -107,7 +107,7 @@ export function CategoryForm() {
         <option value="expense">Expense</option>
         <option value="income">Income</option>
       </select>
-      <button disabled={pending} className="rounded-md border border-neutral-300 px-3 py-2 text-sm disabled:opacity-50">
+      <button disabled={pending} className="rounded-md border border-edge transition-colors hover:bg-subtle px-3 py-2 text-sm disabled:opacity-50">
         Add
       </button>
       <div className="w-full"><Feedback state={state} ok="Category added." /></div>
@@ -131,7 +131,7 @@ export function BudgetForm({ categories }: { categories: Opt[] }) {
         <option value="monthly">Monthly</option>
         <option value="weekly">Weekly</option>
       </select>
-      <button disabled={pending} className="rounded-md border border-neutral-300 px-3 py-2 text-sm disabled:opacity-50">
+      <button disabled={pending} className="rounded-md border border-edge transition-colors hover:bg-subtle px-3 py-2 text-sm disabled:opacity-50">
         Set budget
       </button>
       <div className="col-span-2 sm:col-span-4"><Feedback state={state} ok="Budget saved." /></div>
@@ -159,7 +159,7 @@ export function TransferForm({ today, accounts }: { today: string; accounts: Opt
       <input name="amount" required inputMode="decimal" placeholder="Amount (USD)" className={input} />
       <input type="date" name="date" defaultValue={today} className={input} />
       <input name="note" placeholder="Note (optional)" className={`${input} col-span-2 sm:col-span-3`} />
-      <button disabled={pending} className="rounded-md bg-neutral-900 px-3 py-2 text-sm text-white disabled:opacity-50">
+      <button disabled={pending} className="rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-2 text-sm text-accent-fg disabled:opacity-50">
         {pending ? "Moving..." : "Transfer"}
       </button>
       <div className="col-span-2 sm:col-span-4"><Feedback state={state} ok="Transfer saved." /></div>

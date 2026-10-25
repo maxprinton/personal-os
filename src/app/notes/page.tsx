@@ -4,7 +4,6 @@ import { getSettings } from "@/lib/agenda";
 import { getTagsFor, idsWithTag } from "@/lib/tags";
 import { formatDateLong, utcToLocal } from "@/lib/time";
 import { createNote } from "@/app/note-actions";
-import Nav from "@/components/Nav";
 import TagChips from "@/components/TagChips";
 
 export const dynamic = "force-dynamic";
@@ -35,20 +34,19 @@ export default async function NotesPage({
 
   return (
     <>
-      <Nav active="/notes" />
-      <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
+      <main className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 lg:py-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold">Notes</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Notes</h1>
             {tag && (
-              <p className="text-sm text-neutral-500">
+              <p className="text-sm text-muted">
                 Filtered by <strong>#{tag}</strong> · <Link href="/notes" className="underline">clear</Link>
               </p>
             )}
           </div>
           <form action={createNote} className="flex gap-2">
-            <input name="title" placeholder="New note title" className="rounded-md border border-neutral-300 px-3 py-2 text-sm" />
-            <button className="rounded-md bg-neutral-900 px-3 py-2 text-sm text-white">New note</button>
+            <input name="title" placeholder="New note title" className="rounded-md border border-line-strong px-3 py-2 text-sm" />
+            <button className="rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-2 text-sm text-accent-fg">New note</button>
           </form>
         </div>
         <form className="flex gap-2">
@@ -56,25 +54,25 @@ export default async function NotesPage({
             name="q"
             defaultValue={q ?? ""}
             placeholder="Search notes…"
-            className="flex-1 rounded-md border border-neutral-300 px-3 py-2 text-sm"
+            className="flex-1 rounded-md border border-line-strong px-3 py-2 text-sm"
           />
           {tag && <input type="hidden" name="tag" value={tag} />}
-          <button className="rounded-md border border-neutral-300 px-3 py-2 text-sm">Search</button>
+          <button className="rounded-md border border-edge transition-colors hover:bg-subtle px-3 py-2 text-sm">Search</button>
         </form>
         <ul className="space-y-2">
           {notes.map((n) => (
-            <li key={n.id} className="rounded-lg border border-neutral-200 p-3 hover:border-neutral-400">
+            <li key={n.id} className="rounded-lg border border-line p-3 hover:border-line-strong">
               <Link href={`/notes/${n.id}`} className="block">
                 <p className="font-medium">{n.title || "Untitled"}</p>
-                <p className="line-clamp-2 text-sm text-neutral-500">{n.content.slice(0, 200) || "Empty note"}</p>
+                <p className="line-clamp-2 text-sm text-muted">{n.content.slice(0, 200) || "Empty note"}</p>
               </Link>
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-neutral-400">
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-faint">
                 <span>Edited {formatDateLong(utcToLocal(n.updated_at, timezone).date)}</span>
                 <TagChips tags={tags.get(n.id) ?? []} base="/notes" />
               </div>
             </li>
           ))}
-          {notes.length === 0 && <p className="text-sm text-neutral-500">No notes yet.</p>}
+          {notes.length === 0 && <p className="text-sm text-muted">No notes yet.</p>}
         </ul>
       </main>
     </>

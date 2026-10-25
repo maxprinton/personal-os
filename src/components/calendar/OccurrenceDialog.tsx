@@ -74,14 +74,14 @@ export default function OccurrenceDialog({
 
   return (
     <Modal title={type?.name ?? "Block"} onClose={onClose} wide>
-      <div className="flex items-center gap-2 text-sm text-neutral-600">
+      <div className="flex items-center gap-2 text-sm text-muted">
         <span className="inline-block h-3 w-3 rounded-full" style={{ background: type?.color ?? "#6366f1" }} />
         {dayLabel(occ.date)} · {timeRange(timeToMinutes(occ.start_time), timeToMinutes(occ.end_time))}
-        {occ.status !== "scheduled" && <span className="rounded bg-neutral-100 px-1.5 text-xs">{occ.status.replace("_", " ")}</span>}
-        {!occ.slot_id && <span className="rounded bg-neutral-100 px-1.5 text-xs">one day only</span>}
+        {occ.status !== "scheduled" && <span className="rounded bg-subtle px-1.5 text-xs">{occ.status.replace("_", " ")}</span>}
+        {!occ.slot_id && <span className="rounded bg-subtle px-1.5 text-xs">one day only</span>}
       </div>
 
-      <section className="space-y-2 rounded-lg border border-neutral-200 p-3">
+      <section className="space-y-2 rounded-lg border border-line p-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium">Habits</h3>
           {canMark && (
@@ -89,13 +89,13 @@ export default function OccurrenceDialog({
               type="button"
               disabled={busy}
               onClick={() => run(() => toggleOccurrenceDone({ occurrenceId: occ.id }))}
-              className="rounded-md border border-green-600 px-2 py-0.5 text-xs text-green-700"
+              className="rounded-md border border-success px-2 py-0.5 text-xs text-success"
             >
               {occ.status === "done" ? "Undo ✓" : "✓ Mark block done"}
             </button>
           )}
         </div>
-        {habits.length === 0 && <p className="text-xs text-neutral-500">No habits in this block.</p>}
+        {habits.length === 0 && <p className="text-xs text-muted">No habits in this block.</p>}
         <ul className="space-y-1">
           {habits.map(({ habit, state }) => (
             <li key={habit.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -107,7 +107,7 @@ export default function OccurrenceDialog({
                     type="button"
                     title="Take this habit out of the block from today on (past marks stay)"
                     onClick={() => run(() => updateHabit({ id: habit.id, blockTypeId: null }))}
-                    className="text-xs text-neutral-400 hover:text-red-600"
+                    className="text-xs text-faint hover:text-danger"
                   >
                     ✕
                   </button>
@@ -117,7 +117,7 @@ export default function OccurrenceDialog({
           ))}
         </ul>
         {occ.date > data.today && habits.length > 0 && (
-          <p className="text-xs text-neutral-500">You can mark these when the day comes.</p>
+          <p className="text-xs text-muted">You can mark these when the day comes.</p>
         )}
         {editableHabits && (
           <form
@@ -154,7 +154,7 @@ export default function OccurrenceDialog({
         )}
       </section>
 
-      <section className="space-y-2 rounded-lg border border-neutral-200 p-3">
+      <section className="space-y-2 rounded-lg border border-line p-3">
         <h3 className="text-sm font-medium">Tasks</h3>
         <TaskList
           tasks={tasksForOccurrence(occ, data.occurrences, data.tasks)}
@@ -168,7 +168,7 @@ export default function OccurrenceDialog({
       </section>
 
       {!readOnly && (
-        <section className="space-y-2 rounded-lg border border-neutral-200 p-3">
+        <section className="space-y-2 rounded-lg border border-line p-3">
           <h3 className="text-sm font-medium">Time</h3>
           <div className="grid grid-cols-3 gap-2">
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
@@ -177,7 +177,7 @@ export default function OccurrenceDialog({
           </div>
           {pending ? (
             <div className="space-y-2">
-              <p className="text-xs text-neutral-500">
+              <p className="text-xs text-muted">
                 {pending === "remove" ? "Remove this block for:" : "Apply the change to:"}
               </p>
               <ScopeButtons
@@ -187,7 +187,7 @@ export default function OccurrenceDialog({
                 busy={busy}
                 onPick={apply}
               />
-              <button type="button" onClick={() => setPending(null)} className="text-xs text-neutral-500 underline">
+              <button type="button" onClick={() => setPending(null)} className="text-xs text-muted underline">
                 Cancel
               </button>
             </div>
@@ -199,7 +199,7 @@ export default function OccurrenceDialog({
               <button
                 type="button"
                 onClick={() => setPending("remove")}
-                className="rounded-md border border-red-300 px-3 py-2 text-sm text-red-600"
+                className="rounded-md border border-danger/40 px-3 py-2 text-sm text-danger"
               >
                 Remove…
               </button>
@@ -214,9 +214,9 @@ export default function OccurrenceDialog({
       )}
 
       {!readOnly && type && !type.removed && (
-        <section className="space-y-2 rounded-lg border border-neutral-200 p-3">
+        <section className="space-y-2 rounded-lg border border-line p-3">
           <h3 className="text-sm font-medium">Block</h3>
-          <p className="text-xs text-neutral-500">Renaming or recoloring changes it on every day it appears.</p>
+          <p className="text-xs text-muted">Renaming or recoloring changes it on every day it appears.</p>
           <div className="flex gap-2">
             <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
             <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-9 w-12" />
@@ -224,7 +224,7 @@ export default function OccurrenceDialog({
               Save
             </button>
           </div>
-          <Link href="/blocks" className="text-xs text-neutral-500 underline">
+          <Link href="/blocks" className="text-xs text-muted underline">
             Manage all blocks
           </Link>
         </section>

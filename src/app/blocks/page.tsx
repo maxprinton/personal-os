@@ -3,7 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import { currentUserId, getBlockTypes, getSlots } from "@/lib/calendar/model";
 import { userTimezone } from "@/lib/calendar/load";
 import { formatDateLong, formatMinutes, localNow, timeToMinutes, ISO_DAY_SHORT } from "@/lib/time";
-import Nav from "@/components/Nav";
 import BlockTypeCard from "@/components/BlockTypeCard";
 import type { Slot } from "@/lib/calendar/types";
 import { isMobileRequest } from "@/lib/device";
@@ -29,11 +28,10 @@ export default async function BlocksPage() {
 
   return (
     <>
-      <Nav active="/blocks" />
-      <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
+      <main className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 lg:py-8">
         <div>
-          <h1 className="text-2xl font-semibold">Blocks</h1>
-          <p className="text-sm text-neutral-500">
+          <h1 className="text-2xl font-semibold tracking-tight">Blocks</h1>
+          <p className="text-sm text-muted">
             A block is time reserved for an activity and repeats every week. Its name is its identity: one block can have
             many time slots. Create and move blocks in the <Link href="/calendar" className="underline">calendar</Link>.
           </p>
@@ -50,7 +48,7 @@ export default async function BlocksPage() {
             />
           ))}
           {types.length === 0 && (
-            <p className="text-sm text-neutral-500">
+            <p className="text-sm text-muted">
               No blocks yet. Open the <Link href="/calendar" className="underline">calendar</Link> and click an empty time.
             </p>
           )}

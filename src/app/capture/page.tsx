@@ -1,4 +1,3 @@
-import Nav from "@/components/Nav";
 import QuickCapture from "@/components/QuickCapture";
 import { createClient } from "@/lib/supabase/server";
 
@@ -10,14 +9,13 @@ export default async function CapturePage() {
   const accounts = (data ?? []) as { id: string; name: string }[];
   return (
     <>
-      <Nav active="/capture" />
-      <main className="mx-auto max-w-3xl space-y-4 px-4 py-6">
-        <h1 className="text-2xl font-semibold">Quick capture</h1>
-        <p className="text-sm text-neutral-500">
+      <main className="mx-auto w-full max-w-3xl space-y-4 px-4 py-6 sm:px-6 lg:py-8">
+        <h1 className="text-2xl font-semibold tracking-tight">Quick capture</h1>
+        <p className="text-sm text-muted">
           One box for tasks, notes and money. Works without internet: items wait on this device and sync later.
         </p>
         <QuickCapture autoFocus accounts={accounts} />
-        <ul className="space-y-1 text-sm text-neutral-500">
+        <ul className="space-y-1 text-sm text-muted">
           <li><code>spent 12 on lunch</code> → expense (Food)</li>
           <li><code>received 1500 salary</code> → income</li>
           <li><code>task: call mom tomorrow</code> → task for tomorrow</li>

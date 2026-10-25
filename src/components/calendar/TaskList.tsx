@@ -35,14 +35,14 @@ export default function TaskList({
               disabled={!canTick}
               onChange={(e) => run(() => setTaskDone({ taskId: t.id, done: e.target.checked }))}
             />
-            <span className={`flex-1 ${t.status === "completed" ? "text-neutral-400 line-through" : ""}`}>{t.title}</span>
-            {t.moved > 0 && <span className="rounded-full bg-amber-100 px-1.5 text-xs text-amber-800">moved {t.moved}×</span>}
+            <span className={`flex-1 ${t.status === "completed" ? "text-faint line-through" : ""}`}>{t.title}</span>
+            {t.moved > 0 && <span className="rounded-full bg-warning-soft px-1.5 text-xs text-warning">moved {t.moved}×</span>}
             {canEdit && t.status === "pending" && (
               <button
                 type="button"
                 title="Take it out (it goes to unassigned)"
                 onClick={() => run(() => placeTask({ taskId: t.id, occurrenceId: null, eventId: null }))}
-                className="text-xs text-neutral-400 hover:text-red-600"
+                className="text-xs text-faint hover:text-danger"
               >
                 ✕
               </button>
@@ -50,13 +50,13 @@ export default function TaskList({
           </li>
         ))}
         {logs.map((l) => (
-          <li key={`log-${l.task_id}`} className="flex items-center gap-2 text-sm text-neutral-400">
+          <li key={`log-${l.task_id}`} className="flex items-center gap-2 text-sm text-faint">
             <span className="w-4 text-center">↷</span>
             <span className="flex-1 line-through">{l.title}</span>
             <span className="text-xs">{l.outcome === "moved" ? "moved" : "not done (skipped)"}</span>
           </li>
         ))}
-        {tasks.length === 0 && logs.length === 0 && <li className="text-xs text-neutral-500">No tasks here.</li>}
+        {tasks.length === 0 && logs.length === 0 && <li className="text-xs text-muted">No tasks here.</li>}
       </ul>
       {canEdit && (
         <form

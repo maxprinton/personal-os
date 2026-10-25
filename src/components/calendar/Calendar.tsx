@@ -68,9 +68,9 @@ type Dialog =
   | { kind: "bulk-remove" }
   | null;
 
-export default function Calendar({ variant }: { variant: "dock" | "page" }) {
+export default function Calendar({ variant }: { variant: "dock" | "page" | "panel" }) {
   const router = useRouter();
-  const [view, setView] = useState<View>("week");
+  const [view, setView] = useState<View>(variant === "panel" ? "day" : "week");
   const [anchor, setAnchor] = useState<string>(() => browserToday());
   const [anchorSynced, setAnchorSynced] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -90,7 +90,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
   useEffect(() => {
     const saved = readPref(`cal.view.${variant}`);
     if (saved === "day" || saved === "week" || saved === "month") setView(saved);
-    else setView(window.innerWidth >= 768 ? "week" : "day");
+    else setView(variant !== "panel" && window.innerWidth >= 768 ? "week" : "day");
     const ds = Number(readPref("cal.dayStart"));
     if (Number.isInteger(ds) && ds >= 0 && ds < 1440) setDayStart(ds);
     const hd = (readPref("cal.hiddenDays") ?? "").split(",").map(Number).filter((n) => n >= 1 && n <= 7);
@@ -225,7 +225,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
       await reload();
       emitCalendarChanged(calendarId); // the other calendars (dock/page) reload; this one just did
       // Server-rendered pages under the dock (Today, Habits…) need a refresh; the full calendar page doesn't
-      if (variant === "dock") router.refresh();
+      if (variant !== "page") router.refresh();
       return true;
     },
     [reload, router, patch, calendarId, variant]
@@ -301,85 +301,85 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
     : null;
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-white">
-      <div className="flex flex-wrap items-center gap-2 border-b border-neutral-200 px-3 py-1.5 text-sm">
+    <div data-cal className="relative flex h-full min-h-0 flex-col bg-surface">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-1.5 text-sm">
         <div className="flex items-center gap-1">
-          <button type="button" onClick={() => setAnchor(shiftAnchor(view, anchor, -1))} className="rounded px-2 py-0.5 hover:bg-neutral-100" aria-label="Previous">
+          <button type="button" onClick={() => setAnchor(shiftAnchor(view, anchor, -1))} className="rounded px-2 py-0.5 hover:bg-subtle" aria-label="Previous">
             ‹
           </button>
           <button
             type="button"
             onClick={() => setAnchor(data?.today ?? browserToday())}
-            className="rounded border border-neutral-300 px-2 py-0.5 text-xs hover:bg-neutral-100"
+            className="rounded border border-edge px-2 py-0.5 text-xs hover:bg-subtle"
           >
             Today
           </button>
-          <button type="button" onClick={() => setAnchor(shiftAnchor(view, anchor, 1))} className="rounded px-2 py-0.5 hover:bg-neutral-100" aria-label="Next">
+          <button type="button" onClick={() => setAnchor(shiftAnchor(view, anchor, 1))} className="rounded px-2 py-0.5 hover:bg-subtle" aria-label="Next">
             ›
           </button>
         </div>
-        <span className="font-medium">{rangeLabel(view, anchor)}</span>
+        <span className={`font-semibold ${variant === "panel" ? "text-xs" : ""}`}>{rangeLabel(view, anchor)}</span>
         {progress !== null && view !== "month" && (
-          <span className="flex items-center gap-1 text-xs text-neutral-500" title={
+          <span className="flex items-center gap-1 text-xs text-muted" title={
               progressMode === "week"
                 ? "Blocks done out of all blocks in this range (partly done counts half)"
                 : "Blocks done so far in this range (partly done counts half)"
             }>
-            <span className="inline-block h-1.5 w-16 overflow-hidden rounded-full bg-neutral-200">
-              <span className="block h-full bg-green-600" style={{ width: `${progress}%` }} />
+            <span className="inline-block h-1.5 w-16 overflow-hidden rounded-full bg-subtle-2">
+              <span className="block h-full bg-success-solid" style={{ width: `${progress}%` }} />
             </span>
             {progress}%
           </span>
         )}
-        {loading && <span className="text-xs text-neutral-400">Loading…</span>}
-        <div className="ml-auto flex items-center gap-2">
+        {loading && <span className="text-xs text-faint">Loading…</span>}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
           {!readOnly && data && (
             <>
               <button
                 type="button"
                 onClick={() => setDialog({ kind: "new-block", date: view === "day" ? anchor : data.today, start: 9 * 60, end: 10 * 60 })}
-                className="rounded-md bg-neutral-900 px-2 py-0.5 text-xs text-white"
+                className="rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-2 py-0.5 text-xs text-accent-fg whitespace-nowrap"
               >
                 + Block
               </button>
               <button
                 type="button"
                 onClick={() => setDialog({ kind: "new-event", date: view === "day" ? anchor : data.today })}
-                className="rounded-md border border-dashed border-neutral-500 px-2 py-0.5 text-xs"
+                className="rounded-md border border-dashed border-line-strong px-2 py-0.5 text-xs whitespace-nowrap"
               >
                 + Event
               </button>
               <button
                 type="button"
                 onClick={() => setDialog({ kind: "new-free", date: view === "day" ? anchor : data.today })}
-                className="rounded-md border border-emerald-400 px-2 py-0.5 text-xs text-emerald-800"
+                className="rounded-md border border-success px-2 py-0.5 text-xs text-success whitespace-nowrap"
                 title="Pause all blocks for a day or a trip"
               >
                 🌴 Free day
               </button>
             </>
           )}
-          <div className="flex overflow-hidden rounded-md border border-neutral-300 text-xs">
+          <div className="flex overflow-hidden rounded-md border border-edge text-xs">
             {(["day", "week", "month"] as const).map((v) => (
               <button
                 key={v}
                 type="button"
                 onClick={() => changeView(v)}
-                className={`px-2 py-0.5 capitalize ${view === v ? "bg-neutral-900 text-white" : "hover:bg-neutral-100"}`}
+                className={`px-2 py-0.5 capitalize ${view === v ? "bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover text-accent-fg" : "hover:bg-subtle"}`}
               >
                 {v}
               </button>
             ))}
           </div>
-          <button type="button" onClick={() => setShowSettings(!showSettings)} className="rounded px-1.5 text-neutral-500 hover:bg-neutral-100" aria-label="View settings" title="View settings">
+          <button type="button" onClick={() => setShowSettings(!showSettings)} className="rounded px-1.5 text-muted hover:bg-subtle" aria-label="View settings" title="View settings">
             ⚙
           </button>
         </div>
         {showSettings && (
-          <div className="flex w-full flex-wrap items-center gap-3 border-t border-neutral-100 pt-1.5 text-xs text-neutral-600">
+          <div className="flex w-full flex-wrap items-center gap-3 border-t border-line pt-1.5 text-xs text-muted">
             <label className="flex items-center gap-1">
               Day starts at
-              <select value={dayStart} onChange={(e) => changeDayStart(Number(e.target.value))} className="rounded border border-neutral-300 px-1 py-0.5">
+              <select value={dayStart} onChange={(e) => changeDayStart(Number(e.target.value))} className="rounded border border-line-strong px-1 py-0.5">
                 {Array.from({ length: 13 }, (_, h) => h * 60).map((m) => (
                   <option key={m} value={m}>
                     {minutesToTime(m)}
@@ -392,7 +392,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
               <select
                 value={clickMode}
                 onChange={(e) => pref("cal.click", e.target.value as ClickMode, setClickMode)}
-                className="rounded border border-neutral-300 px-1 py-0.5"
+                className="rounded border border-line-strong px-1 py-0.5"
               >
                 <option value="open">opens it</option>
                 <option value="done">marks it done</option>
@@ -403,7 +403,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
               <select
                 value={moveScope}
                 onChange={(e) => pref("cal.moveScope", e.target.value as MoveScope, setMoveScope)}
-                className="rounded border border-neutral-300 px-1 py-0.5"
+                className="rounded border border-line-strong px-1 py-0.5"
               >
                 <option value="ask">ask every time</option>
                 <option value="this_day">only that day (with Undo)</option>
@@ -415,7 +415,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
               <select
                 value={progressMode}
                 onChange={(e) => pref("cal.progress", e.target.value as ProgressMode, setProgressMode)}
-                className="rounded border border-neutral-300 px-1 py-0.5"
+                className="rounded border border-line-strong px-1 py-0.5"
               >
                 <option value="sofar">done so far</option>
                 <option value="week">whole range</option>
@@ -442,17 +442,17 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
         )}
       </div>
 
-      {error && !data && <p className="p-4 text-sm text-red-600">{error}</p>}
+      {error && !data && <p className="p-4 text-sm text-danger">{error}</p>}
       {readOnly && data && (
-        <div className="border-b border-neutral-200 bg-neutral-50 px-3 py-1 text-xs text-neutral-500">
+        <div className="border-b border-line bg-subtle px-3 py-1 text-xs text-muted">
           View only on the phone. Edit on the computer; mark habits and complete tasks from Telegram.
         </div>
       )}
       {!readOnly && data?.pastEditUntil && (
-        <div className="flex items-center gap-2 border-b border-violet-200 bg-violet-50 px-3 py-1 text-xs text-violet-900">
+        <div className="flex items-center gap-2 border-b border-accent/30 bg-accent-soft px-3 py-1 text-xs text-accent">
           ✎ Editing the past until{" "}
           {new Date(data.pastEditUntil).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: data.timezone })}
-          <span className="text-violet-700">· changes only affect that day</span>
+          <span className="text-accent">· changes only affect that day</span>
           <button type="button" onClick={() => run(() => lockPast())} className="ml-auto underline">
             Stop
           </button>
@@ -473,10 +473,10 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
             };
             const shiftDays = (n: number) =>
               run(() => moveOccurrences({ ids, dayShift: n, minuteShift: 0 }), optimistic.shift(ids, { dayShift: n, minuteShift: 0 }));
-            const btn = "rounded border border-sky-300 bg-white px-2 py-0.5 hover:bg-sky-100 disabled:opacity-40";
+            const btn = "rounded border border-info/40 bg-surface px-2 py-0.5 hover:bg-info-soft disabled:opacity-40";
             return (
               // Floats over the top of the grid (day headers) so it never shifts or covers the blocks you click
-              <div className="absolute top-1 left-1/2 z-40 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-sky-900 shadow-lg">
+              <div className="absolute top-1 left-1/2 z-40 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center gap-2 rounded-lg border border-info/30 bg-info-soft px-3 py-1.5 text-xs text-info shadow-lg">
                 <span className="font-medium">
                   {selected.size} block{selected.size > 1 ? "s" : ""} selected
                 </span>
@@ -503,13 +503,13 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
                 <button type="button" className={btn} onClick={() => shiftDays(1)} title="Move them one day later (only those days)">
                   1 day →
                 </button>
-                <button type="button" className={`${btn} text-red-700`} onClick={() => setDialog({ kind: "bulk-remove" })}>
+                <button type="button" className={`${btn} text-danger`} onClick={() => setDialog({ kind: "bulk-remove" })}>
                   Remove
                 </button>
                 <button type="button" className="underline" onClick={clearSelection}>
                   Clear
                 </button>
-                <span className="hidden text-sky-700/80 sm:inline">Drag on empty space to box-select · Ctrl+click adds/removes · Alt+drag copies · Esc clears</span>
+                <span className="hidden text-info/80 sm:inline">Drag on empty space to box-select · Ctrl+click adds/removes · Alt+drag copies · Esc clears</span>
               </div>
             );
           })()}
@@ -563,7 +563,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
 
       {pastAsk && (
         <Modal title="Edit the past?" onClose={() => pastAsk.resolve(false)}>
-          <p className="text-sm text-neutral-600">
+          <p className="text-sm text-muted">
             Past days are locked so history stays true. If you confirm, you can edit past days for the next hour without
             more questions. Changes affect only that day and are not carried forward.
           </p>
@@ -582,7 +582,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
         <div
           role="status"
           className={`absolute bottom-3 left-1/2 z-50 max-w-md -translate-x-1/2 rounded-lg px-3 py-2 text-sm shadow-lg ${
-            toast.ok ? "bg-neutral-900 text-white" : "bg-red-600 text-white"
+            toast.ok ? "bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover text-accent-fg" : "bg-danger-solid text-white"
           }`}
         >
           {toast.text}
@@ -669,7 +669,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
       )}
       {data && dialog?.kind === "bulk-remove" && (
         <Modal title={`Remove ${selected.size} block${selected.size > 1 ? "s" : ""}?`} onClose={() => setDialog(null)}>
-          <p className="text-sm text-neutral-600">
+          <p className="text-sm text-muted">
             Only on those days: their weekly pattern stays. Pending tasks inside them go back to the unassigned list.
           </p>
           <div className="flex justify-end gap-2">

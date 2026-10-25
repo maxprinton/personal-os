@@ -78,13 +78,13 @@ export default function QuickCapture({
 
   return (
     <form onSubmit={submit} className="space-y-2">
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2 sm:flex-nowrap">
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
           autoFocus={autoFocus}
           placeholder='Quick capture: "spent 12 on lunch", "task: call mom tomorrow"…'
-          className="min-w-0 flex-1 rounded-md border border-neutral-300 px-3 py-2 text-sm"
+          className="min-w-0 flex-1 basis-full rounded-md border border-line-strong px-3 py-2 text-sm sm:basis-auto"
         />
         {accounts.length > 0 && (
           <select
@@ -92,7 +92,7 @@ export default function QuickCapture({
             onChange={(e) => setAccountId(e.target.value)}
             aria-label="Account for money captures"
             title="Account used when you capture an expense or income (an account named in the text wins)"
-            className="max-w-[9rem] rounded-md border border-neutral-300 px-2 py-2 text-sm"
+            className="min-w-0 flex-1 rounded-md border sm:max-w-[9rem] sm:flex-none border-line-strong px-2 py-2 text-sm"
           >
             <option value="">Account: auto</option>
             {accounts.map((a) => (
@@ -100,14 +100,14 @@ export default function QuickCapture({
             ))}
           </select>
         )}
-        <button disabled={busy} className="rounded-md bg-neutral-900 px-3 py-2 text-sm text-white disabled:opacity-50">
+        <button disabled={busy} className="rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-2 text-sm text-accent-fg disabled:opacity-50">
           {busy ? "…" : "Save"}
         </button>
       </div>
       <div className="flex flex-wrap gap-3 text-xs">
-        {!online && <span className="text-amber-700">Offline — captures are kept on this device.</span>}
-        {pending > 0 && <span className="text-amber-700">{pending} waiting to sync</span>}
-        {msg && <span className={msg.ok ? "text-green-700" : "text-red-600"}>{msg.text}</span>}
+        {!online && <span className="text-warning">Offline — captures are kept on this device.</span>}
+        {pending > 0 && <span className="text-warning">{pending} waiting to sync</span>}
+        {msg && <span className={msg.ok ? "text-success" : "text-danger"}>{msg.text}</span>}
       </div>
     </form>
   );

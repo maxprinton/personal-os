@@ -50,32 +50,32 @@ export default function BlockTypeCard({
   }
 
   return (
-    <li className="space-y-2 rounded-lg border border-neutral-200 p-3">
+    <li className="space-y-2 rounded-lg border border-line p-3 bg-surface shadow-card">
       <div className="flex flex-wrap items-center gap-2">
         <span className="h-3 w-3 rounded-full" style={{ background: c }} />
         {readOnly ? (
           <p className="font-medium">{name}</p>
         ) : (
           <>
-            <input value={n} onChange={(e) => setN(e.target.value)} className="min-w-0 flex-1 rounded-md border border-neutral-300 px-2 py-1 text-sm" />
+            <input value={n} onChange={(e) => setN(e.target.value)} className="min-w-0 flex-1 rounded-md border border-line-strong px-2 py-1 text-sm" />
             <input type="color" value={c} onChange={(e) => setC(e.target.value)} className="h-8 w-10" />
-            <button disabled={busy} onClick={save} className="rounded-md border border-neutral-300 px-2 py-1 text-xs disabled:opacity-50">
+            <button disabled={busy} onClick={save} className="rounded-md border border-edge transition-colors hover:bg-subtle px-2 py-1 text-xs disabled:opacity-50">
               Save
             </button>
-            <button disabled={busy} onClick={remove} className="text-xs text-neutral-500 hover:text-red-600">
+            <button disabled={busy} onClick={remove} className="text-xs text-muted hover:text-danger">
               Remove
             </button>
           </>
         )}
       </div>
-      <ul className="space-y-0.5 text-sm text-neutral-600">
+      <ul className="space-y-0.5 text-sm text-muted">
         {slots.map((s) => (
           <li key={s}>{s}</li>
         ))}
-        {slots.length === 0 && <li className="text-neutral-400">Not on the calendar from today on.</li>}
+        {slots.length === 0 && <li className="text-faint">Not on the calendar from today on.</li>}
       </ul>
       {children}
-      {msg && <p className="text-xs text-neutral-500">{msg}</p>}
+      {msg && <p className="text-xs text-muted">{msg}</p>}
     </li>
   );
 }

@@ -8,7 +8,7 @@ function esc(s: string) {
 function inline(text: string): string {
   const codes: string[] = [];
   let s = esc(text).replace(/`([^`]+)`/g, (_, c: string) => {
-    codes.push(`<code class="rounded bg-neutral-100 px-1 font-mono text-[0.9em]">${c}</code>`);
+    codes.push(`<code class="rounded bg-subtle px-1 font-mono text-[0.9em]">${c}</code>`);
     return `\u0000${codes.length - 1}\u0000`;
   });
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label: string, url: string) => {
@@ -36,7 +36,7 @@ export function renderMarkdown(src: string): string {
       i++;
       while (i < lines.length && !/^```/.test(lines[i])) body.push(lines[i++]);
       i++;
-      out.push(`<pre class="overflow-x-auto rounded-md bg-neutral-100 p-3 font-mono text-sm"><code>${esc(body.join("\n"))}</code></pre>`);
+      out.push(`<pre class="overflow-x-auto rounded-md bg-subtle p-3 font-mono text-sm"><code>${esc(body.join("\n"))}</code></pre>`);
       continue;
     }
 
@@ -49,7 +49,7 @@ export function renderMarkdown(src: string): string {
     }
 
     if (/^\s*(---|\*\*\*)\s*$/.test(line)) {
-      out.push('<hr class="my-4 border-neutral-200" />');
+      out.push('<hr class="my-4 border-line" />');
       i++;
       continue;
     }
@@ -57,7 +57,7 @@ export function renderMarkdown(src: string): string {
     if (/^>\s?/.test(line)) {
       const body: string[] = [];
       while (i < lines.length && /^>\s?/.test(lines[i])) body.push(lines[i++].replace(/^>\s?/, ""));
-      out.push(`<blockquote class="border-l-4 border-neutral-300 pl-3 text-neutral-600">${body.map(inline).join("<br />")}</blockquote>`);
+      out.push(`<blockquote class="border-l-4 border-edge pl-3 text-muted">${body.map(inline).join("<br />")}</blockquote>`);
       continue;
     }
 
@@ -71,7 +71,7 @@ export function renderMarkdown(src: string): string {
         if (task) {
           item = item.slice(task[0].length);
           const done = task[1] !== " ";
-          items.push(`<li class="list-none -ml-5"><input type="checkbox" disabled ${done ? "checked" : ""} class="mr-2 align-middle" />${done ? `<span class="line-through text-neutral-400">${inline(item)}</span>` : inline(item)}</li>`);
+          items.push(`<li class="list-none -ml-5"><input type="checkbox" disabled ${done ? "checked" : ""} class="mr-2 align-middle" />${done ? `<span class="line-through text-faint">${inline(item)}</span>` : inline(item)}</li>`);
         } else items.push(`<li>${inline(item)}</li>`);
       }
       out.push(ordered ? `<ol class="list-decimal pl-5 space-y-1">${items.join("")}</ol>` : `<ul class="list-disc pl-5 space-y-1">${items.join("")}</ul>`);

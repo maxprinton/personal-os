@@ -77,13 +77,13 @@ export default function EventDialog({
   const template = event?.payment_template_id ? data?.finance.templates.find((t) => t.id === event.payment_template_id) ?? null : null;
   const paymentSection =
     event?.is_payment && data ? (
-      <section className="space-y-2 rounded-lg border border-green-200 bg-green-50 p-3">
+      <section className="space-y-2 rounded-lg border border-success/30 bg-success-soft p-3">
         {event.payment_status === "paid" ? (
-          <p className="text-sm text-green-800">✓ Paid — it's in Finance.</p>
+          <p className="text-sm text-success">✓ Paid — it's in Finance.</p>
         ) : event.payment_status === "skipped" ? (
-          <p className="text-sm text-neutral-600">Skipped this time.</p>
+          <p className="text-sm text-muted">Skipped this time.</p>
         ) : readOnly ? (
-          <p className="text-sm text-neutral-600">Payment due {event.date}. Confirm it on the computer.</p>
+          <p className="text-sm text-muted">Payment due {event.date}. Confirm it on the computer.</p>
         ) : (
           <PaymentDraft
             eventId={event.id}
@@ -103,7 +103,7 @@ export default function EventDialog({
   const taskDay = event && data ? (data.today >= event.date && data.today <= event.end_date ? data.today : event.date) : null;
   const taskSection =
     event && data && taskDay ? (
-      <section className="space-y-2 rounded-lg border border-neutral-200 p-3">
+      <section className="space-y-2 rounded-lg border border-line p-3">
         <h3 className="text-sm font-medium">Tasks in this event</h3>
         <TaskList
           tasks={tasksForEvent(event.id, taskDay, data.tasks)}
@@ -120,7 +120,7 @@ export default function EventDialog({
   if (readOnly && event) {
     return (
       <Modal title={event.title} onClose={onClose}>
-        <p className="text-sm text-neutral-600">
+        <p className="text-sm text-muted">
           {event.date}
           {event.end_date !== event.date ? ` → ${event.end_date}` : ""}
           {event.start !== null && event.end !== null ? ` · ${minutesToTime(event.start)}–${minutesToTime(event.end)}` : " · no time"}
@@ -167,17 +167,17 @@ export default function EventDialog({
             ))}
           </datalist>
           {match ? (
-            <p className="mt-1 flex items-center gap-2 text-xs text-neutral-600">
+            <p className="mt-1 flex items-center gap-2 text-xs text-muted">
               <span className="inline-block h-3 w-3 rounded-full" style={{ background: match.color }} /> {match.name}
             </p>
           ) : type.trim() ? (
-            <label className="mt-1 flex items-center gap-2 text-xs text-neutral-600">
+            <label className="mt-1 flex items-center gap-2 text-xs text-muted">
               New type · color <input type="color" value={typeColor} onChange={(e) => setTypeColor(e.target.value)} />
             </label>
           ) : null}
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <label className="text-xs text-neutral-500">
+          <label className="text-xs text-muted">
             Date
             <input
               type="date"
@@ -190,7 +190,7 @@ export default function EventDialog({
               className={inputCls}
             />
           </label>
-          <label className="text-xs text-neutral-500">
+          <label className="text-xs text-muted">
             Until (optional)
             <input type="date" value={endDate} min={date} onChange={(e) => setEndDate(e.target.value)} className={inputCls} />
           </label>
@@ -204,11 +204,11 @@ export default function EventDialog({
             <input type="time" required value={end} onChange={(e) => setEnd(e.target.value)} className={inputCls} />
           </div>
         ) : (
-          <p className="text-xs text-neutral-500">Without a time it shows on top of the day, like a note.</p>
+          <p className="text-xs text-muted">Without a time it shows on top of the day, like a note.</p>
         )}
         <div className="flex items-center justify-between gap-2">
           {event ? (
-            <button type="button" onClick={remove} disabled={busy} className="text-sm text-red-600">
+            <button type="button" onClick={remove} disabled={busy} className="text-sm text-danger">
               Delete
             </button>
           ) : (
