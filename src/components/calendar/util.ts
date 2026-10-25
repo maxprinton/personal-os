@@ -101,7 +101,10 @@ export function writePref(key: string, value: string) {
   }
 }
 
-/** Tells every open calendar (and the dock) to reload its data. */
-export function emitCalendarChanged() {
-  window.dispatchEvent(new Event("calendar-changed"));
+/**
+ * Tells every open calendar (and the dock) to reload its data.
+ * `source` = the calendar that made the change (it reloads itself, so it skips this event).
+ */
+export function emitCalendarChanged(source?: string) {
+  window.dispatchEvent(new CustomEvent("calendar-changed", { detail: { source } }));
 }

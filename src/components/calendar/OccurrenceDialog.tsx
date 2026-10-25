@@ -131,6 +131,7 @@ export default function OccurrenceDialog({
             <input
               value={newHabit}
               onChange={(e) => setNewHabit(e.target.value)}
+              autoComplete="off"
               placeholder={`New habit in ${type?.name ?? "this block"} (from today on)`}
               className={inputCls}
             />

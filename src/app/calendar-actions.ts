@@ -403,6 +403,102 @@ export async function setOccurrencesDone(input: { ids: string[]; done: boolean }
   }
 }
 
+/** Shared by move and copy: where each block lands after shifting by days and minutes. */
+function shifted(list: Occurrence[], dayShift: number, minuteShift: number) {
+  return list.map((o) => {
+    const startAbs = timeToMinutes(o.start_time) + minuteShift;
+    const start = ((startAbs % 1440) + 1440) % 1440;
+    return {
+      o,
+      date: addDays(o.date, dayShift + Math.floor(startAbs / 1440)),
+      start_time: minutesToTime(start),
+      end_time: minutesToTime(start + durationOf(o.start_time, o.end_time)),
+    };
+  });
+}
+
+/** Alt+drag: copies of the selected blocks, shifted by days/minutes, each "only that day" (habits come with the name). */
+export async function duplicateOccurrences(input: { ids: string[]; dayShift: number; minuteShift: number }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const dayShift = Math.trunc(Number(input.dayShift) || 0);
+    const minuteShift = Math.trunc(Number(input.minuteShift) || 0);
+    if (Math.abs(dayShift) > 366 || Math.abs(minuteShift) > 1440) return { error: "That copy is too far." };
+    const got = await loadMany(c, input.ids);
+    if ("error" in got) return { error: got.error };
+    const copies = shifted(got.list, dayShift, minuteShift);
+    const locked = pastGuard(c, ...copies.map((m) => m.date));
+    if (locked) return locked;
+    const dates = copies.map((m) => m.date).sort();
+    const existing = await getOccurrences(c.sb, c.userId, dates[0], addDays(dates[dates.length - 1], 1));
+    for (const m of copies) {
+      const hit = findOccurrenceConflict(m, existing);
+      if (hit) {
+        return {
+          error: `Blocks can't overlap: on ${m.date} a copy would overlap another block at ${hit.start_time.slice(0, 5)}–${hit.end_time.slice(0, 5)}.`,
+        };
+      }
+    }
+    const { error } = await c.sb.from("block_occurrences").insert(
+      copies.map((m) => ({
+        user_id: c.userId,
+        block_type_id: m.o.block_type_id,
+        slot_id: null,
+        origin_date: null,
+        date: m.date,
+        start_time: m.start_time,
+        end_time: m.end_time,
+        is_override: true,
+      }))
+    );
+    if (error) return { error: error.message };
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Stretch or shrink the selected blocks by the same minutes (their end moves; only those days). */
+export async function resizeOccurrences(input: { ids: string[]; minuteDelta: number }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const delta = Math.trunc(Number(input.minuteDelta) || 0);
+    if (!delta) return done();
+    const got = await loadMany(c, input.ids);
+    if ("error" in got) return { error: got.error };
+    const locked = pastGuard(c, ...got.list.map((o) => o.date));
+    if (locked) return locked;
+    const resized: Occurrence[] = got.list.map((o) => {
+      const dur = Math.max(15, Math.min(1440 - 5, durationOf(o.start_time, o.end_time) + delta));
+      return { ...o, end_time: minutesToTime(timeToMinutes(o.start_time) + dur) };
+    });
+    const dates = resized.map((o) => o.date).sort();
+    const selectedIds = new Set(resized.map((o) => o.id));
+    const others = (await getOccurrences(c.sb, c.userId, dates[0], addDays(dates[dates.length - 1], 1))).filter(
+      (o) => !selectedIds.has(o.id)
+    );
+    for (const r of resized) {
+      const hit = findOccurrenceConflict(r, [...others, ...resized.filter((x) => x.id !== r.id)]);
+      if (hit) {
+        return {
+          error: `Blocks can't overlap: on ${r.date} a stretched block would overlap another at ${hit.start_time.slice(0, 5)}–${hit.end_time.slice(0, 5)}.`,
+        };
+      }
+    }
+    for (const r of resized) {
+      const { error } = await c.sb
+        .from("block_occurrences")
+        .update({ end_time: r.end_time, is_override: true })
+        .eq("id", r.id)
+        .eq("user_id", c.userId);
+      if (error) return { error: error.message };
+    }
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
 // ---------- Block types (the block as a concept) --------------------------------
 
 /** Renaming changes the name everywhere (all slots share the block type). */

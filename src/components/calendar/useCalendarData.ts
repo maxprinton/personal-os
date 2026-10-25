@@ -9,6 +9,14 @@ export function useCalendarData(from: string, to: string, enabled = true) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const seq = useRef(0);
+  const [id] = useState(() => `cal-${Math.random().toString(36).slice(2)}`);
+
+  /** Instant local change while the server works; loads already on the way are dropped so they can't undo it. */
+  const patch = useCallback((fn: (d: CalendarData) => CalendarData) => {
+    seq.current++;
+    setLoading(false);
+    setData((d) => (d ? fn(d) : d));
+  }, []);
 
   const load = useCallback(async () => {
     if (!enabled) return;
@@ -34,16 +42,21 @@ export function useCalendarData(from: string, to: string, enabled = true) {
   }, [load]);
 
   useEffect(() => {
-    const onChange = () => load();
+    const onChange = (e: Event) => {
+      const source = (e as CustomEvent<{ source?: string }>).detail?.source;
+      if (source && source === id) return; // our own change: we already reloaded
+      load();
+    };
+    const onFocus = () => load();
     window.addEventListener("calendar-changed", onChange);
-    window.addEventListener("focus", onChange);
+    window.addEventListener("focus", onFocus);
     const timer = setInterval(load, 60_000);
     return () => {
       window.removeEventListener("calendar-changed", onChange);
-      window.removeEventListener("focus", onChange);
+      window.removeEventListener("focus", onFocus);
       clearInterval(timer);
     };
-  }, [load]);
+  }, [load, id]);
 
-  return { data, error, loading, reload: load };
+  return { data, error, loading, reload: load, patch, id };
 }

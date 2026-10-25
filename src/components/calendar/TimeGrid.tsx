@@ -7,22 +7,11 @@ import { habitProgress, habitsForOccurrence } from "@/lib/calendar/habitview";
 import { tasksForEvent, tasksForOccurrence } from "@/lib/calendar/taskview";
 import type { CalendarData, CalEvent, Occurrence } from "@/lib/calendar/types";
 import { alpha, dayLabel, snap, textOn, timeRange } from "@/components/calendar/util";
+import { resizeOcc, shiftOcc, type Shift } from "@/components/calendar/optimistic";
 
 export type MoveRequest = { id: string; date: string; start: number; end: number; duplicate: boolean };
 export type TaskDrop = { taskId: string; occurrenceId?: string; eventId?: string; date: string };
-export type GroupShift = { dayShift: number; minuteShift: number };
-
-/** A block moved by whole days and minutes (used to preview a multi-block drag). */
-function shiftOcc(o: Occurrence, { dayShift, minuteShift }: GroupShift): Occurrence {
-  const startAbs = timeToMinutes(o.start_time) + minuteShift;
-  const start = ((startAbs % 1440) + 1440) % 1440;
-  return {
-    ...o,
-    date: addDays(o.date, dayShift + Math.floor(startAbs / 1440)),
-    start_time: minutesToTime(start),
-    end_time: minutesToTime(start + durationOf(o.start_time, o.end_time)),
-  };
-}
+export type GroupShift = Shift;
 
 /** Drag data type used for tasks (the unassigned tray and task lines inside blocks). */
 export const TASK_MIME = "text/x-personal-os-task";
@@ -48,6 +37,12 @@ type Props = {
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
   onMoveGroup: (shift: GroupShift) => void;
+  /** Alt+drag on a selection: copies of all of them. */
+  onCopyGroup: (shift: GroupShift) => void;
+  /** Stretching one selected block stretches them all by the same minutes. */
+  onResizeGroup: (minuteDelta: number) => void;
+  /** Dragging on empty space draws a box: the blocks it touches become the selection. */
+  onSetSelection: (ids: Set<string>) => void;
   onClearSelection: () => void;
   /** What a plain click on a block does: open its details (default) or tick it done, like LifeOS. */
   clickMode: "open" | "done";
@@ -66,7 +61,9 @@ type Drag = {
   group: boolean;
 };
 
-type Preview = { id: string; col: number; top: number; bottom: number; conflict: boolean };
+type Preview = { id: string; col: number; top: number; bottom: number; conflict: boolean; copy: boolean };
+type GroupPreview = GroupShift & { durDelta: number; copy: boolean; conflict: boolean };
+type MarqueeStart = { x: number; y: number; moved: boolean; additive: boolean; base: Set<string>; hadSelection: boolean };
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 const EVENT_GRAY = "#64748b";
@@ -109,6 +106,9 @@ export default function TimeGrid({
   selected,
   onToggleSelect,
   onMoveGroup,
+  onCopyGroup,
+  onResizeGroup,
+  onSetSelection,
   onClearSelection,
   clickMode,
 }: Props) {
@@ -139,7 +139,11 @@ export default function TimeGrid({
   const pointerRef = useRef<{ x: number; y: number; alt: boolean } | null>(null);
   const scrollLoop = useRef<number | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [groupPreview, setGroupPreview] = useState<(GroupShift & { conflict: boolean }) | null>(null);
+  const [groupPreview, setGroupPreview] = useState<GroupPreview | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const marqueeRef = useRef<MarqueeStart | null>(null);
+  const suppressClick = useRef(false);
+  const [marquee, setMarquee] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const selectedOccs = useMemo(() => data.occurrences.filter((o) => selected.has(o.id)), [data.occurrences, selected]);
 
   const typeById = useMemo(() => new Map(data.blockTypes.map((t) => [t.id, t])), [data.blockTypes]);
@@ -237,13 +241,16 @@ export default function TimeGrid({
       const d = dragRef.current;
       const p = pointerRef.current;
       const el = scrollRef.current;
-      const speed = d?.moved && p ? edgeSpeed(p.y) : 0;
-      if (!d || !p || !el || speed === 0) {
+      const m = marqueeRef.current;
+      const active = Boolean(d?.moved || m?.moved);
+      const speed = active && p ? edgeSpeed(p.y) : 0;
+      if (!active || !p || !el || speed === 0) {
         scrollLoop.current = null;
         return;
       }
       el.scrollTop += speed;
-      updateDrag(p.x, p.y, p.alt);
+      if (d) updateDrag(p.x, p.y, p.alt);
+      else updateMarquee(p.x, p.y);
       scrollLoop.current = requestAnimationFrame(tick);
     };
     scrollLoop.current = requestAnimationFrame(tick);
@@ -254,13 +261,14 @@ export default function TimeGrid({
     scrollLoop.current = null;
   }
 
-  function conflictFor(id: string, col: number, top: number, bottom: number) {
+  /** `copy`: the original stays where it is, so it counts as an obstacle too. */
+  function conflictFor(id: string, col: number, top: number, bottom: number, copy = false) {
     const { date, minute } = toReal(col, top);
     return Boolean(
       findOccurrenceConflict(
         { date, start_time: minutesToTime(minute), end_time: minutesToTime(minute + (bottom - top)) },
         data.occurrences,
-        new Set([id])
+        copy ? new Set() : new Set([id])
       )
     );
   }
@@ -282,7 +290,7 @@ export default function TimeGrid({
       duration: durationOf(o.start_time, o.end_time),
       grab: minuteAt(col, e.clientY) - top,
       moved: false,
-      group: mode === "move" && selected.has(o.id) && selected.size > 1,
+      group: selected.has(o.id) && selected.size > 1,
     };
   }
 
@@ -300,20 +308,31 @@ export default function TimeGrid({
   function updateDrag(clientX: number, clientY: number, altKey: boolean) {
     const d = dragRef.current;
     if (!d) return;
-    if (d.mode === "move" && d.group) {
+    if (d.group && d.mode === "move") {
       const col = columnAt(clientX);
       const top = Math.min(Math.max(0, snap(minuteAt(col, clientY) - d.grab)), 1440 - 15);
       const shift = { dayShift: daysBetween(days[d.col], days[col]), minuteShift: top - d.top };
-      const conflict = selectedOccs.some((o) => Boolean(findOccurrenceConflict(shiftOcc(o, shift), data.occurrences, selected)));
-      setGroupPreview({ ...shift, conflict });
+      // Alt = copies: the originals stay, so they count as obstacles
+      const ignore = altKey ? new Set<string>() : selected;
+      const conflict = selectedOccs.some((o) => Boolean(findOccurrenceConflict(shiftOcc(o, shift), data.occurrences, ignore)));
+      setGroupPreview({ ...shift, durDelta: 0, copy: altKey, conflict });
+    } else if (d.group) {
+      const bottom = Math.max(d.top + 15, Math.min(d.top + 1440 - 5, snap(minuteAt(d.col, clientY))));
+      const durDelta = bottom - (d.top + d.duration);
+      const stretched = selectedOccs.map((o) => resizeOcc(o, durDelta));
+      const others = data.occurrences.filter((o) => !selected.has(o.id));
+      const conflict = stretched.some((g) =>
+        Boolean(findOccurrenceConflict(g, [...others, ...stretched.filter((x) => x.id !== g.id)]))
+      );
+      setGroupPreview({ dayShift: 0, minuteShift: 0, durDelta, copy: false, conflict });
     } else if (d.mode === "move") {
       const col = columnAt(clientX);
       const top = Math.min(Math.max(0, snap(minuteAt(col, clientY) - d.grab)), 1440 - 15);
       const bottom = top + d.duration;
-      setPreview({ id: d.id, col, top, bottom, conflict: !altKey && conflictFor(d.id, col, top, bottom) });
+      setPreview({ id: d.id, col, top, bottom, conflict: conflictFor(d.id, col, top, bottom, altKey), copy: altKey });
     } else {
       const bottom = Math.max(d.top + 15, Math.min(d.top + 1440 - 5, snap(minuteAt(d.col, clientY))));
-      setPreview({ id: d.id, col: d.col, top: d.top, bottom, conflict: conflictFor(d.id, d.col, d.top, bottom) });
+      setPreview({ id: d.id, col: d.col, top: d.top, bottom, conflict: conflictFor(d.id, d.col, d.top, bottom), copy: false });
     }
   }
 
@@ -334,21 +353,23 @@ export default function TimeGrid({
       return;
     }
     if (d.group) {
-      if (!gp || (!gp.dayShift && !gp.minuteShift)) return;
-      if (e.altKey) {
-        onBlocked("Alt+drag copies one block at a time. Clear the selection to copy a block.");
-        return;
-      }
+      if (!gp) return;
       if (gp.conflict) {
         onBlocked("That time is taken: blocks can't overlap.");
         return;
       }
-      onMoveGroup({ dayShift: gp.dayShift, minuteShift: gp.minuteShift });
+      if (d.mode === "resize") {
+        if (gp.durDelta) onResizeGroup(gp.durDelta);
+        return;
+      }
+      if (!gp.dayShift && !gp.minuteShift) return;
+      if (e.altKey) onCopyGroup({ dayShift: gp.dayShift, minuteShift: gp.minuteShift });
+      else onMoveGroup({ dayShift: gp.dayShift, minuteShift: gp.minuteShift });
       return;
     }
     if (!p) return;
     const duplicate = d.mode === "move" && e.altKey;
-    if (p.conflict && !duplicate) {
+    if (p.conflict) {
       onBlocked("That time is taken: blocks can't overlap.");
       return;
     }
@@ -374,7 +395,85 @@ export default function TimeGrid({
     onToggleDone(id);
   }
 
+  // ---- Box selection (LifeOS): drag on empty space; Shift adds to the current selection ----
+
+  function startMarquee(e: React.PointerEvent<HTMLDivElement>) {
+    if (readOnly || e.button !== 0 || e.target !== e.currentTarget || e.pointerType === "touch") return;
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+    const box = contentRef.current?.getBoundingClientRect();
+    if (!box) return;
+    marqueeRef.current = {
+      // start point in content coordinates: it stays on the same spot of the grid while it scrolls
+      x: e.clientX - box.left,
+      y: e.clientY - box.top,
+      moved: false,
+      additive,
+      base: additive ? new Set(selected) : new Set(),
+      hadSelection: selected.size > 0,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function moveMarquee(e: React.PointerEvent<HTMLDivElement>) {
+    const m = marqueeRef.current;
+    if (!m) return;
+    pointerRef.current = { x: e.clientX, y: e.clientY, alt: false };
+    const box = contentRef.current?.getBoundingClientRect();
+    if (!box) return;
+    if (!m.moved && Math.abs(e.clientX - box.left - m.x) + Math.abs(e.clientY - box.top - m.y) < 5) return;
+    m.moved = true;
+    updateMarquee(e.clientX, e.clientY);
+    if (edgeSpeed(e.clientY) !== 0) runScrollLoop();
+  }
+
+  function updateMarquee(clientX: number, clientY: number) {
+    const m = marqueeRef.current;
+    const content = contentRef.current;
+    if (!m || !content) return;
+    const box = content.getBoundingClientRect();
+    const startY = m.y;
+    const startX = m.x;
+    const curY = clientY - box.top;
+    const curX = clientX - box.left;
+    const rect = {
+      left: Math.min(startX, curX),
+      top: Math.min(startY, curY),
+      width: Math.abs(curX - startX),
+      height: Math.abs(curY - startY),
+    };
+    setMarquee(rect);
+    const hit = new Set(m.base);
+    content.querySelectorAll<HTMLElement>("[data-occ]").forEach((el) => {
+      const r = el.getBoundingClientRect();
+      const l = r.left - box.left;
+      const t = r.top - box.top;
+      if (l < rect.left + rect.width && l + r.width > rect.left && t < rect.top + rect.height && t + r.height > rect.top) {
+        hit.add(el.dataset.occ as string);
+      }
+    });
+    onSetSelection(hit);
+  }
+
+  function endMarquee() {
+    const m = marqueeRef.current;
+    marqueeRef.current = null;
+    pointerRef.current = null;
+    stopScrollLoop();
+    if (!m) return;
+    setMarquee(null);
+    if (m.moved) {
+      suppressClick.current = true; // the click that follows the box must not create a block
+    } else if (m.hadSelection && !m.additive) {
+      onClearSelection(); // a plain click on empty space just drops the selection
+      suppressClick.current = true;
+    }
+  }
+
   function clickEmpty(e: React.MouseEvent<HTMLDivElement>, col: number) {
+    if (suppressClick.current) {
+      suppressClick.current = false;
+      return;
+    }
     if (readOnly || e.target !== e.currentTarget) return;
     const y = Math.min(Math.max(0, snap(minuteAt(col, e.clientY) - 15, 30)), 1440 - 30);
     const { date, minute } = toReal(col, y);
@@ -445,7 +544,13 @@ export default function TimeGrid({
       </div>
 
       <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto">
-        <div className="relative flex" style={{ height: 24 * H }}>
+        <div ref={contentRef} className="relative flex" style={{ height: 24 * H }}>
+          {marquee && (
+            <div
+              className="pointer-events-none absolute z-40 rounded-sm border border-sky-500 bg-sky-400/10"
+              style={{ left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height }}
+            />
+          )}
           <div className="relative w-12 shrink-0">
             {HOURS.map((h) => {
               const abs = S + h * 60;
@@ -470,6 +575,10 @@ export default function TimeGrid({
                 colRefs.current[col] = el;
               }}
               onClick={(e) => clickEmpty(e, col)}
+              onPointerDown={startMarquee}
+              onPointerMove={moveMarquee}
+              onPointerUp={endMarquee}
+              onPointerCancel={endMarquee}
               className={`relative min-w-0 flex-1 border-l border-neutral-100 ${readOnly ? "" : "cursor-cell"} ${
                 date < data.today ? "bg-neutral-50/60" : ""
               }`}
@@ -486,7 +595,9 @@ export default function TimeGrid({
               {blocksPerCol[col].map(({ o, top, bottom, cutTop, cutBottom }) => {
                 const type = typeById.get(o.block_type_id);
                 const color = type?.color ?? "#6366f1";
-                const dragging = preview?.id === o.id || (groupPreview !== null && selected.has(o.id));
+                // Moving fades the original; copying (Alt) leaves it as it is
+                const dragging =
+                  (preview?.id === o.id && !preview.copy) || (groupPreview !== null && !groupPreview.copy && selected.has(o.id));
                 const isSelected = selected.has(o.id);
                 const height = Math.max(((bottom - top) / 60) * H, 14);
                 const muted = o.status === "free_day";
@@ -499,6 +610,7 @@ export default function TimeGrid({
                 return (
                   <div
                     key={`${o.id}-${date}`}
+                    data-occ={o.id}
                     onPointerDown={(e) => !cutTop && startDrag(e, o, col, top, "move")}
                     onPointerMove={moveDrag}
                     onPointerUp={endDrag}
@@ -650,7 +762,7 @@ export default function TimeGrid({
 
               {groupPreview &&
                 selectedOccs.map((o) => {
-                  const g = shiftOcc(o, groupPreview);
+                  const g = groupPreview.durDelta ? resizeOcc(o, groupPreview.durDelta) : shiftOcc(o, groupPreview);
                   const [a, b] = occAbs(g, date);
                   const c = clip(a, b, S);
                   if (!c) return null;
@@ -664,7 +776,8 @@ export default function TimeGrid({
                       style={{ top: (c.top / 60) * H, height: Math.max(((c.bottom - c.top) / 60) * H, 14) }}
                     >
                       <p className="truncate font-medium">
-                        {typeById.get(o.block_type_id)?.name ?? "Block"} · {timeRange(start, start + durationOf(o.start_time, o.end_time))}
+                        {typeById.get(o.block_type_id)?.name ?? "Block"} · {timeRange(start, start + durationOf(g.start_time, g.end_time))}
+                        {groupPreview.copy ? " · copy" : ""}
                         {groupPreview.conflict ? " · taken" : ""}
                       </p>
                     </div>
@@ -683,6 +796,7 @@ export default function TimeGrid({
                 >
                   <p className="truncate font-medium">
                     {timeRange(toReal(col, preview.top).minute, toReal(col, preview.top).minute + preview.bottom - preview.top)}
+                    {preview.copy ? " · copy" : ""}
                     {preview.conflict ? " · taken" : ""}
                   </p>
                 </div>

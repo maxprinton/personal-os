@@ -67,7 +67,7 @@ export default function TaskList({
           }}
           className="flex gap-2"
         >
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add a task here" className={inputCls} />
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add a task here" autoComplete="off" className={inputCls} />
           <button className={btnSecondary}>Add</button>
         </form>
       )}

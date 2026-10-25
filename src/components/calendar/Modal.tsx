@@ -14,11 +14,12 @@ export default function Modal({
   wide?: boolean;
 }) {
   useEffect(() => {
+    // Capture phase: Esc closes the window even while typing in one of its fields
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
   return (

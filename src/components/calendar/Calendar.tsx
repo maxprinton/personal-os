@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import {
   editOccurrence,
   lockPast,
+  duplicateOccurrences,
   moveOccurrences,
   placeTask,
   removeOccurrences,
+  resizeOccurrences,
   setOccurrencesDone,
   toggleOccurrenceDone,
   unlockPast,
@@ -16,7 +18,7 @@ import Modal, { btnPrimary, btnSecondary } from "@/components/calendar/Modal";
 import { unassignedOn } from "@/lib/calendar/taskview";
 import UnassignedTray from "@/components/calendar/UnassignedTray";
 import FreeDayDialog from "@/components/calendar/FreeDayDialog";
-import { addDays, dateRange, isoWeekday, minutesToTime, ISO_DAY_SHORT } from "@/lib/time";
+import { addDays, dateRange, daysBetween, isoWeekday, minutesToTime, timeToMinutes, ISO_DAY_SHORT } from "@/lib/time";
 import type { CalResult, EditScope } from "@/lib/calendar/types";
 import TimeGrid, { type MoveRequest } from "@/components/calendar/TimeGrid";
 import MonthGrid from "@/components/calendar/MonthGrid";
@@ -25,6 +27,8 @@ import EventDialog from "@/components/calendar/EventDialog";
 import OccurrenceDialog from "@/components/calendar/OccurrenceDialog";
 import ScopeDialog, { forwardLabel } from "@/components/calendar/ScopeDialog";
 import { useCalendarData } from "@/components/calendar/useCalendarData";
+import { optimistic } from "@/components/calendar/optimistic";
+import type { CalendarData } from "@/lib/calendar/types";
 import {
   browserToday,
   emitCalendarChanged,
@@ -41,6 +45,12 @@ type ClickMode = "open" | "done";
 type MoveScope = "ask" | "this_day" | "forward";
 type ProgressMode = "sofar" | "week";
 type Toast = { ok: boolean; text: string; action?: { label: string; fn: () => void } };
+
+/** Minutes between two "HH:MM" times (an end before the start means it ends the next day). */
+function durationMinutes(start: string, end: string) {
+  const d = timeToMinutes(end) - timeToMinutes(start);
+  return d > 0 ? d : d + 1440;
+}
 
 /** Tells the page tint (and other calendars) that a calendar preference changed. */
 function emitPrefsChanged() {
@@ -96,7 +106,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
   const { from, to } = rangeFor(view, anchor);
   // When the day starts after midnight, the last column also shows the next morning
   const fetchTo = dayStart > 0 && view !== "month" ? addDays(to, 1) : to;
-  const { data, error, loading, reload } = useCalendarData(from, fetchTo, mounted);
+  const { data, error, loading, reload, patch, id: calendarId } = useCalendarData(from, fetchTo, mounted);
   // Phones are view-only (the server says so from the browser; small touch screens too, as a backup)
   const [touchPhone, setTouchPhone] = useState(false);
   useEffect(() => {
@@ -183,9 +193,13 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
     writePref("cal.hiddenDays", next.join(","));
   }
 
-  /** Runs a server action; shows its error, or reloads everything on success. */
+  /**
+   * Runs a server action; shows its error, or reloads everything on success.
+   * `instant`: the change is shown right away (before the server answers) and undone if it fails.
+   */
   const run = useCallback(
-    async (fn: () => Promise<CalResult>): Promise<boolean> => {
+    async (fn: () => Promise<CalResult>, instant?: (d: CalendarData) => CalendarData): Promise<boolean> => {
+      if (instant) patch(instant);
       let res: CalResult;
       try {
         res = await fn();
@@ -193,7 +207,10 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
         if (res.code === "PAST_LOCKED") {
           const yes = await new Promise<boolean>((resolve) => setPastAsk({ resolve }));
           setPastAsk(null);
-          if (!yes) return false;
+          if (!yes) {
+            if (instant) void reload();
+            return false;
+          }
           const opened = await unlockPast();
           res = opened.error ? opened : await fn();
         }
@@ -202,22 +219,26 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
       }
       if (res.error) {
         setToast({ ok: false, text: res.error });
+        if (instant) void reload(); // put things back where the server has them
         return false;
       }
       await reload();
-      emitCalendarChanged();
-      router.refresh();
+      emitCalendarChanged(calendarId); // the other calendars (dock/page) reload; this one just did
+      // Server-rendered pages under the dock (Today, Habits…) need a refresh; the full calendar page doesn't
+      if (variant === "dock") router.refresh();
       return true;
     },
-    [reload, router]
+    [reload, router, patch, calendarId, variant]
   );
 
   function onMove(req: MoveRequest) {
     if (!data) return;
     if (req.duplicate) {
-      const o = data.occurrences.find((x) => x.id === req.id);
-      const name = data.blockTypes.find((t) => t.id === o?.block_type_id)?.name ?? "";
-      setDialog({ kind: "new-block", date: req.date, start: req.start, end: req.end, name });
+      // Alt+drag: an instant copy for that day (like LifeOS); "Duplicate…" in the block window offers more
+      const src = data.occurrences.find((x) => x.id === req.id);
+      if (!src) return;
+      const shift = { dayShift: daysBetween(src.date, req.date), minuteShift: req.start - timeToMinutes(src.start_time) };
+      void run(() => duplicateOccurrences({ ids: [src.id], ...shift }), optimistic.copy([src.id], shift));
       return;
     }
     const o = data.occurrences.find((x) => x.id === req.id);
@@ -229,8 +250,9 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
     const scope: EditScope = moveScope === "forward" && forwardLabel(o, data.today) ? "forward" : "this_day";
     const before = { id: o.id, date: o.date, start: o.start_time.slice(0, 5), end: o.end_time.slice(0, 5) };
     void (async () => {
-      const ok = await run(() =>
-        editOccurrence({ id: req.id, date: req.date, start: minutesToTime(req.start), end: minutesToTime(req.end), scope })
+      const ok = await run(
+        () => editOccurrence({ id: req.id, date: req.date, start: minutesToTime(req.start), end: minutesToTime(req.end), scope }),
+        optimistic.move(req.id, req.date, req.start, req.end)
       );
       if (!ok) return;
       setToast({
@@ -238,7 +260,19 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
         text: scope === "forward" ? "Moved from this day on." : "Moved (only this day).",
         action:
           scope === "this_day"
-            ? { label: "Undo", fn: () => void run(() => editOccurrence({ ...before, scope: "this_day" })) }
+            ? {
+                label: "Undo",
+                fn: () =>
+                  void run(
+                    () => editOccurrence({ ...before, scope: "this_day" }),
+                    optimistic.move(
+                      before.id,
+                      before.date,
+                      timeToMinutes(before.start),
+                      timeToMinutes(before.start) + durationMinutes(before.start, before.end)
+                    )
+                  ),
+              }
             : undefined,
       });
     })();
@@ -434,10 +468,11 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
             const tickable = sel.filter((o) => o.date <= data.today && o.status !== "free_day");
             const allDone = tickable.length > 0 && tickable.every((o) => o.status === "done");
             const ids = [...selected];
-            const act = async (fn: () => Promise<CalResult>) => {
-              if (await run(fn)) clearSelection();
+            const act = async (fn: () => Promise<CalResult>, instant?: (d: CalendarData) => CalendarData) => {
+              if (await run(fn, instant)) clearSelection();
             };
-            const shiftDays = (n: number) => run(() => moveOccurrences({ ids, dayShift: n, minuteShift: 0 }));
+            const shiftDays = (n: number) =>
+              run(() => moveOccurrences({ ids, dayShift: n, minuteShift: 0 }), optimistic.shift(ids, { dayShift: n, minuteShift: 0 }));
             const btn = "rounded border border-sky-300 bg-white px-2 py-0.5 hover:bg-sky-100 disabled:opacity-40";
             return (
               // Floats over the top of the grid (day headers) so it never shifts or covers the blocks you click
@@ -450,7 +485,15 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
                   className={btn}
                   disabled={!tickable.length}
                   title={tickable.length ? undefined : "Blocks can be ticked once their day has come"}
-                  onClick={() => act(() => setOccurrencesDone({ ids, done: !allDone }))}
+                  onClick={() =>
+                    act(
+                      () => setOccurrencesDone({ ids, done: !allDone }),
+                      optimistic.status(
+                        tickable.map((o) => o.id),
+                        allDone ? "scheduled" : "done"
+                      )
+                    )
+                  }
                 >
                   {allDone ? "Undo done" : "✓ Mark done"}
                 </button>
@@ -466,7 +509,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
                 <button type="button" className="underline" onClick={clearSelection}>
                   Clear
                 </button>
-                <span className="hidden text-sky-700/80 sm:inline">Ctrl+click adds or removes · drag one to move them all · Esc clears</span>
+                <span className="hidden text-sky-700/80 sm:inline">Drag on empty space to box-select · Ctrl+click adds/removes · Alt+drag copies · Esc clears</span>
               </div>
             );
           })()}
@@ -491,7 +534,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
               onOpenOccurrence={(id) => setDialog({ kind: "occurrence", id })}
               onOpenEvent={(id) => setDialog({ kind: "event", id })}
               onMoveOccurrence={onMove}
-              onToggleDone={(id) => run(() => toggleOccurrenceDone({ occurrenceId: id }))}
+              onToggleDone={(id) => run(() => toggleOccurrenceDone({ occurrenceId: id }), optimistic.toggleDone(id))}
               onOpenFreeDay={(id) => setDialog({ kind: "free", id })}
               onDropTask={(d) =>
                 run(() => placeTask({ taskId: d.taskId, occurrenceId: d.occurrenceId ?? null, eventId: d.eventId ?? null, date: d.date }))
@@ -499,7 +542,14 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
               onBlocked={(text) => setToast({ ok: false, text })}
               selected={selected}
               onToggleSelect={toggleSelect}
-              onMoveGroup={(shift) => run(() => moveOccurrences({ ids: [...selected], ...shift }))}
+              onMoveGroup={(shift) => run(() => moveOccurrences({ ids: [...selected], ...shift }), optimistic.shift([...selected], shift))}
+              onCopyGroup={(shift) =>
+                run(() => duplicateOccurrences({ ids: [...selected], ...shift }), optimistic.copy([...selected], shift))
+              }
+              onResizeGroup={(delta) =>
+                run(() => resizeOccurrences({ ids: [...selected], minuteDelta: delta }), optimistic.resize([...selected], delta))
+              }
+              onSetSelection={setSelected}
               onClearSelection={clearSelection}
               clickMode={clickMode}
               onPickDay={(d) => {
@@ -632,7 +682,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
               onClick={async () => {
                 const ids = [...selected];
                 setDialog(null);
-                if (await run(() => removeOccurrences({ ids }))) clearSelection();
+                if (await run(() => removeOccurrences({ ids }), optimistic.remove(ids))) clearSelection();
               }}
               className={btnPrimary}
             >
@@ -652,8 +702,9 @@ export default function Calendar({ variant }: { variant: "dock" | "page" }) {
           onPick={async (scope: EditScope) => {
             const d = dialog as Extract<Dialog, { kind: "move" }>;
             setDialog(null);
-            await run(() =>
-              editOccurrence({ id: d.id, date: d.date, start: minutesToTime(d.start), end: minutesToTime(d.end), scope })
+            await run(
+              () => editOccurrence({ id: d.id, date: d.date, start: minutesToTime(d.start), end: minutesToTime(d.end), scope }),
+              optimistic.move(d.id, d.date, d.start, d.end)
             );
           }}
         />

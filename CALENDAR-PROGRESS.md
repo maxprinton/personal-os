@@ -177,3 +177,11 @@ All files are written to be safe to run twice. `time_blocks` and `activity_logs`
 - "Page color of the current block": soft tint of the whole app (components/calendar/NowTint.tsx in the layout).
 - "Duplicate…" button in the block window (opens New block pre-filled).
 - To test: switch each setting and check the behaviour; click a past/today block in "marks it done" mode → ticks; click again → undo.
+
+## LifeOS group B (added 2026-10-24)
+- Box selection: drag on empty space draws a box; the blocks it touches get selected (Shift/Ctrl add to the selection). A plain click on empty space with a selection only clears it.
+- Alt+drag copies instantly ("only that day"), one block or a whole selection (server action duplicateOccurrences). The original stays; copies can't overlap anything.
+- Stretching a selected block stretches all selected blocks by the same minutes (resizeOccurrences).
+- Instant changes: moves, copies, stretches, ✓/undo, removes show at once (components/calendar/optimistic.ts) and are put back if the server refuses. Each change reloads once (no double reload); the full calendar page no longer refreshes the whole page after a change.
+- Esc closes the block window even while typing in it.
+- To test: box-select 3 blocks; Alt+drag them to another day; stretch one of them; try to stretch into another block → refused and put back.
