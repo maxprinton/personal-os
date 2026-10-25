@@ -512,7 +512,7 @@ export default function TimeGrid({
                     title={`${type?.name ?? "Block"} · ${timeRange(realStart, realEnd)}${
                       readOnly ? "" : clickMode === "done" ? " · click = done/undo · ✏️ = edit · Ctrl+click = select" : " · Ctrl+click to select several"
                     }`}
-                    className={`absolute inset-x-0.5 overflow-hidden rounded-md px-1.5 py-0.5 shadow-sm ${
+                    className={`absolute inset-x-0.5 select-none overflow-hidden rounded-md px-1.5 py-0.5 shadow-sm ${
                       readOnly || cutTop ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
                     } ${dragging ? "opacity-40" : ""} ${
                       dropOn === `occ-${o.id}-${date}`
