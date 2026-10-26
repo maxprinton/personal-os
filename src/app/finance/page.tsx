@@ -22,7 +22,7 @@ import {
 } from "@/app/finance-actions";
 import TxnAccountSelect from "@/components/TxnAccountSelect";
 import { AccountForm, BudgetForm, CategoryForm, TransactionForm, TransferForm } from "@/components/FinanceForms";
-import { PaymentDraft, PaymentForm, StopPaymentButton, PaymentRow } from "@/components/PaymentForms";
+import { PaymentDraft, PaymentForm, StopPaymentButton, PaymentRow, TemplateAccountSelect } from "@/components/PaymentForms";
 import { currentUserId } from "@/lib/calendar/model";
 import { getDuePayments, getPaymentTemplates } from "@/lib/calendar/payments";
 import { describeRepeat } from "@/lib/calendar/recurrence";
@@ -224,7 +224,7 @@ export default async function FinancePage() {
                   const next = nextUnpaid.get(t.id);
                   return (
                     <li key={t.id} className="space-y-2 rounded-lg bg-subtle p-2">
-                      <div className="flex items-center justify-between gap-2 px-1">
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-1">
                         <span>
                           <span className="font-medium">{t.name}</span>{" "}
                           <span className="text-xs text-muted">
@@ -233,7 +233,10 @@ export default async function FinancePage() {
                             {t.type === "income" ? " · income" : ""}
                           </span>
                         </span>
-                        {!mobile && <StopPaymentButton id={t.id} name={t.name} />}
+                        <span className="flex items-center gap-3">
+                          <TemplateAccountSelect templateId={t.id} accountId={t.account_id} accounts={payOptions.accounts} disabled={mobile} />
+                          {!mobile && <StopPaymentButton id={t.id} name={t.name} />}
+                        </span>
                       </div>
                       {next && dueIds.has(next.id) ? (
                         <p className="px-1 text-xs font-medium text-warning">↑ {formatDateLong(next.event_date)}: ready to pay above.</p>

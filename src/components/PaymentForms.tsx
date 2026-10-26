@@ -6,7 +6,7 @@ import { confirmPayment, createPayment, skipPayment, stopPaymentTemplate } from 
 import type { CalResult, FinanceOptions, PaymentTemplate } from "@/lib/calendar/types";
 import type { RepeatUnit } from "@/lib/calendar/recurrence";
 import { emitCalendarChanged } from "@/components/calendar/util";
-import { getPaymentRecords } from "@/app/payment-actions";
+import { getPaymentRecords, getSuggestedPaymentAccount, setPaymentTemplateAccount } from "@/app/payment-actions";
 
 const input = "rounded-md border border-line-strong px-3 py-2 text-sm";
 
@@ -187,6 +187,32 @@ export function PaymentDraft({
     if (status === "paid") getPaymentRecords(eventId).then(setRecords).catch(() => setRecords([]));
   }, [eventId, status]);
 
+  // Suggest the account used the last time this payment was paid (you can still pick another)
+  const [accountHint, setAccountHint] = useState<string | null>(null);
+  const [touchedAccount, setTouchedAccount] = useState(false);
+  useEffect(() => {
+    if (!showForm || readOnly) return;
+    let alive = true;
+    getSuggestedPaymentAccount(eventId)
+      .then((r) => {
+        if (!alive) return;
+        const name = r.accountId ? options.accounts.find((a) => a.id === r.accountId)?.name : null;
+        if (r.accountId && name && !touchedAccount) setAccount(r.accountId);
+        setAccountHint(
+          r.source === "last" && name
+            ? `Last paid from ${name}${r.lastDate ? ` (${nice(r.lastDate)})` : ""}`
+            : r.source === "template" && name
+              ? `First payment · its usual account is ${name}`
+              : null
+        );
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId, showForm, readOnly]);
+
   const recorded = records && records.length ? records : null;
   const paidLine = recorded
     ? recorded.map((r) => `${usd(r.amount)} on ${nice(r.date)}${r.account ? ` · ${r.account}` : ""}`).join(" + ")
@@ -280,7 +306,14 @@ export function PaymentDraft({
             </label>
             <label className="text-xs text-muted">
               Account
-              <select value={account} onChange={(e) => setAccount(e.target.value)} className={`${input} mt-0.5 w-full`}>
+              <select
+                value={account}
+                onChange={(e) => {
+                  setTouchedAccount(true);
+                  setAccount(e.target.value);
+                }}
+                className={`${input} mt-0.5 w-full`}
+              >
                 <option value="">No account</option>
                 {options.accounts.map((a) => (
                   <option key={a.id} value={a.id}>{a.name}</option>
@@ -302,6 +335,12 @@ export function PaymentDraft({
               Date
               <input type="date" value={on} max={today} onChange={(e) => setOn(e.target.value)} className={`${input} mt-0.5 w-full`} />
             </label>
+            {accountHint && (
+              <p className="col-span-2 -mt-1 text-[11px] text-muted sm:col-span-4">
+                {accountHint}
+                {touchedAccount ? " · you picked another account for this one" : " · change it above if you pay from another account"}
+              </p>
+            )}
             <label className="col-span-2 text-xs text-muted sm:col-span-4">
               Description
               <input value={description} onChange={(e) => setDescription(e.target.value)} className={`${input} mt-0.5 w-full`} />
@@ -433,5 +472,47 @@ export function PaymentRow({
         </div>
       )}
     </li>
+  );
+}
+
+/** Finance → Scheduled payments: change a payment's usual account at any time. */
+export function TemplateAccountSelect({
+  templateId,
+  accountId,
+  accounts,
+  disabled = false,
+}: {
+  templateId: string;
+  accountId: string | null;
+  accounts: { id: string; name: string }[];
+  disabled?: boolean;
+}) {
+  const router = useRouter();
+  const [value, setValue] = useState(accountId ?? "");
+  const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  return (
+    <label className="flex items-center gap-1.5 text-xs text-muted">
+      Account
+      <select
+        value={value}
+        disabled={disabled || state === "saving"}
+        onChange={async (e) => {
+          const v = e.target.value;
+          setValue(v);
+          setState("saving");
+          const r = await setPaymentTemplateAccount({ templateId, accountId: v || null });
+          setState(r.error ? "error" : "saved");
+          router.refresh();
+        }}
+        className="compact rounded-md border border-line-strong bg-surface px-1.5 py-0.5 text-xs"
+      >
+        <option value="">No account</option>
+        {accounts.map((a) => (
+          <option key={a.id} value={a.id}>{a.name}</option>
+        ))}
+      </select>
+      {state === "saved" && <span className="text-success">✓</span>}
+      {state === "error" && <span className="text-danger">Not saved</span>}
+    </label>
   );
 }
