@@ -37,6 +37,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
   const upcoming = userId ? await getEvents(supabase, userId, today, addDays(today, 14), timezone) : [];
   const blockOptions = types.map((t) => ({ value: t.id, label: t.name }));
   const eventOptions = upcoming.map((e) => ({ value: e.id, label: `${e.title} (${e.date})` }));
+  const editOptions = { blocks: blockOptions, events: eventOptions };
 
   const groups: { title: string; items: TaskWithDone[]; empty?: string }[] = [
     {
@@ -51,6 +52,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
       items: tasks.filter((t) => t.status === "completed" && t.completed_at && utcToLocal(t.completed_at, timezone).date === today),
     },
     { title: "Graveyard", items: tasks.filter((t) => t.status === "failed").slice(-20) },
+    { title: "Archived", items: tasks.filter((t) => t.status === "archived").slice(-30).reverse() },
   ];
 
   return (
@@ -59,7 +61,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
           <p className="text-sm text-muted">
-            Each task has a home block: every morning it goes into that block if the block is on the calendar that day. Nothing moves silently: undone tasks show up in the morning ritual on Today.
+            Each task has a home block: every morning it goes into that block if the block is on the calendar that day. If it isnNothing moves silently: undone tasks show up in the morning ritual on Today.apos;t done by the end of its day, it moves to the next time its block happens (or to the next day), and the morning ritual on Today shows where it went.
             {tag && (
               <>
                 {" "}Filtered by <strong>#{tag}</strong> · <Link href="/tasks" className="underline">clear</Link>
@@ -77,7 +79,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
               {g.items.length ? (
                 <ul className="space-y-2">
                   {g.items.map((t) => (
-                    <TaskRow key={t.id} task={t} tags={tags.get(t.id)} today={today} places={places} />
+                    <TaskRow key={t.id} task={t} tags={tags.get(t.id)} today={today} places={places} editOptions={editOptions} />
                   ))}
                 </ul>
               ) : (

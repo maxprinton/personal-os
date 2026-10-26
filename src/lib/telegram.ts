@@ -43,7 +43,7 @@ export const HELP = [
   "• habit: Stretch in Gym → new habit inside a block",
   "• done stretch / skip stretch → mark today's habit",
   "",
-  "/hoy (or: hoy, pendientes, qué tengo) → what's pending today, the block you're in and what's left",
+  "/hoy (or: hoy, pendientes, qué tengo) → what's pending today, the block you're in and what's left (✓ done · ⏭ next block · 🗄 archive)",
   "/undo removes the last thing I saved.",
 ].join("\n");
 

@@ -2,6 +2,7 @@
 
 import type { CalTask } from "@/lib/calendar/types";
 import { TASK_MIME } from "@/components/calendar/TimeGrid";
+import TaskActions from "@/components/TaskActions";
 
 /** Today's tasks with no block: drag them onto a block (or an event's title) to place them. */
 export default function UnassignedTray({ tasks, readOnly }: { tasks: CalTask[]; readOnly: boolean }) {
@@ -19,11 +20,12 @@ export default function UnassignedTray({ tasks, readOnly }: { tasks: CalTask[]; 
             e.dataTransfer.setData(TASK_MIME, t.id);
             e.dataTransfer.effectAllowed = "move";
           }}
-          className={`rounded-full border border-warning/40 bg-surface px-2 py-0.5 ${readOnly ? "" : "cursor-move"}`}
+          className={`inline-flex items-center gap-1 rounded-full border border-warning/40 bg-surface py-0.5 pl-2 pr-0.5 ${readOnly ? "" : "cursor-move"}`}
           title={t.moved ? `Moved ${t.moved}×` : undefined}
         >
           {t.title}
-          {t.moved > 0 ? <span className="ml-1 text-warning">{t.moved}×</span> : null}
+          {t.moved > 0 ? <span className="text-warning">{t.moved}×</span> : null}
+          <TaskActions task={t} collapsed />
         </span>
       ))}
     </div>

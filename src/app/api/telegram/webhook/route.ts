@@ -5,6 +5,7 @@ import { CaptureError, processCapture, undoSaved } from "@/lib/capture";
 import { completeTaskFromBot, markHabitFromBot } from "@/lib/reminders";
 import { parseHabitCommand, runHabitCommand } from "@/lib/bot-habits";
 import { isTodayRequest, todayStatus } from "@/lib/bot-today";
+import { archiveFromBot, rescheduleNextFromBot } from "@/lib/bot-task-actions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -76,6 +77,29 @@ export async function POST(req: Request) {
         .eq("telegram_chat_id", chatId)
         .maybeSingle();
       if (s) r = await completeTaskFromBot(admin, s.user_id, s.timezone ?? "America/Guayaquil", taskId);
+    }
+    await tg("answerCallbackQuery", { callback_query_id: cq.id, text: r.text.slice(0, 190) });
+    if (chatId && r.ok) await sendMessage(chatId, r.text);
+    return ok();
+  }
+
+  // ---- Task buttons: tn = next time its block happens, ta = archive ----
+  const taskAct = /^t([na]):([A-Za-z0-9_-]{22})$/.exec(update.callback_query?.data ?? "");
+  if (update.callback_query && taskAct) {
+    const cq = update.callback_query;
+    const chatId = cq.message?.chat.id;
+    const taskId = unpackId(taskAct[2]);
+    let r = { ok: false, text: "Could not do that." };
+    if (chatId && taskId) {
+      const { data: s } = await admin
+        .from("user_settings")
+        .select("user_id,timezone")
+        .eq("telegram_chat_id", chatId)
+        .maybeSingle();
+      if (s) {
+        const tz = s.timezone ?? "America/Guayaquil";
+        r = taskAct[1] === "n" ? await rescheduleNextFromBot(admin, s.user_id, tz, taskId) : await archiveFromBot(admin, s.user_id, tz, taskId);
+      }
     }
     await tg("answerCallbackQuery", { callback_query_id: cq.id, text: r.text.slice(0, 190) });
     if (chatId && r.ok) await sendMessage(chatId, r.text);

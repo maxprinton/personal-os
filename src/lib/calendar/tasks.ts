@@ -1,7 +1,7 @@
 // Tasks with a home block (server only). Every query filters by user_id explicitly.
-// Nothing moves silently: the end of the day logs undone tasks (they stay visible on their
-// original day as skipped), and the morning places them in their home block if it exists
-// that day; otherwise the morning ritual asks.
+// End of the day: an undone task (policy "migrate" = reschedule automatically) is logged as skipped on
+// its day, counts +1, and goes to the next time its block happens; with no next appearance (or no block)
+// it goes to the next day, out of any block. The morning ritual shows where each one went.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDays } from "@/lib/time";
 import { ensureOccurrences, freeDatesBetween, getBlockTypes, getOccurrences, OCC_COLS } from "@/lib/calendar/model";
@@ -10,7 +10,7 @@ import type { CalTask, Occurrence, TaskLog } from "@/lib/calendar/types";
 export const TASK_COLS =
   "id,title,status,scheduled_for,occurrence_id,event_id,home_block_type_id,rolled_over_count,rollover_policy,completed_at";
 
-type TaskDb = {
+export type TaskDb = {
   id: string;
   title: string;
   status: CalTask["status"];
@@ -169,9 +169,35 @@ export async function autoPlaceTasks(sb: SupabaseClient, userId: string, today: 
 }
 
 /**
- * End of a day: every "move to tomorrow" task still pending on that day is logged as skipped
- * there, its moved counter goes up by 1, and it waits for tomorrow's morning (unplaced).
- * Logging first makes it safe to run twice: only newly logged tasks are counted.
+ * The block a task belongs to, for "next time it happens": the block it is placed in, else its home block.
+ * `after` = look for appearances after this date (the task's day, or today if that is later).
+ */
+export async function rescheduleTarget(sb: SupabaseClient, userId: string, task: TaskDb, after: string) {
+  let blockTypeId: string | null = null;
+  if (task.occurrence_id) {
+    const { data } = await sb
+      .from("block_occurrences")
+      .select("block_type_id")
+      .eq("user_id", userId)
+      .eq("id", task.occurrence_id)
+      .maybeSingle();
+    blockTypeId = (data?.block_type_id as string | undefined) ?? null;
+  }
+  blockTypeId = blockTypeId ?? task.home_block_type_id;
+  if (!blockTypeId) return { blockTypeId: null, blockName: null, next: null };
+  const [types, next] = await Promise.all([
+    getBlockTypes(sb, userId, { includeDeleted: true }),
+    nextOccurrenceAfter(sb, userId, blockTypeId, after),
+  ]);
+  const type = types.find((t) => t.id === blockTypeId);
+  return { blockTypeId, blockName: type?.name ?? "its block", next: type?.removed ? null : next };
+}
+
+/**
+ * End of a day: every pending "reschedule automatically" task still on that day (or earlier) is logged
+ * as skipped there, its moved counter goes up by 1, and it goes to the next time its block happens.
+ * No next appearance (or no block) → the next day, out of any block. Logging first makes it safe to run
+ * twice: only newly logged tasks are counted. A free day just carries them forward (no log, no +1).
  */
 export async function closeDayTasks(sb: SupabaseClient, userId: string, date: string) {
   const { data } = await sb
@@ -184,39 +210,35 @@ export async function closeDayTasks(sb: SupabaseClient, userId: string, date: st
     .lte("scheduled_for", date);
   const tasks = (data ?? []) as TaskDb[];
   if (!tasks.length) return;
-  const next = addDays(date, 1);
-  // A free day pauses everything: its tasks just wait for the next day (no log, no +1)
-  if ((await freeDatesBetween(sb, userId, date, date)).has(date)) {
-    for (const t of tasks) {
-      await sb
-        .from("tasks")
-        .update({ scheduled_for: next, occurrence_id: null, event_id: null })
-        .eq("id", t.id)
-        .eq("user_id", userId);
-    }
-    return;
+  const nextDay = addDays(date, 1);
+  const freeDay = (await freeDatesBetween(sb, userId, date, date)).has(date);
+
+  let fresh = new Set<string>();
+  if (!freeDay) {
+    const { data: logged } = await sb
+      .from("task_day_log")
+      .upsert(
+        tasks.map((t) => ({
+          user_id: userId,
+          task_id: t.id,
+          date,
+          outcome: "skipped",
+          occurrence_id: t.occurrence_id,
+          event_id: t.event_id,
+        })),
+        { onConflict: "task_id,date", ignoreDuplicates: true }
+      )
+      .select("task_id");
+    fresh = new Set(((logged ?? []) as { task_id: string }[]).map((r) => r.task_id));
   }
-  const { data: logged } = await sb
-    .from("task_day_log")
-    .upsert(
-      tasks.map((t) => ({
-        user_id: userId,
-        task_id: t.id,
-        date,
-        outcome: "skipped",
-        occurrence_id: t.occurrence_id,
-        event_id: t.event_id,
-      })),
-      { onConflict: "task_id,date", ignoreDuplicates: true }
-    )
-    .select("task_id");
-  const fresh = new Set(((logged ?? []) as { task_id: string }[]).map((r) => r.task_id));
+
   for (const t of tasks) {
+    const { next } = await rescheduleTarget(sb, userId, t, date);
     await sb
       .from("tasks")
       .update({
-        scheduled_for: next,
-        occurrence_id: null,
+        scheduled_for: next ? next.date : nextDay,
+        occurrence_id: next ? next.id : null,
         event_id: null,
         hold_placement: false,
         ...(fresh.has(t.id) ? { rolled_over_count: t.rolled_over_count + 1 } : {}),
@@ -243,7 +265,7 @@ export async function unassignedCount(sb: SupabaseClient, userId: string, today:
 export type RitualItem = {
   task: CalTask;
   outcome: "skipped" | "moved";
-  placedIn: { occurrenceId: string; blockName: string; start: string } | null;
+  placedIn: { occurrenceId: string; blockName: string; start: string; date: string } | null;
   homeName: string | null;
   homeToday: boolean;
   nextHome: { date: string; occurrenceId: string } | null;
@@ -270,9 +292,15 @@ export async function getRitual(sb: SupabaseClient, userId: string, today: strin
       .is("deleted_at", null)
       .eq("status", "pending");
     const tasks = (data ?? []) as TaskDb[];
+    // Where the end of the day sent them (any date, not only today)
+    const occIds = tasks.map((t) => t.occurrence_id).filter((x): x is string => Boolean(x));
+    const { data: occRows } = occIds.length
+      ? await sb.from("block_occurrences").select(OCC_COLS).eq("user_id", userId).in("id", occIds)
+      : { data: [] };
+    const occById = new Map(((occRows ?? []) as Occurrence[]).map((o) => [o.id, o]));
     items = await Promise.all(
       tasks.map(async (t) => {
-        const placed = t.occurrence_id ? occsToday.find((o) => o.id === t.occurrence_id) : undefined;
+        const placed = t.occurrence_id ? occById.get(t.occurrence_id) : undefined;
         const homeToday = Boolean(
           t.home_block_type_id && occsToday.some((o) => o.date === today && o.block_type_id === t.home_block_type_id && o.status !== "free_day")
         );
@@ -284,7 +312,7 @@ export async function getRitual(sb: SupabaseClient, userId: string, today: strin
           task: toCalTask(t),
           outcome: "skipped" as const,
           placedIn: placed
-            ? { occurrenceId: placed.id, blockName: typeName.get(placed.block_type_id) ?? "Block", start: placed.start_time.slice(0, 5) }
+            ? { occurrenceId: placed.id, blockName: typeName.get(placed.block_type_id) ?? "Block", start: placed.start_time.slice(0, 5), date: placed.date }
             : null,
           homeName: t.home_block_type_id ? typeName.get(t.home_block_type_id) ?? null : null,
           homeToday,

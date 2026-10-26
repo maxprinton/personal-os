@@ -8,7 +8,9 @@ import { getContextFor } from "@/lib/links";
 import { getTagsFor } from "@/lib/tags";
 import { getMetrics } from "@/lib/habits";
 import { getHabitSummaries } from "@/lib/calendar/habits";
-import { currentUserId } from "@/lib/calendar/model";
+import { currentUserId, getBlockTypes } from "@/lib/calendar/model";
+import { getEvents } from "@/lib/calendar/events";
+import { addDays } from "@/lib/time";
 import { runMaintenance } from "@/lib/calendar/maintenance";
 import HabitControls from "@/components/HabitControls";
 import MorningRitual from "@/components/MorningRitual";
@@ -64,6 +66,13 @@ export default async function CommandCenter() {
     .order("scheduled_for")
     .order("created_at");
   const todayTasks = (taskData ?? []) as TaskRowData[];
+  const [blockTypes, upcomingEvents] = userId
+    ? await Promise.all([getBlockTypes(supabase, userId), getEvents(supabase, userId, now.date, addDays(now.date, 14), timezone)])
+    : [[], []];
+  const editOptions = {
+    blocks: blockTypes.map((t) => ({ value: t.id, label: t.name })),
+    events: upcomingEvents.map((e) => ({ value: e.id, label: `${e.title} (${e.date})` })),
+  };
   const taskTags = await getTagsFor(supabase, "task", todayTasks.map((t) => t.id));
   const [places, ritual] = userId
     ? await Promise.all([getTaskPlaces(supabase, userId, todayTasks), getRitual(supabase, userId, now.date)])
@@ -242,7 +251,7 @@ export default async function CommandCenter() {
               {todayTasks.length ? (
                 <ul className="space-y-2">
                   {todayTasks.map((t) => (
-                    <TaskRow key={t.id} task={t} tags={taskTags.get(t.id)} today={now.date} places={places} />
+                    <TaskRow key={t.id} task={t} tags={taskTags.get(t.id)} today={now.date} places={places} editOptions={editOptions} />
                   ))}
                 </ul>
               ) : (

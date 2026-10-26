@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { dismissRitual, moveTaskToNextHome, placeTask } from "@/app/calendar-actions";
+import { dismissRitual, placeTask } from "@/app/calendar-actions";
+import TaskActions from "@/components/TaskActions";
+import { formatMinutes, timeToMinutes } from "@/lib/time";
 import type { CalResult } from "@/lib/calendar/types";
 import type { getRitual } from "@/lib/calendar/tasks";
 import { dayLabel, emitCalendarChanged } from "@/components/calendar/util";
@@ -10,9 +12,9 @@ import { dayLabel, emitCalendarChanged } from "@/components/calendar/util";
 type Ritual = Awaited<ReturnType<typeof getRitual>>;
 
 /**
- * Morning ritual: yesterday's undone tasks (marked skipped on their day). If the home block is
- * on today, the task is already in it. If not, choose: next appearance of that block, or
- * another block today. Tasks without a home block wait in "unassigned".
+ * Morning ritual: yesterday's undone tasks (marked skipped on their day). The end of the day already
+ * moved each one to the next time its block happens (or to today, out of any block); here you see
+ * where it went and can change it: reschedule, archive, mark done, or put it in a block today.
  */
 export default function MorningRitual({ ritual, readOnly = false }: { ritual: Ritual; readOnly?: boolean }) {
   const router = useRouter();
@@ -35,7 +37,7 @@ export default function MorningRitual({ ritual, readOnly = false }: { ritual: Ri
           <h2 className="text-sm font-medium text-info">☀️ Morning ritual</h2>
           <p className="text-xs text-info">
             {ritual.items.length
-              ? `${ritual.items.length} task${ritual.items.length > 1 ? "s" : ""} not done yesterday (marked as skipped there).`
+              ? `${ritual.items.length} task${ritual.items.length > 1 ? "s" : ""} not done yesterday were moved automatically. Check where they went:`
               : "Nothing left from yesterday."}
             {ritual.unassigned > 0 ? ` ${ritual.unassigned} task${ritual.unassigned > 1 ? "s" : ""} today have no block yet.` : ""}
           </p>
@@ -55,44 +57,29 @@ export default function MorningRitual({ ritual, readOnly = false }: { ritual: Ri
                 <span className="ml-2 rounded-full bg-warning-soft px-1.5 text-xs font-normal text-warning">moved {it.task.moved}×</span>
               )}
             </p>
-            {it.placedIn ? (
-              <p className="text-xs text-success">
-                ✓ Placed in {it.placedIn.blockName} at {it.placedIn.start} (its home block)
-              </p>
-            ) : readOnly ? (
-              <p className="text-xs text-muted">Waiting for a block — place it on the computer.</p>
-            ) : (
-              <div className="flex flex-wrap items-center gap-2">
-                {it.homeName && !it.homeToday && it.nextHome && (
-                  <button
-                    disabled={busy}
-                    onClick={() => run(() => moveTaskToNextHome({ taskId: it.task.id }))}
-                    className="rounded-md border border-info px-2 py-1 text-xs text-info"
-                  >
-                    Move to next {it.homeName} ({dayLabel(it.nextHome.date)})
-                  </button>
-                )}
-                {it.homeName && !it.homeToday && !it.nextHome && (
-                  <span className="text-xs text-muted">{it.homeName} is not on the calendar soon.</span>
-                )}
-                {ritual.todayBlocks.length > 0 && (
-                  <select
-                    disabled={busy}
-                    defaultValue=""
-                    onChange={(e) => e.target.value && run(() => placeTask({ taskId: it.task.id, occurrenceId: e.target.value }))}
-                    className="rounded-md border border-line-strong px-2 py-1 text-xs"
-                  >
-                    <option value="">{it.homeName ? "Or another block today…" : "Pick a block today…"}</option>
-                    {ritual.todayBlocks.map((b) => (
-                      <option key={b.occurrenceId} value={b.occurrenceId}>
-                        {b.label}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {!it.homeName && <span className="text-xs text-muted">No home block · it stays in “unassigned”.</span>}
-              </div>
-            )}
+            <p className="text-xs text-info">
+              {it.placedIn
+                ? `→ ${it.placedIn.blockName} · ${dayLabel(it.placedIn.date)} ${formatMinutes(timeToMinutes(it.placedIn.start))}`
+                : `→ ${it.task.scheduled_for ? dayLabel(it.task.scheduled_for) : "today"}, not in a block${it.homeName ? ` (${it.homeName} isn't on the calendar soon)` : ""}`}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <TaskActions task={it.task} withDone />
+              {!readOnly && !it.placedIn && ritual.todayBlocks.length > 0 && (
+                <select
+                  disabled={busy}
+                  defaultValue=""
+                  onChange={(e) => e.target.value && run(() => placeTask({ taskId: it.task.id, occurrenceId: e.target.value }))}
+                  className="rounded-md border border-line-strong px-2 py-1 text-xs"
+                >
+                  <option value="">Put it in a block today…</option>
+                  {ritual.todayBlocks.map((b) => (
+                    <option key={b.occurrenceId} value={b.occurrenceId}>
+                      {b.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
           </li>
         ))}
       </ul>

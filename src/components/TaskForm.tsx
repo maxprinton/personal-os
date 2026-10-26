@@ -54,7 +54,7 @@ export default function TaskForm({
         </label>
         <label className="flex-1 text-sm">If not done by the end of the day
           <select name="rollover_policy" defaultValue="migrate" className="mt-1 w-full rounded-md border border-line-strong px-3 py-2">
-            <option value="migrate">Ask me in the morning ritual</option>
+            <option value="migrate">Reschedule to the next time its block happens (else tomorrow)</option>
             <option value="backlog">Send to backlog</option>
             <option value="graveyard">Mark as failed</option>
           </select>

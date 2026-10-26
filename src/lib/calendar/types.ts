@@ -88,7 +88,7 @@ export type HabitCheck = { habit_id: string; occurrence_id: string; date: string
 export type CalTask = {
   id: string;
   title: string;
-  status: "pending" | "completed" | "backlog" | "failed";
+  status: "pending" | "completed" | "backlog" | "failed" | "archived";
   scheduled_for: string | null;
   occurrence_id: string | null;
   event_id: string | null;

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatMinutes, localNow, timeToMinutes } from "@/lib/time";
 import { getBlockTypes } from "@/lib/calendar/model";
-import { dayData, taskButtons } from "@/lib/reminders";
+import { dayData } from "@/lib/reminders";
 import { packId } from "@/lib/telegram";
 
 // Server-only: the "/hoy" status message for Telegram. Runs with the admin client, so EVERY query filters by user_id.
@@ -179,7 +179,12 @@ export async function todayStatus(admin: SupabaseClient, userId: string, timezon
         { text: `✓ ${h.title}`.slice(0, 60), callback_data: `hk:d:${packId(h.habitId)}:${packId(h.occurrenceId)}` },
         { text: "Skip", callback_data: `hk:s:${packId(h.habitId)}:${packId(h.occurrenceId)}` },
       ]),
-    ...taskButtons(sorted, 6),
+    // One row per open task: ✓ done · ⏭ next time its block happens · 🗄 archive
+    ...sorted.slice(0, 6).map((t) => [
+      { text: `✓ ${t.title}`.slice(0, 40), callback_data: `tk:${packId(t.id)}` },
+      { text: "⏭ Next", callback_data: `tn:${packId(t.id)}` },
+      { text: "🗄", callback_data: `ta:${packId(t.id)}` },
+    ]),
   ];
   return { text: lines.join("\n").slice(0, 4000), keyboard };
 }

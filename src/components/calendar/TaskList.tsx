@@ -4,6 +4,7 @@ import { useState } from "react";
 import { addTaskHere, placeTask, setTaskDone } from "@/app/calendar-actions";
 import type { CalResult, CalTask, TaskLog } from "@/lib/calendar/types";
 import { btnSecondary, inputCls } from "@/components/calendar/Modal";
+import TaskActions from "@/components/TaskActions";
 
 /** Tasks inside a block appearance or an event: tick, take out, add, place an unassigned one. */
 export default function TaskList({
@@ -28,7 +29,7 @@ export default function TaskList({
     <div className="space-y-2">
       <ul className="space-y-1">
         {tasks.map((t) => (
-          <li key={t.id} className="flex items-center gap-2 text-sm">
+          <li key={t.id} className="flex flex-wrap items-center gap-2 text-sm">
             <input
               type="checkbox"
               checked={t.status === "completed"}
@@ -37,6 +38,7 @@ export default function TaskList({
             />
             <span className={`flex-1 ${t.status === "completed" ? "text-faint line-through" : ""}`}>{t.title}</span>
             {t.moved > 0 && <span className="rounded-full bg-warning-soft px-1.5 text-xs text-warning">moved {t.moved}×</span>}
+            {t.status === "pending" && <TaskActions task={t} small />}
             {canEdit && t.status === "pending" && (
               <button
                 type="button"

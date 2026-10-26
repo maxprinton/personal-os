@@ -3,6 +3,8 @@ import TagChips from "@/components/TagChips";
 import type { Tag } from "@/lib/tags";
 import { formatDateLong } from "@/lib/time";
 import Icon from "@/components/ui/Icon";
+import TaskEditor, { type TaskEditOptions } from "@/components/TaskEditor";
+import TaskActions from "@/components/TaskActions";
 
 export type TaskRowData = {
   id: string;
@@ -18,7 +20,7 @@ export type TaskRowData = {
 };
 
 const POLICY_LABEL: Record<string, string> = {
-  migrate: "morning ritual if not done",
+  migrate: "auto-reschedules to its next block if not done",
   backlog: "goes to backlog",
   graveyard: "fails at midnight",
 };
@@ -43,11 +45,14 @@ export default function TaskRow({
   tags = [],
   today,
   places,
+  editOptions,
 }: {
   task: TaskRowData;
   tags?: Tag[];
   today: string;
   places?: TaskPlaces;
+  /** Blocks and events to choose from; when given, the row shows an Edit button. */
+  editOptions?: TaskEditOptions;
 }) {
   const home = task.home_block_type_id ? places?.blockName.get(task.home_block_type_id) : undefined;
   const placed = task.occurrence_id ? places?.placedIn.get(task.occurrence_id) : undefined;
@@ -61,6 +66,7 @@ export default function TaskRow({
         <input type="hidden" name="id" value={task.id} />
         <input type="hidden" name="op" value={done ? "reopen" : "complete"} />
         <button
+          disabled={task.status === "archived"}
           aria-label={done ? "Mark as not done" : "Mark as done"}
           className={`compact grid h-5 w-5 place-items-center rounded-full border-2 transition-colors ${
             done ? "border-success-solid bg-success-solid text-white" : "border-line-strong text-transparent hover:border-success-solid hover:text-success"
@@ -70,7 +76,7 @@ export default function TaskRow({
         </button>
       </form>
       <div className="min-w-0 flex-1 basis-[calc(100%-2.5rem)] space-y-1 sm:basis-0">
-        <p className={`font-medium ${done ? "text-faint line-through" : ""} ${failed ? "text-danger" : ""}`}>
+        <p className={`font-medium ${done ? "text-faint line-through" : ""} ${failed ? "text-danger" : ""} ${task.status === "archived" ? "text-faint" : ""}`}>
           {task.title}
           {task.rolled_over_count > 0 && (
             <span
@@ -97,11 +103,23 @@ export default function TaskRow({
         <TagChips tags={tags} base="/tasks" />
       </div>
       <div className="-mr-1 ml-8 flex shrink-0 flex-wrap items-center gap-0.5 sm:ml-0 sm:flex-nowrap sm:justify-end">
-        {task.status !== "pending" || task.scheduled_for !== today ? (
-          <OpButton id={task.id} op="today" label="Do today" />
-        ) : null}
-        {task.status === "pending" && <OpButton id={task.id} op="backlog" label="To backlog" />}
-        <OpButton id={task.id} op="delete" label="Delete" />
+        {editOptions && (
+          <TaskEditor
+            options={editOptions}
+            task={{
+              id: task.id,
+              title: task.title,
+              status: task.status,
+              scheduled_for: task.scheduled_for,
+              rollover_policy: task.rollover_policy,
+              home_block_type_id: task.home_block_type_id,
+              event_id: task.event_id,
+              tags: tags.map((t) => t.name),
+            }}
+          />
+        )}
+        <TaskActions task={{ id: task.id, title: task.title, status: task.status }} />
+        {(task.status === "archived" || task.status === "failed") && <OpButton id={task.id} op="delete" label="Delete" />}
       </div>
     </li>
   );
