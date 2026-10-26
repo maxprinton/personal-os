@@ -1130,6 +1130,8 @@ export async function confirmPayment(input: {
   categoryId?: string;
   date?: string;
   description?: string;
+  /** Already paid: the user saw the warning and wants another transaction anyway. */
+  again?: boolean;
 }): Promise<CalResult> {
   try {
     const c = await ctx();
@@ -1141,7 +1143,9 @@ export async function confirmPayment(input: {
       .is("deleted_at", null)
       .maybeSingle();
     if (!ev || !ev.is_payment) return { error: "That payment no longer exists." };
-    if (ev.payment_status === "paid") return { error: "This payment was already confirmed." };
+    if (ev.payment_status === "paid" && !input.again) {
+      return { error: "This payment is already marked as paid. Confirm to record another transaction.", code: "ALREADY_PAID" };
+    }
     const amount = money(input.amount);
     if (amount === null || Number.isNaN(amount) || amount <= 0) return { error: "Write the real amount (above 0)." };
     const date = input.date && isDate(input.date) ? input.date : (ev.event_date as string);

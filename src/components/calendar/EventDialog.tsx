@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { removeEvent, saveEvent } from "@/app/calendar-actions";
 import { minutesToTime } from "@/lib/time";
-import type { CalendarData, CalEvent, CalResult, EventType } from "@/lib/calendar/types";
+import type { CalendarData, CalEvent, CalResult, EventType, FinanceOptions } from "@/lib/calendar/types";
 import { tasksForEvent, unassignedOn } from "@/lib/calendar/taskview";
 import Modal, { btnPrimary, btnSecondary, inputCls } from "@/components/calendar/Modal";
 import TaskList from "@/components/calendar/TaskList";
@@ -18,8 +18,13 @@ export default function EventDialog({
   run,
   onClose,
   data,
+  finance,
+  today,
 }: {
   data?: CalendarData;
+  /** For the payment section when there is no calendar data (Events page). */
+  finance?: FinanceOptions;
+  today?: string;
   event?: CalEvent;
   initial?: { date: string; start?: number; end?: number; title?: string };
   eventTypes: EventType[];
@@ -73,29 +78,24 @@ export default function EventDialog({
     if (ok) onClose();
   }
 
-  // Payment events: the pre-filled draft on its day (or its state)
-  const template = event?.payment_template_id ? data?.finance.templates.find((t) => t.id === event.payment_template_id) ?? null : null;
+  // Payment events: the pre-filled transaction (or what was paid), from the calendar or the Events page
+  const fin = data?.finance ?? finance;
+  const todayStr = data?.today ?? today;
+  const template = event?.payment_template_id ? fin?.templates.find((t) => t.id === event.payment_template_id) ?? null : null;
   const paymentSection =
-    event?.is_payment && data ? (
-      <section className="space-y-2 rounded-lg border border-success/30 bg-success-soft p-3">
-        {event.payment_status === "paid" ? (
-          <p className="text-sm text-success">✓ Paid — it's in Finance.</p>
-        ) : event.payment_status === "skipped" ? (
-          <p className="text-sm text-muted">Skipped this time.</p>
-        ) : readOnly ? (
-          <p className="text-sm text-muted">Payment due {event.date}. Confirm it on the computer.</p>
-        ) : (
-          <PaymentDraft
-            eventId={event.id}
-            title={event.title}
-            date={event.date}
-            template={template}
-            options={data.finance}
-            today={data.today}
-            run={run}
-            onDone={onClose}
-          />
-        )}
+    event?.is_payment && fin && todayStr ? (
+      <section className="rounded-lg border border-success/30 bg-success-soft p-3">
+        <PaymentDraft
+          eventId={event.id}
+          title={event.title}
+          date={event.date}
+          template={template}
+          options={fin}
+          today={todayStr}
+          status={event.payment_status ?? null}
+          readOnly={readOnly}
+          onDone={onClose}
+        />
       </section>
     ) : null;
 
@@ -132,20 +132,20 @@ export default function EventDialog({
     );
   }
 
-  if (!event && isPayment && data) {
+  if (!event && isPayment && fin && todayStr) {
     return (
       <Modal title="New payment" onClose={onClose} wide>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked onChange={() => setIsPayment(false)} /> It's a payment
         </label>
-        <PaymentForm options={data.finance} date={date || data.today} run={run} onDone={onClose} />
+        <PaymentForm options={fin} date={date || todayStr} run={run} onDone={onClose} />
       </Modal>
     );
   }
 
   return (
     <Modal title={event ? "Edit event" : "New event"} onClose={onClose}>
-      {!event && data && (
+      {!event && fin && (
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={false} onChange={() => setIsPayment(true)} /> It's a payment (amount, account, repeats)
         </label>

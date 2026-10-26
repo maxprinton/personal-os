@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { removeEventType, saveEventType } from "@/app/calendar-actions";
 import { formatMinutes } from "@/lib/time";
-import type { CalEvent, CalResult, EventType } from "@/lib/calendar/types";
+import type { CalEvent, CalResult, EventType, FinanceOptions } from "@/lib/calendar/types";
 import EventDialog from "@/components/calendar/EventDialog";
 import { emitCalendarChanged } from "@/components/calendar/util";
 
@@ -21,11 +21,13 @@ export default function EventsPanel({
   eventTypes,
   today,
   readOnly = false,
+  finance,
 }: {
   events: CalEvent[];
   eventTypes: EventType[];
   today: string;
   readOnly?: boolean;
+  finance?: FinanceOptions;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState<CalEvent | "new" | null>(null);
@@ -69,6 +71,21 @@ export default function EventsPanel({
                   {e.end_date < today ? " · past" : ""}
                 </span>
               </span>
+              {e.is_payment && (
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                    e.payment_status === "paid"
+                      ? "bg-success-soft text-success"
+                      : e.payment_status === "skipped"
+                        ? "bg-subtle-2 text-muted"
+                        : e.date <= today
+                          ? "bg-warning-soft text-warning"
+                          : "bg-subtle-2 text-muted"
+                  }`}
+                >
+                  {e.payment_status === "paid" ? "✓ Paid" : e.payment_status === "skipped" ? "Skipped" : e.date <= today ? "💳 To pay" : "💳 Upcoming"}
+                </span>
+              )}
             </button>
           </li>
         ))}
@@ -93,6 +110,8 @@ export default function EventsPanel({
           eventTypes={eventTypes}
           readOnly={readOnly}
           run={run}
+          finance={finance}
+          today={today}
           onClose={() => setOpen(null)}
         />
       )}

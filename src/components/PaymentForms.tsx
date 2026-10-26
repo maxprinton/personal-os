@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { confirmPayment, createPayment, skipPayment, stopPaymentTemplate } from "@/app/calendar-actions";
 import type { CalResult, FinanceOptions, PaymentTemplate } from "@/lib/calendar/types";
 import type { RepeatUnit } from "@/lib/calendar/recurrence";
 import { emitCalendarChanged } from "@/components/calendar/util";
+import { getPaymentRecords } from "@/app/payment-actions";
 
 const input = "rounded-md border border-line-strong px-3 py-2 text-sm";
 
@@ -136,7 +137,15 @@ export function PaymentForm({
   );
 }
 
-/** The pre-filled draft of a payment on its day: real amount + confirm (or skip). */
+const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+const nice = (d: string) =>
+  new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+
+/**
+ * A payment event's transaction, pre-filled from its template (amount, account, category, date).
+ * "Mark as paid" creates the real transaction and marks the event paid. If it is already paid, it says
+ * so (with what was recorded) and asks before creating another transaction.
+ */
 export function PaymentDraft({
   eventId,
   title,
@@ -144,9 +153,9 @@ export function PaymentDraft({
   template,
   options,
   today,
-  run,
   onDone,
   readOnly = false,
+  status = null,
 }: {
   eventId: string;
   title: string;
@@ -154,77 +163,185 @@ export function PaymentDraft({
   template: PaymentTemplate | null;
   options: Omit<FinanceOptions, "templates">;
   today: string;
+  /** Kept for old call sites; the draft talks to the server itself so it can show the "already paid" warning. */
   run?: (fn: () => Promise<CalResult>) => Promise<boolean>;
   onDone?: () => void;
   readOnly?: boolean;
+  status?: "paid" | "skipped" | null;
 }) {
-  const { go, msg, busy } = useRun(run);
-  const [amount, setAmount] = useState(template?.expected_amount ? String(template.expected_amount) : "");
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [amount, setAmount] = useState(template?.expected_amount ? template.expected_amount.toFixed(2) : "");
   const [account, setAccount] = useState(template?.account_id ?? options.accounts[0]?.id ?? "");
   const [category, setCategory] = useState(template?.category_id ?? "");
   const [on, setOn] = useState(date > today ? today : date);
+  const [description, setDescription] = useState(title);
+  const [showForm, setShowForm] = useState(status === null);
+  const [warn, setWarn] = useState(false); // "already paid — create another?"
+  const [records, setRecords] = useState<{ amount: number; date: string; account: string | null }[] | null>(null);
   const kind = template?.type ?? "expense";
+  const paid = status === "paid";
+
+  useEffect(() => {
+    if (status === "paid") getPaymentRecords(eventId).then(setRecords).catch(() => setRecords([]));
+  }, [eventId, status]);
+
+  const recorded = records && records.length ? records : null;
+  const paidLine = recorded
+    ? recorded.map((r) => `${usd(r.amount)} on ${nice(r.date)}${r.account ? ` · ${r.account}` : ""}`).join(" + ")
+    : null;
+
+  async function pay(again: boolean) {
+    setBusy(true);
+    const r = await confirmPayment({ eventId, amount, accountId: account, categoryId: category, date: on, description, again });
+    setBusy(false);
+    if (r.code === "ALREADY_PAID") {
+      setWarn(true);
+      return;
+    }
+    if (r.error) {
+      setMsg(r.error);
+      return;
+    }
+    setMsg(null);
+    setWarn(false);
+    emitCalendarChanged();
+    router.refresh();
+    onDone?.();
+  }
+
+  async function skip() {
+    setBusy(true);
+    const r = await skipPayment({ eventId });
+    setBusy(false);
+    if (r.error) return setMsg(r.error);
+    emitCalendarChanged();
+    router.refresh();
+    onDone?.();
+  }
+
+  const header = (
+    <p className="font-medium">
+      💳 {title}{" "}
+      <span className="font-normal text-muted">
+        · {kind === "income" ? "expected" : "due"} {nice(date)}
+        {template?.expected_amount ? ` · ${usd(template.expected_amount)}` : ""}
+      </span>
+    </p>
+  );
 
   if (readOnly) {
     return (
-      <p className="text-sm">
-        💳 {title} <span className="text-muted">· due {date}{template?.expected_amount ? ` · expected $${template.expected_amount.toFixed(2)}` : ""} · confirm it on the computer</span>
-      </p>
+      <div className="space-y-1 text-sm">
+        {header}
+        <p className="text-muted">{paid ? `✓ Paid${paidLine ? ` · ${paidLine}` : ""}` : status === "skipped" ? "Skipped this time." : "Mark it as paid on the computer."}</p>
+      </div>
     );
   }
-  if (date > today) {
-    return (
-      <p className="text-sm text-muted">
-        Upcoming payment{template?.expected_amount ? ` · expected $${template.expected_amount.toFixed(2)}` : ""}. The draft opens on {date}.
-      </p>
-    );
-  }
+
   return (
-    <form
-      onSubmit={async (e) => {
-        e.preventDefault();
-        if (await go(() => confirmPayment({ eventId, amount, accountId: account, categoryId: category, date: on, description: title }))) onDone?.();
-      }}
-      className="space-y-2 text-sm"
-    >
-      <p className="font-medium">
-        💳 {title} <span className="font-normal text-muted">· due {date}{template?.expected_amount ? ` · expected $${template.expected_amount.toFixed(2)}` : ""}</span>
-      </p>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <input required autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="Real amount $" className={input} />
-        <select value={account} onChange={(e) => setAccount(e.target.value)} className={input}>
-          <option value="">No account</option>
-          {options.accounts.map((a) => (
-            <option key={a.id} value={a.id}>{a.name}</option>
-          ))}
-        </select>
-        <select value={category} onChange={(e) => setCategory(e.target.value)} className={input}>
-          <option value="">No category</option>
-          {options.categories
-            .filter((c) => c.kind === kind)
-            .map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-        </select>
-        <input type="date" value={on} max={today} onChange={(e) => setOn(e.target.value)} className={input} />
-      </div>
-      <div className="flex gap-2">
-        <button disabled={busy} className="rounded-md bg-success-solid px-3 py-1.5 text-white font-medium disabled:opacity-50">
-          Confirm
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={async () => {
-            if (await go(() => skipPayment({ eventId }))) onDone?.();
+    <div className="space-y-2 text-sm">
+      {header}
+
+      {paid && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface/70 px-3 py-2">
+          <span className="font-medium text-success">✓ Paid{paidLine ? ` · ${paidLine}` : records === null ? " · loading…" : ""}</span>
+          {!showForm && (
+            <button type="button" onClick={() => setShowForm(true)} className="text-xs font-medium text-muted underline hover:text-fg">
+              Record another payment
+            </button>
+          )}
+        </div>
+      )}
+      {status === "skipped" && !showForm && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface/70 px-3 py-2">
+          <span className="text-muted">Skipped this time.</span>
+          <button type="button" onClick={() => setShowForm(true)} className="text-xs font-medium text-muted underline hover:text-fg">
+            Pay it after all
+          </button>
+        </div>
+      )}
+
+      {showForm && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (paid) setWarn(true);
+            else pay(false);
           }}
-          className="rounded-md border border-edge transition-colors hover:bg-subtle px-3 py-1.5 disabled:opacity-50"
+          className="space-y-2"
         >
-          Not this time
-        </button>
-      </div>
+          {date > today && <p className="text-xs text-muted">Due {nice(date)} — paying early? The transaction gets today&apos;s date (you can change it).</p>}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <label className="text-xs text-muted">
+              Amount
+              <input required value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="$" className={`${input} mt-0.5 w-full`} />
+            </label>
+            <label className="text-xs text-muted">
+              Account
+              <select value={account} onChange={(e) => setAccount(e.target.value)} className={`${input} mt-0.5 w-full`}>
+                <option value="">No account</option>
+                {options.accounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-muted">
+              Category
+              <select value={category} onChange={(e) => setCategory(e.target.value)} className={`${input} mt-0.5 w-full`}>
+                <option value="">No category</option>
+                {options.categories
+                  .filter((c) => c.kind === kind)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+              </select>
+            </label>
+            <label className="text-xs text-muted">
+              Date
+              <input type="date" value={on} max={today} onChange={(e) => setOn(e.target.value)} className={`${input} mt-0.5 w-full`} />
+            </label>
+            <label className="col-span-2 text-xs text-muted sm:col-span-4">
+              Description
+              <input value={description} onChange={(e) => setDescription(e.target.value)} className={`${input} mt-0.5 w-full`} />
+            </label>
+          </div>
+
+          {warn ? (
+            <div className="space-y-2 rounded-md border border-warning/40 bg-warning-soft p-3">
+              <p className="font-medium text-warning">You already marked this as paid{paidLine ? `: ${paidLine}` : ""}.</p>
+              <p className="text-xs text-warning">Create another transaction of {amount ? usd(Number(amount.replace(",", ".")) || 0) : "this amount"} for “{title}”?</p>
+              <div className="flex gap-2">
+                <button type="button" disabled={busy} onClick={() => pay(true)} className="rounded-md bg-warning-solid px-3 py-1.5 font-medium text-black disabled:opacity-50">
+                  {busy ? "Saving…" : "Yes, record it again"}
+                </button>
+                <button type="button" disabled={busy} onClick={() => setWarn(false)} className="rounded-md border border-edge bg-surface px-3 py-1.5 hover:bg-subtle">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <button disabled={busy} className="rounded-md bg-success-solid px-3 py-1.5 font-medium text-white disabled:opacity-50">
+                {busy ? "Saving…" : paid ? "Mark as paid again" : kind === "income" ? "Mark as received" : "Mark as paid"}
+              </button>
+              {!paid && status !== "skipped" && (
+                <button type="button" disabled={busy} onClick={skip} className="rounded-md border border-edge px-3 py-1.5 transition-colors hover:bg-subtle disabled:opacity-50">
+                  Not this time
+                </button>
+              )}
+              {paid && (
+                <button type="button" onClick={() => setShowForm(false)} className="rounded-md px-3 py-1.5 text-muted hover:bg-subtle">
+                  Cancel
+                </button>
+              )}
+            </div>
+          )}
+        </form>
+      )}
       {msg && <p className="text-danger">{msg}</p>}
-    </form>
+    </div>
   );
 }
 

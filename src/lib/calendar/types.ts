@@ -136,4 +136,4 @@ export type CalendarData = {
 };
 
 /** Result of every calendar server action. */
-export type CalResult = { ok?: boolean; error?: string; code?: "PAST_LOCKED" | "READ_ONLY" | "NEEDS_CHOICE" };
+export type CalResult = { ok?: boolean; error?: string; code?: "PAST_LOCKED" | "READ_ONLY" | "NEEDS_CHOICE" | "ALREADY_PAID" };
