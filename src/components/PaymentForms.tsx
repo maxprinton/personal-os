@@ -131,7 +131,7 @@ export function PaymentForm({
           {busy ? "Saving…" : "Schedule payment"}
         </button>
       </div>
-      <p className="text-xs text-muted">It shows on the calendar as an event. On its day you get a pre-filled draft: write the real amount and confirm.</p>
+      <p className="text-xs text-muted">It shows on the calendar as an event. Pay it from here, the calendar or Events: the transaction comes pre-filled with these details.</p>
       {msg && <p className="text-danger">{msg}</p>}
     </form>
   );
@@ -355,5 +355,83 @@ export function StopPaymentButton({ id, name }: { id: string; name: string }) {
     >
       Stop
     </button>
+  );
+}
+
+/**
+ * One payment in the Finance list: a compact line that opens the same pre-filled transaction as the
+ * calendar ("Pay" before or on its day, "Details" once paid — paying again asks first).
+ */
+export function PaymentRow({
+  eventId,
+  title,
+  date,
+  template,
+  options,
+  today,
+  status = null,
+  readOnly = false,
+  prefix,
+}: {
+  eventId: string;
+  title: string;
+  date: string;
+  template: PaymentTemplate | null;
+  options: Omit<FinanceOptions, "templates">;
+  today: string;
+  status?: "paid" | "skipped" | null;
+  readOnly?: boolean;
+  /** Optional text before the title (e.g. "Next:"). */
+  prefix?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const due = !status && date <= today;
+  const badge =
+    status === "paid"
+      ? { text: "✓ Paid", cls: "bg-success-soft text-success" }
+      : status === "skipped"
+        ? { text: "Skipped", cls: "bg-subtle-2 text-muted" }
+        : due
+          ? { text: date < today ? "Overdue" : "Due today", cls: "bg-warning-soft text-warning" }
+          : null;
+  return (
+    <li className="rounded-lg border border-line bg-surface">
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+        <span className="min-w-0 flex-1 truncate">
+          {prefix && <span className="text-muted">{prefix} </span>}💳 {title} <span className="text-faint">· {nice(date)}</span>
+        </span>
+        <span className="tabular-nums text-muted">{template?.expected_amount ? usd(template.expected_amount) : "—"}</span>
+        {badge && <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${badge.cls}`}>{badge.text}</span>}
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          className={`compact rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+            open
+              ? "bg-subtle text-fg"
+              : status
+                ? "border border-edge text-muted hover:bg-subtle"
+                : "bg-success-solid text-white hover:opacity-90"
+          }`}
+        >
+          {open ? "Close" : status === "paid" ? "Details" : status === "skipped" ? "Open" : template?.type === "income" ? "Receive" : "Pay"}
+        </button>
+      </div>
+      {open && (
+        <div className="border-t border-success/30 bg-success-soft p-3">
+          <PaymentDraft
+            eventId={eventId}
+            title={title}
+            date={date}
+            template={template}
+            options={options}
+            today={today}
+            status={status}
+            readOnly={readOnly}
+            onDone={() => setOpen(false)}
+          />
+        </div>
+      )}
+    </li>
   );
 }

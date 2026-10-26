@@ -22,7 +22,7 @@ import {
 } from "@/app/finance-actions";
 import TxnAccountSelect from "@/components/TxnAccountSelect";
 import { AccountForm, BudgetForm, CategoryForm, TransactionForm, TransferForm } from "@/components/FinanceForms";
-import { PaymentDraft, PaymentForm, StopPaymentButton } from "@/components/PaymentForms";
+import { PaymentDraft, PaymentForm, StopPaymentButton, PaymentRow } from "@/components/PaymentForms";
 import { currentUserId } from "@/lib/calendar/model";
 import { getDuePayments, getPaymentTemplates } from "@/lib/calendar/payments";
 import { describeRepeat } from "@/lib/calendar/recurrence";
@@ -48,16 +48,27 @@ export default async function FinancePage() {
   const mobile = await isMobileRequest();
   const templates = userId ? await getPaymentTemplates(supabase, userId) : [];
   const due = userId ? await getDuePayments(supabase, userId, today) : [];
-  const { data: upcomingData } = await supabase
+  // Payment events of the last month and the next one: upcoming ones can be paid early, paid ones show what was recorded
+  const { data: payEventsData } = await supabase
     .from("events")
-    .select("id,title,event_date,payment_template_id")
+    .select("id,title,event_date,payment_template_id,payment_status")
     .eq("is_payment", true)
     .is("deleted_at", null)
-    .is("payment_status", null)
-    .gt("event_date", today)
-    .lte("event_date", addDays(today, 31))
+    .gte("event_date", addDays(today, -31))
+    .lte("event_date", addDays(today, 62))
     .order("event_date");
-  const upcoming = (upcomingData ?? []) as { id: string; title: string; event_date: string; payment_template_id: string | null }[];
+  type PayEvent = { id: string; title: string; event_date: string; payment_template_id: string | null; payment_status: "paid" | "skipped" | null };
+  const payEvents = (payEventsData ?? []) as PayEvent[];
+  const dueIds = new Set(due.map((p) => p.eventId));
+  const upcoming = payEvents.filter((e) => !e.payment_status && e.event_date > today && e.event_date <= addDays(today, 31));
+  const recent = payEvents.filter((e) => e.payment_status && e.event_date <= today).reverse().slice(0, 8);
+  // Each scheduled payment's next one still to pay (due, overdue or upcoming)
+  const nextUnpaid = new Map<string, PayEvent>();
+  for (const e of payEvents) {
+    if (e.payment_status || !e.payment_template_id || nextUnpaid.has(e.payment_template_id)) continue;
+    if (e.event_date < today && !dueIds.has(e.id)) continue;
+    nextUnpaid.set(e.payment_template_id, e);
+  }
   const payOptions = {
     accounts: accounts.map((a) => ({ id: a.id, name: a.name })),
     categories: categories.map((c) => ({ id: c.id, name: c.name, kind: c.kind })),
@@ -199,43 +210,94 @@ export default async function FinancePage() {
           <section className="space-y-3">
             <h2 className="section-title">Scheduled payments</h2>
             <p className="text-xs text-muted">
-              Payments are events on the calendar. On the day, a pre-filled draft appears here and on Today: write the real amount
-              and confirm. Recurring ones create their own events.
+              Payments are events on the calendar. Tap Pay on any of them (even before its day) to get the pre-filled transaction;
+              on its day it also shows up here and on Today. Recurring ones create their own events.
             </p>
             {due.map((p) => (
               <div key={p.eventId} className="rounded-lg border border-success/30 bg-success-soft p-3">
                 <PaymentDraft eventId={p.eventId} title={p.title} date={p.date} template={p.template} options={payOptions} today={today} readOnly={mobile} />
               </div>
             ))}
-            {upcoming.length > 0 && (
-              <ul className="space-y-1 text-sm">
-                {upcoming.map((e) => {
-                  const t = templates.find((x) => x.id === e.payment_template_id);
+            {templates.length > 0 && (
+              <ul className="space-y-2 text-sm">
+                {templates.map((t) => {
+                  const next = nextUnpaid.get(t.id);
                   return (
-                    <li key={e.id} className="flex justify-between border-b border-line py-1">
-                      <span>💳 {e.title} <span className="text-faint">· {formatDateLong(e.event_date)}</span></span>
-                      <span className="text-muted">{t?.expected_amount ? formatUSD(t.expected_amount) : "—"}</span>
+                    <li key={t.id} className="space-y-2 rounded-lg bg-subtle p-2">
+                      <div className="flex items-center justify-between gap-2 px-1">
+                        <span>
+                          <span className="font-medium">{t.name}</span>{" "}
+                          <span className="text-xs text-muted">
+                            · {describeRepeat(t.repeat_unit, t.repeat_every)} from {t.start_date}
+                            {t.expected_amount ? ` · ${formatUSD(t.expected_amount)}` : ""}
+                            {t.type === "income" ? " · income" : ""}
+                          </span>
+                        </span>
+                        {!mobile && <StopPaymentButton id={t.id} name={t.name} />}
+                      </div>
+                      {next && dueIds.has(next.id) ? (
+                        <p className="px-1 text-xs font-medium text-warning">↑ {formatDateLong(next.event_date)}: ready to pay above.</p>
+                      ) : next ? (
+                        <ul>
+                          <PaymentRow
+                            eventId={next.id}
+                            title={next.title}
+                            date={next.event_date}
+                            template={t}
+                            options={payOptions}
+                            today={today}
+                            readOnly={mobile}
+                            prefix="Next:"
+                          />
+                        </ul>
+                      ) : (
+                        <p className="px-1 text-xs text-faint">Nothing to pay in the next two months.</p>
+                      )}
                     </li>
                   );
                 })}
               </ul>
             )}
-            {templates.length > 0 && (
-              <ul className="space-y-1 text-sm">
-                {templates.map((t) => (
-                  <li key={t.id} className="flex items-center justify-between gap-2 rounded-md bg-subtle px-3 py-1.5">
-                    <span>
-                      {t.name}{" "}
-                      <span className="text-xs text-muted">
-                        · {describeRepeat(t.repeat_unit, t.repeat_every)} from {t.start_date}
-                        {t.expected_amount ? ` · ${formatUSD(t.expected_amount)}` : ""}
-                        {t.type === "income" ? " · income" : ""}
-                      </span>
-                    </span>
-                    {!mobile && <StopPaymentButton id={t.id} name={t.name} />}
-                  </li>
-                ))}
-              </ul>
+            {upcoming.filter((e) => !e.payment_template_id || nextUnpaid.get(e.payment_template_id)?.id !== e.id).length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted">Also coming up (next 31 days)</p>
+                <ul className="space-y-1.5">
+                  {upcoming
+                    .filter((e) => !e.payment_template_id || nextUnpaid.get(e.payment_template_id)?.id !== e.id)
+                    .map((e) => (
+                      <PaymentRow
+                        key={e.id}
+                        eventId={e.id}
+                        title={e.title}
+                        date={e.event_date}
+                        template={templates.find((x) => x.id === e.payment_template_id) ?? null}
+                        options={payOptions}
+                        today={today}
+                        readOnly={mobile}
+                      />
+                    ))}
+                </ul>
+              </div>
+            )}
+            {recent.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted">Recently paid or skipped</p>
+                <ul className="space-y-1.5">
+                  {recent.map((e) => (
+                    <PaymentRow
+                      key={e.id}
+                      eventId={e.id}
+                      title={e.title}
+                      date={e.event_date}
+                      template={templates.find((x) => x.id === e.payment_template_id) ?? null}
+                      options={payOptions}
+                      today={today}
+                      status={e.payment_status}
+                      readOnly={mobile}
+                    />
+                  ))}
+                </ul>
+              </div>
             )}
             {!mobile && <PaymentForm options={payOptions} date={today} />}
           </section>
