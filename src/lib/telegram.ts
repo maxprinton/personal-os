@@ -44,7 +44,7 @@ export const HELP = [
   "• done stretch / skip stretch → mark today's habit",
   "",
   "/hoy (or: hoy, pendientes, qué tengo) → what's pending today, the block you're in, what's left and the note of every block (✓ done · ⏭ next block · 🗄 archive)",
-  "/now (or: ahora) → only the block of right now: its times, habits, tasks and note",
+  "/now (or: ahora) → only the block of right now: its times, note and habits, plus your current balance",
   "/balance (or: saldo, cuentas) → how much money is in each account",
   "/tomorrow (or: mañana) → tomorrow's schedule, tasks, payments and habits",
   "/thisweek (or: esta semana) → today to Sunday, day by day",

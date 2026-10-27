@@ -4,7 +4,7 @@ import { getBlockTypes, getOccurrences } from "@/lib/calendar/model";
 import { getChecks, getHabits } from "@/lib/calendar/habits";
 import { habitsForOccurrence } from "@/lib/calendar/habitview";
 import { pickFocus } from "@/lib/calendar/focus";
-import { sameBlockSameDay } from "@/lib/calendar/taskview";
+import { balanceText } from "@/lib/bot-balance";
 import { blockNotesByKey, noteAsPlainText, noteKey } from "@/lib/block-notes";
 import { dayData } from "@/lib/reminders";
 import { packId } from "@/lib/telegram";
@@ -242,24 +242,27 @@ export async function todayStatus(
   };
 }
 
-/** "/now": the block of right now (metadata, habits, tasks, full note). Free time says what is next. */
+/** "/now": the block of right now (metadata, habits, full note) and the current balance. Free time says what is next. */
 export async function nowStatus(admin: SupabaseClient, userId: string, timezone: string): Promise<{ text: string[]; keyboard: Btn[][] }> {
   const now = localNow(timezone);
   const today = now.date;
-  const [occurrences, types, habits, checks, notes] = await Promise.all([
+  const [occurrences, types, habits, checks, notes, balance] = await Promise.all([
     getOccurrences(admin, userId, today, today),
     getBlockTypes(admin, userId, { includeDeleted: true }),
     getHabits(admin, userId, { includeRemoved: true }),
     getChecks(admin, userId, addDays(today, -1), today),
     blockNotesByKey(admin, userId),
+    balanceText(admin, userId).catch(() => "Could not load the balances."),
   ]);
+  const balancePart = `\n💰 Balance\n${balance}`;
   const focus = pickFocus(occurrences, today, now.minutes);
   const name = (id: string) => types.find((t) => t.id === id)?.name ?? "Block";
   if (!focus || focus.mode === "next") {
     const lines = [`📍 ${formatMinutes(now.minutes)} · ▶ Now: free time`];
     if (focus) lines.push(`Next: ${name(focus.occ.block_type_id)} at ${formatMinutes(focus.startAbs)} (in ${dur(focus.startAbs - now.minutes)})`);
     else lines.push("No more blocks today.");
-    return { text: [lines.join("\n")], keyboard: [] };
+    lines.push(balancePart);
+    return { text: splitForTelegram(lines.join("\n")), keyboard: [] };
   }
   const { occ } = focus;
   const blockName = name(occ.block_type_id);
@@ -270,6 +273,9 @@ export async function nowStatus(admin: SupabaseClient, userId: string, timezone:
     `🕐 ${formatMinutes(timeToMinutes(occ.start_time))} – ${formatMinutes(timeToMinutes(occ.end_time))} · ${dur(left)} left${status}`,
   ];
 
+  const note = noteAsPlainText(notes.get(noteKey(blockName))?.content ?? "");
+  lines.push("", "📝 Note", note || "(no note yet — write it in the block's window or on Today)");
+
   const hs = habitsForOccurrence(occ, habits, checks, today);
   if (hs.length) {
     lines.push("", "🔁 Habits");
@@ -277,38 +283,14 @@ export async function nowStatus(admin: SupabaseClient, userId: string, timezone:
       lines.push(`• ${h.habit.name} — ${h.state === "done" ? "✓ done" : h.state === "skipped" ? "⏭ skipped" : h.state === "missed" ? "✗ missed" : "to log"}`);
     }
   }
+  lines.push(balancePart);
 
-  const ids = [...sameBlockSameDay(occ, occurrences)];
-  const { data: taskData } = await admin
-    .from("tasks")
-    .select("id,title,status")
-    .eq("user_id", userId)
-    .is("deleted_at", null)
-    .in("occurrence_id", ids)
-    .eq("scheduled_for", occ.date)
-    .in("status", ["pending", "completed"])
-    .order("created_at");
-  const tasks = (taskData ?? []) as { id: string; title: string; status: string }[];
-  if (tasks.length) {
-    lines.push("", "✅ Tasks");
-    for (const t of tasks) lines.push(`• ${t.status === "completed" ? "✓ " : ""}${t.title}`);
-  }
-
-  const note = noteAsPlainText(notes.get(noteKey(blockName))?.content ?? "");
-  lines.push("", `📝 Note`, note || "(no note yet — write it in the block's window or on Today)");
-
-  const keyboard: Btn[][] = [
-    ...hs
-      .filter((h) => !h.state)
-      .slice(0, 8)
-      .map((h) => [
-        { text: `✓ ${h.habit.name}`.slice(0, 60), callback_data: `hk:d:${packId(h.habit.id)}:${packId(occ.id)}` },
-        { text: "Skip", callback_data: `hk:s:${packId(h.habit.id)}:${packId(occ.id)}` },
-      ]),
-    ...tasks
-      .filter((t) => t.status === "pending")
-      .slice(0, 6)
-      .map((t) => [{ text: `✓ ${t.title}`.slice(0, 40), callback_data: `tk:${packId(t.id)}` }]),
-  ];
+  const keyboard: Btn[][] = hs
+    .filter((h) => !h.state)
+    .slice(0, 8)
+    .map((h) => [
+      { text: `✓ ${h.habit.name}`.slice(0, 60), callback_data: `hk:d:${packId(h.habit.id)}:${packId(occ.id)}` },
+      { text: "Skip", callback_data: `hk:s:${packId(h.habit.id)}:${packId(occ.id)}` },
+    ]);
   return { text: splitForTelegram(lines.join("\n")), keyboard };
 }
