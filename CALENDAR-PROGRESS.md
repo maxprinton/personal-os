@@ -257,3 +257,10 @@ Test list:
 - [ ] Tasks placed in a day that is split off stay in that block.
 - [ ] A day renamed on its own: drag/resize/remove only offer "only this day" ("renamed on its own" badge in its window).
 - [ ] Only capital letters changed (gym → Gym): renamed everywhere.
+
+## Fix: a block marked done stays done (2026-10-27) — needs migration 0018
+Cause: after ✓, the status was recalculated from habits AND tasks, so a block with pending tasks went back to "to do"/"partial" (also at the end of the day and after any task change).
+Now the ✓ is remembered (`block_occurrences.done_manually`). Unticking the block, or unticking/missing one of its habits, lets it count again.
+- [ ] Block with a pending task → ✓ → stays done after reload and after completing/uncompleting another task.
+- [ ] Undo ✓ → back to "to do" (or "partial" if some tasks are done).
+- [ ] Next day the block of yesterday is still done.

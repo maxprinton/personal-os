@@ -863,6 +863,10 @@ export async function markHabit(input: { habitId: string; occurrenceId: string; 
     if (input.state !== null && !["done", "skipped", "missed"].includes(input.state)) return { error: "Unknown mark." };
     const { error } = await setHabitCheck(c.sb, c.userId, input.habitId, occ, input.state, "web");
     if (error) return { error: error.message };
+    // Unticking a habit of a block you had marked done: it counts again from its habits and tasks
+    if ((input.state === null || input.state === "missed") && occ.status === "done") {
+      await c.sb.from("block_occurrences").update({ done_manually: false }).eq("id", occ.id).eq("user_id", c.userId);
+    }
     await recomputeOccurrenceStatus(c.sb, c.userId, occ.id, c.today);
     return done();
   } catch (e) {
@@ -881,12 +885,22 @@ async function applyDone(c: Awaited<ReturnType<typeof ctx>>, occ: Occurrence, ma
     if (!makeDone && state === "done") await setHabitCheck(c.sb, c.userId, habit.id, occ, null, "web");
     if (makeDone && state !== "done") await setHabitCheck(c.sb, c.userId, habit.id, occ, "done", "web");
   }
-  await c.sb
-    .from("block_occurrences")
-    .update({ status: makeDone ? "done" : "scheduled" })
-    .eq("id", occ.id)
-    .eq("user_id", c.userId);
+  await setManualDone(c, occ.id, makeDone);
   await recomputeOccurrenceStatus(c.sb, c.userId, occ.id, c.today);
+}
+
+/**
+ * The ✓ of a block is remembered (done_manually), so the automatic count of habits and tasks
+ * can't turn it back to "to do". Without migration 0018 it only sets the status, as before.
+ */
+async function setManualDone(c: Awaited<ReturnType<typeof ctx>>, occId: string, makeDone: boolean) {
+  const status = makeDone ? "done" : "scheduled";
+  const { error } = await c.sb
+    .from("block_occurrences")
+    .update({ status, done_manually: makeDone })
+    .eq("id", occId)
+    .eq("user_id", c.userId);
+  if (error) await c.sb.from("block_occurrences").update({ status }).eq("id", occId).eq("user_id", c.userId);
 }
 
 /** The quick ✓ on a block: marks all its habits done (or undoes it if the block was already done). */

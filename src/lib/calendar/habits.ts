@@ -86,6 +86,12 @@ export async function recomputeOccurrenceStatus(sb: SupabaseClient, userId: stri
   const { data } = await sb.from("block_occurrences").select(OCC_COLS).eq("user_id", userId).eq("id", occId).maybeSingle();
   const occ = data as Occurrence | null;
   if (!occ || occ.status === "cancelled" || occ.status === "free_day") return;
+  // A block you marked done yourself stays done, even with tasks or habits left inside
+  // (no column yet = migration 0018 not run: behave as before)
+  if (occ.status === "done") {
+    const { data: flag, error } = await sb.from("block_occurrences").select("done_manually").eq("id", occ.id).eq("user_id", userId).maybeSingle();
+    if (!error && (flag as { done_manually?: boolean } | null)?.done_manually) return;
+  }
   const [habits, { data: marks }, tasks] = await Promise.all([
     getHabits(sb, userId, { includeRemoved: true }),
     sb.from("habit_checks").select("habit_id,occurrence_id,date,state").eq("user_id", userId).eq("occurrence_id", occ.id),
