@@ -1,5 +1,8 @@
 // Turns a free-text message ("spent 12 on lunch", "task: call mom tomorrow") into a
-// structured item. Rule-based parser always works; Claude is used when an API key exists.
+// structured item. Clear patterns are handled by the rules (instant, private). Anything else goes
+// to the AI when a key exists (Gemini: GEMINI_API_KEY; or Claude: ANTHROPIC_API_KEY), and the
+// rules' best guess is the fallback.
+import { geminiJson, hasGemini } from "@/lib/gemini";
 
 export type Parsed =
   | { kind: "task"; title: string; date: string | null }
@@ -98,6 +101,22 @@ export function ruleTransfer(input: string, today: string): { parsed: Extract<Pa
 }
 
 export function ruleParse(input: string, today: string, categories: string[] = []): Parsed {
+  return ruleParseStrict(input, today, categories) ?? ruleGuess(input, today);
+}
+
+/** The rules' guess for a message without a clear pattern: long text = note, short = task. */
+export function ruleGuess(input: string, today: string): Parsed {
+  const text = input.trim();
+  if (text.includes("\n") || text.length > 140) {
+    const [first, ...rest] = text.split("\n");
+    return { kind: "note", title: first.slice(0, 120), content: rest.length ? rest.join("\n").trim() : text };
+  }
+  const d = extractDay(text, today);
+  return { kind: "task", title: cap(d.text), date: d.date };
+}
+
+/** Only messages with a clear pattern (task:, note:, spent 12…, +300…, $45…); null otherwise. */
+export function ruleParseStrict(input: string, today: string, categories: string[] = []): Parsed | null {
   const text = input.trim();
 
   let m = /^(?:task|todo|tarea|t)\s*[:\-]\s*([\s\S]+)$/i.exec(text);
@@ -143,12 +162,7 @@ export function ruleParse(input: string, today: string, categories: string[] = [
       category: guessCategory(d.text, categories), date: d.date };
   }
 
-  if (text.includes("\n") || text.length > 140) {
-    const [first, ...rest] = text.split("\n");
-    return { kind: "note", title: first.slice(0, 120), content: rest.length ? rest.join("\n").trim() : text };
-  }
-  const d = extractDay(text, today);
-  return { kind: "task", title: cap(d.text), date: d.date };
+  return null;
 }
 
 function isDate(v: unknown): v is string {
@@ -165,6 +179,11 @@ export function validateParsed(o: unknown): Parsed | null {
   if (x.kind === "note" && typeof x.title === "string") {
     return { kind: "note", title: x.title.trim().slice(0, 200) || "Note", content: typeof x.content === "string" ? x.content : "" };
   }
+  if (x.kind === "transfer" && typeof x.from === "string" && typeof x.to === "string") {
+    const amount = Number(x.amount);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000) return null;
+    return { kind: "transfer", amount: Math.round(amount * 100) / 100, from: x.from, to: x.to, date: isDate(x.date) ? x.date : null };
+  }
   if (x.kind === "transaction" && (x.txnType === "income" || x.txnType === "expense")) {
     const amount = Number(x.amount);
     if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000) return null;
@@ -180,18 +199,32 @@ export function validateParsed(o: unknown): Parsed | null {
   return null;
 }
 
-/** Ask Claude to classify the message. Returns null on any problem (caller falls back to rules). */
-export async function aiParse(text: string, today: string, categories: string[]): Promise<Parsed | null> {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return null;
-  const system = [
+/** What the AI is told: one message → one JSON item. */
+function aiSystem(today: string, categories: string[], accounts: string[]) {
+  return [
     `Today is ${today}. You turn one short personal message (English or Spanish) into ONE JSON object and nothing else.`,
     `Shapes: {"kind":"task","title":string,"date":"YYYY-MM-DD"|null}`,
     `| {"kind":"note","title":string,"content":string}`,
-    `| {"kind":"transaction","txnType":"expense"|"income","amount":number,"description":string,"category":string|null,"date":"YYYY-MM-DD"|null}.`,
+    `| {"kind":"transaction","txnType":"expense"|"income","amount":number,"description":string,"category":string|null,"date":"YYYY-MM-DD"|null}`,
+    `| {"kind":"transfer","amount":number,"from":string,"to":string,"date":"YYYY-MM-DD"|null}.`,
     `Amounts are USD. category must be one of: ${categories.length ? categories.join(", ") : "(none)"} or null.`,
-    `Things to do are tasks; money spent or received are transactions; ideas, thoughts and longer text are notes.`,
+    `The user's accounts: ${accounts.length ? accounts.join(", ") : "(none)"}. A transfer moves money between two of them (use their names).`,
+    `Things to do are tasks (title short, in the user's language, without the date words); money spent or received are transactions`,
+    `(description = what it was for, without the amount, date or account); ideas, thoughts and longer text are notes.`,
+    `Relative dates ("mañana", "ayer", "el viernes", "next monday") become YYYY-MM-DD; no date = null.`,
   ].join("\n");
+}
+
+/** Ask the AI to classify the message. Returns null on any problem (caller falls back to rules). */
+export async function aiParse(text: string, today: string, categories: string[], accounts: string[] = []): Promise<Parsed | null> {
+  const system = aiSystem(today, categories, accounts);
+  if (hasGemini()) {
+    const out = await geminiJson(system, [{ text: text.slice(0, 2000) }]);
+    const parsed = validateParsed(out);
+    if (parsed) return parsed;
+  }
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return null;
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",

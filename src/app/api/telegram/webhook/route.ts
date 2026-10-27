@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { botToken, HELP, packId, sendMessage, tg, unpackId, webhookSecret } from "@/lib/telegram";
-import { AccountChoiceNeeded, CaptureError, processCapture, savePendingTransaction, undoSaved } from "@/lib/capture";
+import { botToken, downloadFile, HELP, packId, sendMessage, tg, unpackId, webhookSecret } from "@/lib/telegram";
+import { geminiCheck, hasGemini, transcribe } from "@/lib/gemini";
+import { AccountChoiceNeeded, CaptureError, processCapture, processImageCapture, savePendingTransaction, undoSaved } from "@/lib/capture";
 import { describe, type Parsed } from "@/lib/parse";
 import { balanceText, isBalanceRequest } from "@/lib/bot-balance";
 import { completeTaskFromBot, markHabitFromBot } from "@/lib/reminders";
@@ -12,11 +13,21 @@ import { archiveFromBot, rescheduleNextFromBot } from "@/lib/bot-task-actions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Voice notes and photos wait for Gemini (a few seconds)
+export const maxDuration = 30;
 
 const DAILY_LIMIT = 100;
 
 type TgUpdate = {
-  message?: { chat: { id: number }; text?: string };
+  message?: {
+    chat: { id: number };
+    text?: string;
+    caption?: string;
+    voice?: { file_id: string; duration?: number; mime_type?: string };
+    audio?: { file_id: string; duration?: number; mime_type?: string };
+    photo?: { file_id: string; file_size?: number; width?: number }[];
+    document?: { file_id: string; mime_type?: string; file_size?: number };
+  };
   callback_query?: { id: string; data?: string; message?: { message_id?: number; chat: { id: number } } };
 };
 
@@ -212,8 +223,15 @@ export async function POST(req: Request) {
   }
 
   const msg = update.message;
-  const text = msg?.text?.trim();
-  if (!msg || !text) return ok();
+  let text = msg?.text?.trim() ?? "";
+  // Voice notes and photos (receipts) are understood by Gemini
+  const voice = msg?.voice ?? msg?.audio ?? null;
+  const photoId = msg?.photo?.length
+    ? msg.photo[msg.photo.length - 1].file_id // the biggest size Telegram made
+    : msg?.document?.mime_type?.startsWith("image/")
+      ? msg.document.file_id
+      : null;
+  if (!msg || (!text && !voice && !photoId)) return ok();
   const chatId = msg.chat.id;
 
   if (/^\/(start|help)\b/i.test(text) && !/^\/start\s+\S/.test(text)) {
@@ -250,6 +268,89 @@ export async function POST(req: Request) {
   }
   const userId = settings.user_id as string;
 
+  /** Saves a capture and answers (Saved ✓ + Undo, the account question, or why it failed). */
+  async function replyCapture(bmId: string | undefined, run: () => ReturnType<typeof processCapture>) {
+    try {
+      const { saved, parsed, by } = await run();
+      if (bmId) {
+        await admin!
+          .from("bot_messages")
+          .update({ status: "saved", parsed: { ...parsed, by }, entity_type: saved.entityType, entity_id: saved.id })
+          .eq("id", bmId);
+      }
+      await sendMessage(chatId, `Saved ✓ ${saved.summary}${by === "ai" ? " · ✨" : ""}`, bmId);
+    } catch (e) {
+      if (e instanceof AccountChoiceNeeded && bmId) {
+        // Money message without an account: keep it pending and ask which account before saving
+        await admin!.from("bot_messages").update({ status: "parsed", parsed: { ...e.parsed, by: e.by } }).eq("id", bmId);
+        const key = packId(bmId);
+        const rows: { text: string; callback_data: string }[][] = [];
+        for (let i = 0; i < e.accounts.length; i += 2) {
+          rows.push(e.accounts.slice(i, i + 2).map((a) => ({ text: a.name.slice(0, 30), callback_data: `ac:${key}:${packId(a.id)}` })));
+        }
+        rows.push([
+          { text: "No account", callback_data: `ac:${key}:n` },
+          { text: "Cancel", callback_data: `ac:${key}:x` },
+        ]);
+        await tg("sendMessage", {
+          chat_id: chatId,
+          text: `${describe(e.parsed)}${e.by === "ai" ? " · ✨" : ""}\n\nWhich account?`,
+          reply_markup: { inline_keyboard: rows },
+        });
+        return;
+      }
+      const message = e instanceof Error ? e.message : "Unknown error";
+      if (bmId) await admin!.from("bot_messages").update({ status: "failed", error: message }).eq("id", bmId);
+      await sendMessage(
+        chatId,
+        e instanceof CaptureError ? e.message : "Sorry, I could not save that. Try rephrasing, e.g. \"spent 12 on lunch\"."
+      );
+    }
+  }
+
+  // ---- Voice notes and photos: need Gemini, and count toward the daily limit ----------
+  if (voice || photoId) {
+    if (!hasGemini()) {
+      await sendMessage(chatId, "Voice notes and photos need the free Gemini key (GEMINI_API_KEY in Vercel). For now, type it.");
+      return ok();
+    }
+    if (await overLimit(admin, userId)) {
+      await sendMessage(chatId, `Daily limit of ${DAILY_LIMIT} messages reached. Try again tomorrow.`);
+      return ok();
+    }
+  }
+  if (voice) {
+    if ((voice.duration ?? 0) > 180) {
+      await sendMessage(chatId, "That voice note is too long. Keep it under 3 minutes.");
+      return ok();
+    }
+    const file = await downloadFile(voice.file_id);
+    const heard = file ? await transcribe(file.base64, voice.mime_type || "audio/ogg") : null;
+    if (!heard) {
+      await sendMessage(chatId, "Sorry, I could not understand that voice note. Try again or type it.");
+      return ok();
+    }
+    await sendMessage(chatId, `🎙 “${heard.slice(0, 500)}”`);
+    text = heard; // from here on it's handled exactly like a typed message
+  }
+  if (photoId) {
+    const caption = msg.caption?.trim() ?? "";
+    const { data: pm } = await admin
+      .from("bot_messages")
+      .insert({ user_id: userId, raw_text: `[photo] ${caption}`.slice(0, 4000) })
+      .select("id")
+      .single();
+    const file = await downloadFile(photoId);
+    if (!file) {
+      if (pm) await admin.from("bot_messages").update({ status: "failed", error: "photo download" }).eq("id", pm.id);
+      await sendMessage(chatId, "Sorry, I could not get that photo (too big?). Try again.");
+      return ok();
+    }
+    const mime = msg.document?.mime_type?.startsWith("image/") && !msg.photo?.length ? msg.document.mime_type : "image/jpeg";
+    await replyCapture(pm?.id, () => processImageCapture(admin, userId, { base64: file.base64, mimeType: mime }, caption, "telegram_bot", true));
+    return ok();
+  }
+
   // ---- "/hoy": what's pending today, the block I'm in, what's left ------------
   if (isTodayRequest(text)) {
     try {
@@ -282,6 +383,12 @@ export async function POST(req: Request) {
     return ok();
   }
 
+  // ---- /ai: is Gemini connected? -----------------------------------------
+  if (/^\/ai(@\w+)?$/i.test(text)) {
+    await sendMessage(chatId, await geminiCheck());
+    return ok();
+  }
+
   // ---- /undo -------------------------------------------------------------
   if (/^\/undo\b/i.test(text)) {
     const { data: last } = await admin
@@ -308,13 +415,7 @@ export async function POST(req: Request) {
   }
 
   // ---- Rate limit -------------------------------------------------------
-  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-  const { count } = await admin
-    .from("bot_messages")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .gte("received_at", since);
-  if ((count ?? 0) >= DAILY_LIMIT) {
+  if (await overLimit(admin, userId)) {
     await sendMessage(chatId, `Daily limit of ${DAILY_LIMIT} messages reached. Try again tomorrow.`);
     return ok();
   }
@@ -348,41 +449,17 @@ export async function POST(req: Request) {
     .insert({ user_id: userId, raw_text: text.slice(0, 4000) })
     .select("id")
     .single();
-  try {
-    const { saved, parsed, by } = await processCapture(admin, userId, text, "telegram_bot", null, true);
-    if (bm) {
-      await admin
-        .from("bot_messages")
-        .update({ status: "saved", parsed: { ...parsed, by }, entity_type: saved.entityType, entity_id: saved.id })
-        .eq("id", bm.id);
-    }
-    await sendMessage(chatId, `Saved ✓ ${saved.summary}`, bm?.id);
-  } catch (e) {
-    if (e instanceof AccountChoiceNeeded && bm) {
-      // Money message without an account: keep it pending and ask which account before saving
-      await admin.from("bot_messages").update({ status: "parsed", parsed: { ...e.parsed, by: e.by } }).eq("id", bm.id);
-      const key = packId(bm.id);
-      const rows: { text: string; callback_data: string }[][] = [];
-      for (let i = 0; i < e.accounts.length; i += 2) {
-        rows.push(e.accounts.slice(i, i + 2).map((a) => ({ text: a.name.slice(0, 30), callback_data: `ac:${key}:${packId(a.id)}` })));
-      }
-      rows.push([
-        { text: "No account", callback_data: `ac:${key}:n` },
-        { text: "Cancel", callback_data: `ac:${key}:x` },
-      ]);
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `${describe(e.parsed)}\n\nWhich account?`,
-        reply_markup: { inline_keyboard: rows },
-      });
-      return ok();
-    }
-    const message = e instanceof Error ? e.message : "Unknown error";
-    if (bm) await admin.from("bot_messages").update({ status: "failed", error: message }).eq("id", bm.id);
-    await sendMessage(
-      chatId,
-      e instanceof CaptureError ? e.message : "Sorry, I could not save that. Try rephrasing, e.g. \"spent 12 on lunch\"."
-    );
-  }
+  await replyCapture(bm?.id, () => processCapture(admin, userId, text, "telegram_bot", null, true));
   return ok();
+}
+
+/** More than DAILY_LIMIT saved messages in the last 24 hours. */
+async function overLimit(admin: NonNullable<ReturnType<typeof createAdminClient>>, userId: string) {
+  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const { count } = await admin
+    .from("bot_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("received_at", since);
+  return (count ?? 0) >= DAILY_LIMIT;
 }

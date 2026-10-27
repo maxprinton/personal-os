@@ -49,6 +49,8 @@ export const HELP = [
   "/thisweek (or: esta semana) → today to Sunday, day by day",
   "/nextweek (or: próxima semana) → next Monday to Sunday, day by day",
   "/undo removes the last thing I saved.",
+  "",
+  "✨ With Gemini connected: write it any way you like (\"ayer pagué 32 del internet con la Pichincha\"), send a voice note 🎙, or a photo of a receipt 🧾. /ai checks the connection.",
 ].join("\n");
 
 /** UUID <-> 22-character base64url, so two ids fit in Telegram's 64-byte button data. */
@@ -60,4 +62,18 @@ export function unpackId(packed: string) {
   const hex = Buffer.from(packed, "base64url").toString("hex");
   if (hex.length !== 32) return null;
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** Downloads a file the user sent (voice note, photo). null if it's missing or too big (Telegram bots: 20 MB). */
+export async function downloadFile(fileId: string, maxBytes = 15 * 1024 * 1024) {
+  const token = botToken();
+  if (!token) return null;
+  const info = (await tg("getFile", { file_id: fileId })) as { ok: boolean; result?: { file_path?: string; file_size?: number } } | null;
+  const path = info?.ok ? info.result?.file_path : undefined;
+  if (!path || (info?.result?.file_size ?? 0) > maxBytes) return null;
+  const res = await fetch(`${API}/file/bot${token}/${path}`, { signal: AbortSignal.timeout(15000) });
+  if (!res.ok) return null;
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length > maxBytes) return null;
+  return { base64: buf.toString("base64"), path };
 }

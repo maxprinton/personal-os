@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { aiParse, describe, ruleParse, ruleTransfer, type Parsed } from "@/lib/parse";
+import { aiParse, describe, ruleGuess, ruleParseStrict, ruleTransfer, validateParsed, type Parsed } from "@/lib/parse";
+import { geminiJson } from "@/lib/gemini";
 import { localNow, zonedToUtc } from "@/lib/time";
 
 // Works with both the signed-in user's client (RLS) and the admin client (Telegram).
@@ -87,10 +88,18 @@ function stripAccount(description: string, needle: string) {
   return out ? out[0].toUpperCase() + out.slice(1) : "";
 }
 
-export async function parseMessage(text: string, today: string, categoryNames: string[]): Promise<{ parsed: Parsed; by: "ai" | "rules" }> {
-  const ai = await aiParse(text, today, categoryNames);
+/** Clear patterns → rules (instant, nothing leaves the app). Anything else → AI if a key exists → rules' guess. */
+export async function parseMessage(
+  text: string,
+  today: string,
+  categoryNames: string[],
+  accountNames: string[] = []
+): Promise<{ parsed: Parsed; by: "ai" | "rules" }> {
+  const strict = ruleParseStrict(text, today, categoryNames);
+  if (strict) return { parsed: strict, by: "rules" };
+  const ai = await aiParse(text, today, categoryNames, accountNames);
   if (ai) return { parsed: ai, by: "ai" };
-  return { parsed: ruleParse(text, today, categoryNames), by: "rules" };
+  return { parsed: ruleGuess(text, today), by: "rules" };
 }
 
 /**
@@ -126,12 +135,43 @@ export async function processCapture(
     }
   }
 
-  const { parsed, by } = await parseMessage(text, ctx.today, ctx.categories.map((c) => c.name));
-  if (parsed.kind === "transfer") throw new CaptureError("Could not understand that transfer.");
+  const { parsed, by } = await parseMessage(
+    text,
+    ctx.today,
+    ctx.categories.map((c) => c.name),
+    ctx.accounts.map((a) => a.name)
+  );
+  return finishCapture(supabase, userId, parsed, by, text, source, ctx, accountId, askAccount);
+}
+
+/** After parsing: transfer accounts, the transaction's account (named in `accountText`), then save. */
+async function finishCapture(
+  supabase: SupabaseClient,
+  userId: string,
+  parsed: Parsed,
+  by: "ai" | "rules",
+  accountText: string,
+  source: Source,
+  ctx: Awaited<ReturnType<typeof userContext>>,
+  accountId: string | null,
+  askAccount: boolean
+) {
+  if (parsed.kind === "transfer") {
+    // Only the AI gives this shape here (the rules' transfers are handled before)
+    const from = findAccount(parsed.from, ctx.accounts)?.account;
+    const to = findAccount(parsed.to, ctx.accounts)?.account;
+    if (!from || !to || from.id === to.id) {
+      const names = ctx.accounts.map((a) => a.name).join(", ") || "none yet";
+      throw new CaptureError(`I could not tell which accounts you mean. Try: "transfer 50 from <account> to <account>". Your accounts: ${names}.`);
+    }
+    const final = { ...parsed, from: from.name, to: to.name };
+    const saved = await saveTransfer(supabase, userId, final, from, to, source, ctx);
+    return { saved, parsed: final as Parsed, by };
+  }
   let account: AccountRef | null = null;
   let final = parsed;
   if (parsed.kind === "transaction") {
-    const found = findAccount(text, ctx.accounts);
+    const found = findAccount(accountText, ctx.accounts);
     if (found) {
       account = found.account;
       final = { ...parsed, description: stripAccount(parsed.description, found.needle) };
@@ -250,4 +290,39 @@ export async function undoSaved(supabase: SupabaseClient, userId: string, entity
     .eq("id", id)
     .eq("user_id", userId);
   return !error;
+}
+
+/**
+ * A photo (receipt, invoice, bill) → an expense or income, read by Gemini. The caption can add or
+ * correct details ("from Pichincha", "es de ayer"). Something that isn't a receipt becomes a note.
+ */
+export async function processImageCapture(
+  supabase: SupabaseClient,
+  userId: string,
+  image: { base64: string; mimeType: string },
+  caption: string,
+  source: Source,
+  askAccount = false
+) {
+  const ctx = await userContext(supabase, userId);
+  const categories = ctx.categories.map((c) => c.name);
+  const system = [
+    `Today is ${ctx.today}. The user sent a photo${caption ? " with a caption" : ""} to their personal finance and tasks app.`,
+    `If it is a receipt, invoice, bill or payment proof, return ONE JSON object:`,
+    `{"kind":"transaction","txnType":"expense"|"income","amount":number,"description":string,"category":string|null,"date":"YYYY-MM-DD"|null,"paidWith":string|null}`,
+    `amount = the TOTAL actually paid (USD). description = the store or what it was for, short. date = the date printed on it, or null.`,
+    `category must be one of: ${categories.length ? categories.join(", ") : "(none)"} or null. paidWith = card or bank printed on it, if any.`,
+    `If it is anything else, return {"kind":"note","title":string,"content":string} describing it briefly.`,
+    `The caption, if any, comes from the user and wins over what the photo shows (e.g. a different date or account).`,
+  ].join("\n");
+  const out = await geminiJson(system, [
+    ...(caption ? [{ text: `Caption: ${caption.slice(0, 500)}` }] : []),
+    { inline_data: { mime_type: image.mimeType, data: image.base64 } },
+  ]);
+  const parsed = validateParsed(out);
+  if (!parsed) throw new CaptureError("I could not read that photo. Try a sharper photo of the receipt, or type it: \"spent 12 lunch\".");
+  const paidWith = out && typeof out === "object" && typeof (out as { paidWith?: unknown }).paidWith === "string" ? (out as { paidWith: string }).paidWith : "";
+  // The caption names the account first; otherwise what the receipt shows (e.g. "VISA Pichincha")
+  const accountText = findAccount(caption, ctx.accounts) ? caption : `${caption} ${paidWith}`.trim();
+  return finishCapture(supabase, userId, parsed, "ai", accountText, source, ctx, null, askAccount);
 }
