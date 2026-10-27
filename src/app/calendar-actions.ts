@@ -827,6 +827,8 @@ export async function removeHabit(input: { id: string }): Promise<CalResult> {
  * Put a task in a block appearance or an event (or take it out: both null = unassigned).
  * Same day = just placing it. Another day = a manual move: the moved counter goes up by 1.
  */
+const PAUSED_BLOCK = "That block is paused (free day), so it can't hold tasks. Put the task in a block you added that day, in an event, or leave it unassigned.";
+
 export async function placeTask(input: {
   taskId: string;
   occurrenceId?: string | null;
@@ -843,6 +845,8 @@ export async function placeTask(input: {
     if (input.occurrenceId) {
       const occ = await getOccurrence(c.sb, c.userId, input.occurrenceId);
       if (!occ || occ.status === "cancelled") return { error: "That block is no longer on the calendar." };
+      // A block paused by a free day doesn't exist for tasks
+      if (occ.status === "free_day") return { error: PAUSED_BLOCK };
       occurrence_id = occ.id;
       date = occ.date;
     } else if (input.eventId) {
@@ -957,7 +961,8 @@ export async function addTaskHere(input: {
     let values: Record<string, unknown> = { user_id: c.userId, title, status: "pending", scheduled_for: input.date || c.today };
     if (input.occurrenceId) {
       const occ = await getOccurrence(c.sb, c.userId, input.occurrenceId);
-      if (!occ) return { error: "That block is no longer on the calendar." };
+      if (!occ || occ.status === "cancelled") return { error: "That block is no longer on the calendar." };
+      if (occ.status === "free_day") return { error: PAUSED_BLOCK };
       values = { ...values, occurrence_id: occ.id, home_block_type_id: occ.block_type_id, scheduled_for: occ.date };
     } else if (input.eventId) {
       values = { ...values, event_id: input.eventId };

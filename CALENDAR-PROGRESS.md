@@ -197,6 +197,8 @@ All files are written to be safe to run twice. `time_blocks` and `activity_logs`
 - Dialog: quick buttons 1 / 2 / 3 days and Start today / Start tomorrow.
 - Telegram: the morning summary says the weekly blocks are paused and lists events + blocks you added; no reminders or night check for paused blocks; unassigned nag stays quiet.
 
+- **Paused blocks don't exist for tasks:** nothing can put a task in one — dragging, quick add, "next time of its block", auto-placement, the morning ritual and Telegram ⏭ all skip it, and the server refuses it with a clear message. Tasks that were in a block when it got paused are moved (migrate) or left unassigned.
+
 ### What to test
 1. Mark tomorrow → day after (2 days), "Move them to the day after": weekly blocks vanish on both days, tasks land on day 3, events still there.
 2. Add a block "Only this day" where a paused block was: no overlap error; its habit can be ticked and counts for the streak.
