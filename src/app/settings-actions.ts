@@ -58,6 +58,17 @@ export async function connectBot(_prev: ActionState): Promise<ActionState> {
     drop_pending_updates: true,
   });
   if (!res?.ok) return { error: `Telegram said: ${res?.description ?? "no answer"}` };
+  // The menu Telegram shows when you type "/" (not essential: a failure here doesn't stop the connection)
+  await tg("setMyCommands", {
+    commands: [
+      { command: "hoy", description: "Today: current block, pending tasks and habits" },
+      { command: "tomorrow", description: "Tomorrow: schedule, tasks, payments, habits" },
+      { command: "thisweek", description: "Rest of this week, day by day" },
+      { command: "nextweek", description: "Next week, day by day" },
+      { command: "undo", description: "Remove the last thing I saved" },
+      { command: "help", description: "What I understand" },
+    ],
+  }).catch(() => null);
   revalidatePath("/settings");
   return { ok: true, at: Date.now() };
 }

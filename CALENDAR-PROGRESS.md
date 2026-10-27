@@ -220,3 +220,15 @@ All files are written to be safe to run twice. `time_blocks` and `activity_logs`
 3. "Edit only this one" → move next month's to another day and set $5 more: only that one changes; it isn't created again on the old day.
 4. Change a one-time payment's date: it moves (no duplicate).
 5. Add an end date: payments after it disappear.
+
+## Resizing a block: this day or every following week (added 2026-10-26)
+- Stretching/shrinking a block from its bottom edge asks: **Only this day** or **This and every following <weekday>**. Calendar ⚙ → "After resizing a block" (ask / only that day / that day and every following week), separate from "After moving a block". Every resize gets an **Undo**.
+- "Every following week" changes the weekly pattern's **length only** (same weekday and start), from that day on. Days you changed by hand (moved or resized on their own) keep their own size; days with the usual size follow. Past weeks never change. A block moved to another day this week still changes its usual weekday.
+- **Something in the way** (another weekly block, a one-day block, a block moved there) on any following week → nothing changes, the block goes back as it was, and the window says what's in the way with **Resize only this day** / **Leave it as it was**. If only this day also collides, it goes back too.
+- Free days: a block you added on a free day doesn't block the weekly change (the weekly block is paused there). If that free day is removed later, your block wins (see Free days v2).
+- One-day blocks and past days only change that day (no question). Multi-select resize stays "only these days".
+
+### What to test
+1. Stretch Tuesday's Gym 9–10 to 9–10:30 → "This and every following Tuesday": next Tuesdays are 9–10:30; a Tuesday you had moved by hand stays as it was. Undo restores 9–10.
+2. Put a one-day block next Tuesday at 10:15, then stretch again to 10:30 every week → error naming that block; the block goes back; "Resize only this day" works.
+3. Same with that one-day block on a free day → the weekly change goes through.

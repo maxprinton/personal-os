@@ -34,7 +34,7 @@ export function sendMessage(chatId: number, text: string, undoId?: string) {
 export const HELP = [
   "Send me anything and I'll file it in Personal OS:",
   "• spent 12 on lunch  → expense",
-  "• spent 12 lunch from Pichincha → expense on that account",
+  "• spent 12 lunch from Pichincha → expense on that account (if you don't name one, I'll ask which account)",
   "• received 1500 salary → income",
   "• transfer 50 from cash to Pichincha → move money between accounts",
   "• task: call mom tomorrow → task",
@@ -44,6 +44,10 @@ export const HELP = [
   "• done stretch / skip stretch → mark today's habit",
   "",
   "/hoy (or: hoy, pendientes, qué tengo) → what's pending today, the block you're in and what's left (✓ done · ⏭ next block · 🗄 archive)",
+  "/balance (or: saldo, cuentas) → how much money is in each account",
+  "/tomorrow (or: mañana) → tomorrow's schedule, tasks, payments and habits",
+  "/thisweek (or: esta semana) → today to Sunday, day by day",
+  "/nextweek (or: próxima semana) → next Monday to Sunday, day by day",
   "/undo removes the last thing I saved.",
 ].join("\n");
 

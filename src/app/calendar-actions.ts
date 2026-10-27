@@ -186,7 +186,19 @@ export async function createBlock(input: NewBlockInput): Promise<CalResult> {
   }
 }
 
-export type EditOccurrenceInput = { id: string; date: string; start: string; end: string; scope: EditScope };
+export type EditOccurrenceInput = {
+  id: string;
+  date: string;
+  start: string;
+  end: string;
+  scope: EditScope;
+  /**
+   * Only the length changed (bottom handle). With "forward" the weekly pattern keeps its weekday and
+   * start time and takes the new length (or `patternEnd`, used by Undo); days changed by hand keep theirs.
+   */
+  resize?: boolean;
+  patternEnd?: string;
+};
 
 /** Move or resize a block. Default scope is "this day only"; "forward" changes the weekly pattern from today on. */
 export async function editOccurrence(input: EditOccurrenceInput): Promise<CalResult> {
@@ -209,17 +221,36 @@ export async function editOccurrence(input: EditOccurrenceInput): Promise<CalRes
       if (!slot) return { error: "The weekly pattern of this block was not found." };
       const origin = occ.origin_date ?? occ.date;
       const from = origin > c.today ? origin : c.today;
-      const next = { weekday: isoWeekday(input.date), start_time, end_time };
+      let next = { weekday: isoWeekday(input.date), start_time, end_time };
+      if (input.resize) {
+        // Same weekday and start as the pattern; only its length changes
+        const patternStart = hhmm(slot.start_time);
+        const patternEnd =
+          input.patternEnd && isTime(input.patternEnd)
+            ? hhmm(input.patternEnd)
+            : minutesToTime((timeToMinutes(patternStart) + durationOf(start_time, end_time)) % 1440);
+        if (patternEnd === patternStart) return { error: "Start and end can't be the same time." };
+        next = { weekday: slot.weekday, start_time: patternStart, end_time: patternEnd };
+      }
       const msg = await slotConflictMessage(
         c.sb,
         c.userId,
         [{ ...next, valid_from: from, valid_to: slot.valid_to && slot.valid_to >= from ? slot.valid_to : null }],
         new Set([slot.id])
       );
-      if (msg) return { error: msg };
+      if (msg) return { error: msg, code: "CONFLICT" };
+      // This day too (a one-day block or a moved block can be in the way right here)
+      const here = await occurrenceConflictMessage(c.sb, c.userId, { date: input.date, start_time, end_time }, new Set([occ.id]));
+      if (here) return { error: here, code: "CONFLICT" };
       await changeSlotForward(c.sb, c.userId, slot, next, from);
       // The block being edited follows the new times even if it had been edited before
-      if (next.weekday === slot.weekday) {
+      if (input.resize) {
+        await c.sb
+          .from("block_occurrences")
+          .update({ start_time, end_time, ...(start_time !== next.start_time || end_time !== next.end_time ? { is_override: true } : {}) })
+          .eq("id", occ.id)
+          .eq("user_id", c.userId);
+      } else if (next.weekday === slot.weekday) {
         await c.sb
           .from("block_occurrences")
           .update({ start_time, end_time })
@@ -235,7 +266,7 @@ export async function editOccurrence(input: EditOccurrenceInput): Promise<CalRes
       { date: input.date, start_time, end_time },
       new Set([occ.id])
     );
-    if (msg) return { error: msg };
+    if (msg) return { error: msg, code: "CONFLICT" };
     const { error } = await c.sb
       .from("block_occurrences")
       .update({ date: input.date, start_time, end_time, is_override: true })

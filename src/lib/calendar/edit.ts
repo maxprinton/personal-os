@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDays, formatMinutes, isoWeekday, ISO_DAY_SHORT, localNow, timeToMinutes } from "@/lib/time";
 import { autoPlaceTasks } from "@/lib/calendar/tasks";
 import { findOccurrenceConflict, findSlotConflict, rangesIntersect, type SlotCandidate } from "@/lib/calendar/overlap";
-import { ensureOccurrences, getBlockTypes, getOccurrences, getSlots, OCC_COLS, SLOT_COLS } from "@/lib/calendar/model";
+import { ensureOccurrences, freeDatesBetween, getBlockTypes, getOccurrences, getSlots, OCC_COLS, SLOT_COLS } from "@/lib/calendar/model";
 import type { BlockType, Occurrence, Slot } from "@/lib/calendar/types";
 
 export const PALETTE = [
@@ -76,8 +76,12 @@ export async function slotConflictMessage(
     }
   }
   const overrides = ((overridesRes.data ?? []) as Occurrence[]).filter((o) => !o.slot_id || !ignoreSlots.has(o.slot_id));
+  // On free days the weekly blocks are paused (they don't exist), so a block added there is not in the way
+  const lastDate = overrides.reduce((m, o) => (o.date > m ? o.date : m), from);
+  const freeDates = overrides.length ? await freeDatesBetween(sb, userId, addDays(from, -1), addDays(lastDate, 1)) : new Set<string>();
   for (const o of overrides) {
     for (const d of [addDays(o.date, -1), o.date, addDays(o.date, 1)]) {
+      if (freeDates.has(d)) continue;
       for (const c of candidates) {
         if (c.weekday !== isoWeekday(d) || !rangesIntersect(c.valid_from, c.valid_to, d, d)) continue;
         if (findOccurrenceConflict({ date: d, start_time: c.start_time, end_time: c.end_time }, [o])) {

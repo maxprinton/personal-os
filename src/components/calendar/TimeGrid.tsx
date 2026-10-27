@@ -9,7 +9,7 @@ import type { CalendarData, CalEvent, Occurrence } from "@/lib/calendar/types";
 import { alpha, dayLabel, snap, textOn, timeRange } from "@/components/calendar/util";
 import { resizeOcc, shiftOcc, type Shift } from "@/components/calendar/optimistic";
 
-export type MoveRequest = { id: string; date: string; start: number; end: number; duplicate: boolean };
+export type MoveRequest = { id: string; date: string; start: number; end: number; duplicate: boolean; /** Only the end changed (bottom handle) */ resize?: boolean };
 export type TaskDrop = { taskId: string; occurrenceId?: string; eventId?: string; date: string };
 export type GroupShift = Shift;
 
@@ -377,7 +377,7 @@ export default function TimeGrid({
       return;
     }
     const { date, minute } = toReal(p.col, p.top);
-    onMoveOccurrence({ id: d.id, date, start: minute, end: minute + (p.bottom - p.top), duplicate });
+    onMoveOccurrence({ id: d.id, date, start: minute, end: minute + (p.bottom - p.top), duplicate, resize: d.mode === "resize" });
   }
 
   /** Plain click on a block: open it, or (click mode "done") tick it done / undo, like LifeOS. */

@@ -10,6 +10,20 @@ type Source = "web" | "mobile" | "telegram_bot";
 /** An error whose message is safe and useful to show to the user as is. */
 export class CaptureError extends Error {}
 
+/**
+ * Thrown (only when processCapture is called with askAccount) for a money message that names no
+ * account while the user has accounts: the Telegram bot then asks which account before saving.
+ */
+export class AccountChoiceNeeded extends Error {
+  constructor(
+    public parsed: Extract<Parsed, { kind: "transaction" }>,
+    public by: "ai" | "rules",
+    public accounts: AccountRef[]
+  ) {
+    super("Which account?");
+  }
+}
+
 export async function userContext(supabase: SupabaseClient, userId: string) {
   const [{ data: settings }, { data: cats }, { data: accs }] = await Promise.all([
     supabase.from("user_settings").select("timezone").eq("user_id", userId).maybeSingle(),
@@ -88,7 +102,8 @@ export async function processCapture(
   userId: string,
   text: string,
   source: Source,
-  accountId: string | null = null
+  accountId: string | null = null,
+  askAccount = false
 ) {
   const ctx = await userContext(supabase, userId);
 
@@ -122,10 +137,25 @@ export async function processCapture(
       final = { ...parsed, description: stripAccount(parsed.description, found.needle) };
     } else if (accountId) {
       account = ctx.accounts.find((a) => a.id === accountId) ?? null;
+    } else if (askAccount && ctx.accounts.length > 0) {
+      throw new AccountChoiceNeeded(parsed, by, ctx.accounts);
     }
   }
   const saved = await saveParsed(supabase, userId, final, source, ctx, account);
   return { saved, parsed: final, by };
+}
+
+/** Saves a transaction that was waiting for its account (Telegram button). account = null means "no account". */
+export async function savePendingTransaction(
+  supabase: SupabaseClient,
+  userId: string,
+  parsed: Extract<Parsed, { kind: "transaction" }>,
+  accountId: string | null
+) {
+  const ctx = await userContext(supabase, userId);
+  const account = accountId ? ctx.accounts.find((a) => a.id === accountId) ?? null : null;
+  if (accountId && !account) throw new CaptureError("That account no longer exists. Send the message again.");
+  return saveParsed(supabase, userId, parsed, "telegram_bot", ctx, account);
 }
 
 export async function saveTransfer(

@@ -19,13 +19,13 @@ import { unassignedOn } from "@/lib/calendar/taskview";
 import UnassignedTray from "@/components/calendar/UnassignedTray";
 import FreeDayDialog from "@/components/calendar/FreeDayDialog";
 import { addDays, dateRange, daysBetween, isoWeekday, minutesToTime, timeToMinutes, ISO_DAY_SHORT } from "@/lib/time";
-import type { CalResult, EditScope } from "@/lib/calendar/types";
+import type { CalResult, EditScope, Occurrence } from "@/lib/calendar/types";
 import TimeGrid, { type MoveRequest } from "@/components/calendar/TimeGrid";
 import MonthGrid from "@/components/calendar/MonthGrid";
 import BlockDialog from "@/components/calendar/BlockDialog";
 import EventDialog from "@/components/calendar/EventDialog";
 import OccurrenceDialog from "@/components/calendar/OccurrenceDialog";
-import ScopeDialog, { forwardLabel } from "@/components/calendar/ScopeDialog";
+import ScopeDialog, { forwardLabel, ResizeDialog } from "@/components/calendar/ScopeDialog";
 import { useCalendarData } from "@/components/calendar/useCalendarData";
 import { optimistic } from "@/components/calendar/optimistic";
 import type { CalendarData } from "@/lib/calendar/types";
@@ -63,6 +63,7 @@ type Dialog =
   | { kind: "occurrence"; id: string }
   | { kind: "event"; id: string }
   | { kind: "move"; id: string; date: string; start: number; end: number }
+  | { kind: "resize"; id: string; date: string; start: number; end: number; conflict?: string | null }
   | { kind: "new-free"; date: string }
   | { kind: "free"; id: string; date: string }
   | { kind: "bulk-remove" }
@@ -77,6 +78,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
   const [toast, setToast] = useState<Toast | null>(null);
   const [clickMode, setClickMode] = useState<ClickMode>("open");
   const [moveScope, setMoveScope] = useState<MoveScope>("ask");
+  const [resizeScope, setResizeScope] = useState<MoveScope>("ask");
   const [progressMode, setProgressMode] = useState<ProgressMode>("sofar");
   const [tint, setTint] = useState(false);
   const [showPaused, setShowPaused] = useState(false);
@@ -98,6 +100,8 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
     setHidden(hd);
     setClickMode(readPref("cal.click") === "done" ? "done" : "open");
     const ms = readPref("cal.moveScope");
+    const rs = readPref("cal.resizeScope");
+    setResizeScope(rs === "this_day" || rs === "forward" ? rs : "ask");
     setMoveScope(ms === "this_day" || ms === "forward" ? ms : "ask");
     setProgressMode(readPref("cal.progress") === "week" ? "week" : "sofar");
     setTint(readPref("cal.tint") === "1");
@@ -205,7 +209,12 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
    * `instant`: the change is shown right away (before the server answers) and undone if it fails.
    */
   const run = useCallback(
-    async (fn: () => Promise<CalResult>, instant?: (d: CalendarData) => CalendarData): Promise<boolean> => {
+    async (
+      fn: () => Promise<CalResult>,
+      instant?: (d: CalendarData) => CalendarData,
+      /** Handles an error itself (return true) instead of the red message */
+      onFail?: (res: CalResult) => boolean
+    ): Promise<boolean> => {
       if (instant) patch(instant);
       let res: CalResult;
       try {
@@ -225,7 +234,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
         res = { error: "Could not reach the server. Check your connection." };
       }
       if (res.error) {
-        setToast({ ok: false, text: res.error });
+        if (!onFail?.(res)) setToast({ ok: false, text: res.error });
         if (instant) void reload(); // put things back where the server has them
         return false;
       }
@@ -250,6 +259,10 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
       return;
     }
     const o = data.occurrences.find((x) => x.id === req.id);
+    if (o && req.resize && req.date === o.date) {
+      onResize(o, req);
+      return;
+    }
     if (!o || moveScope === "ask") {
       setDialog({ kind: "move", id: req.id, date: req.date, start: req.start, end: req.end });
       return;
@@ -286,8 +299,64 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
     })();
   }
 
+  /**
+   * A block was resized (bottom handle): only this day, or this one and every following week on that
+   * weekday. Asks by default (Calendar ⚙ → After resizing a block). A one-day block or a past day
+   * just changes. If the weekly change is blocked by another block, it is put back and the window says why.
+   */
+  function onResize(o: Occurrence, req: MoveRequest) {
+    if (!data) return;
+    const canForward = Boolean(forwardLabel(o, data.today));
+    if (canForward && resizeScope === "ask") {
+      setDialog({ kind: "resize", id: o.id, date: req.date, start: req.start, end: req.end });
+      return;
+    }
+    void applyResize(o, req.start, req.end, canForward && resizeScope === "forward" ? "forward" : "this_day");
+  }
+
+  async function applyResize(o: Occurrence, start: number, end: number, scope: EditScope) {
+    const before = { start: o.start_time.slice(0, 5), end: o.end_time.slice(0, 5) };
+    // For Undo of a weekly change: the pattern's own end before (days changed by hand may differ)
+    const patternEndBefore = data?.slots.find((s) => s.id === o.slot_id)?.end_time.slice(0, 5);
+    const ok = await run(
+      () => editOccurrence({ id: o.id, date: o.date, start: minutesToTime(start), end: minutesToTime(end), scope, resize: true }),
+      optimistic.move(o.id, o.date, start, end),
+      (res) => {
+        // Blocked somewhere in the following weeks: the block goes back as it was; offer "only this day"
+        if (scope === "forward" && res.code === "CONFLICT") {
+          setDialog({ kind: "resize", id: o.id, date: o.date, start, end, conflict: res.error });
+          return true;
+        }
+        return false;
+      }
+    );
+    if (!ok) return;
+    const startMin = timeToMinutes(before.start);
+    setToast({
+      ok: true,
+      text: scope === "forward" ? "Resized this day and every following week." : "Resized (only this day).",
+      action: {
+        label: "Undo",
+        fn: () =>
+          void run(
+            () =>
+              editOccurrence({
+                id: o.id,
+                date: o.date,
+                start: before.start,
+                end: before.end,
+                scope,
+                resize: true,
+                patternEnd: scope === "forward" ? patternEndBefore : undefined,
+              }),
+            optimistic.move(o.id, o.date, startMin, startMin + durationMinutes(before.start, before.end))
+          ),
+      },
+    });
+  }
+
   const occ =
-    dialog && (dialog.kind === "occurrence" || dialog.kind === "move")
+    dialog && (dialog.kind === "occurrence" || dialog.kind === "move" || dialog.kind === "resize")
       ? data?.occurrences.find((o) => o.id === dialog.id) ?? null
       : null;
   const ev = dialog?.kind === "event" ? data?.events.find((e) => e.id === dialog.id) ?? null : null;
@@ -416,6 +485,18 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
                 <option value="ask">ask every time</option>
                 <option value="this_day">only that day (with Undo)</option>
                 <option value="forward">that day on, every week</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-1" title="What happens after you stretch or shrink a block from its bottom edge">
+              After resizing a block:
+              <select
+                value={resizeScope}
+                onChange={(e) => pref("cal.resizeScope", e.target.value as MoveScope, setResizeScope)}
+                className="rounded border border-line-strong px-1 py-0.5"
+              >
+                <option value="ask">ask every time</option>
+                <option value="this_day">only that day (with Undo)</option>
+                <option value="forward">that day and every following week (with Undo)</option>
               </select>
             </label>
             <label className="flex items-center gap-1">
@@ -708,6 +789,22 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
             </button>
           </div>
         </Modal>
+      )}
+      {data && dialog?.kind === "resize" && occ && (
+        <ResizeDialog
+          occ={occ}
+          name={data.blockTypes.find((t) => t.id === occ.block_type_id)?.name ?? "Block"}
+          start={dialog.start}
+          end={dialog.end}
+          today={data.today}
+          conflict={dialog.conflict}
+          onClose={() => setDialog(null)}
+          onPick={(scope: EditScope) => {
+            const d = dialog as Extract<Dialog, { kind: "resize" }>;
+            setDialog(null);
+            void applyResize(occ, d.start, d.end, scope);
+          }}
+        />
       )}
       {data && dialog?.kind === "move" && occ && (
         <ScopeDialog

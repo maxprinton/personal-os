@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { botToken, HELP, sendMessage, tg, unpackId, webhookSecret } from "@/lib/telegram";
-import { CaptureError, processCapture, undoSaved } from "@/lib/capture";
+import { botToken, HELP, packId, sendMessage, tg, unpackId, webhookSecret } from "@/lib/telegram";
+import { AccountChoiceNeeded, CaptureError, processCapture, savePendingTransaction, undoSaved } from "@/lib/capture";
+import { describe, type Parsed } from "@/lib/parse";
+import { balanceText, isBalanceRequest } from "@/lib/bot-balance";
 import { completeTaskFromBot, markHabitFromBot } from "@/lib/reminders";
 import { parseHabitCommand, runHabitCommand } from "@/lib/bot-habits";
 import { isTodayRequest, todayStatus } from "@/lib/bot-today";
+import { aheadRequest, aheadText } from "@/lib/bot-ahead";
 import { archiveFromBot, rescheduleNextFromBot } from "@/lib/bot-task-actions";
 
 export const runtime = "nodejs";
@@ -14,7 +17,7 @@ const DAILY_LIMIT = 100;
 
 type TgUpdate = {
   message?: { chat: { id: number }; text?: string };
-  callback_query?: { id: string; data?: string; message?: { chat: { id: number } } };
+  callback_query?: { id: string; data?: string; message?: { message_id?: number; chat: { id: number } } };
 };
 
 const ok = () => NextResponse.json({ ok: true });
@@ -30,6 +33,73 @@ export async function POST(req: Request) {
   const update = (await req.json().catch(() => ({}))) as TgUpdate;
 
   // ---- "Undo" button --------------------------------------------------
+  // ---- Account buttons: ac:<message>:<account> | n (no account) | x (cancel) ----------------
+  const accBtn = /^ac:([A-Za-z0-9_-]{22}):([A-Za-z0-9_-]{22}|n|x)$/.exec(update.callback_query?.data ?? "");
+  if (update.callback_query && accBtn) {
+    const cq = update.callback_query;
+    const chatId = cq.message?.chat.id;
+    const messageId = cq.message?.message_id;
+    const bmId = unpackId(accBtn[1]);
+    let answer = "Could not save that.";
+    let finalText: string | null = null;
+    let undoId: string | undefined;
+    if (chatId && bmId) {
+      const { data: s } = await admin.from("user_settings").select("user_id").eq("telegram_chat_id", chatId).maybeSingle();
+      if (s) {
+        const { data: bm } = await admin
+          .from("bot_messages")
+          .select("id,status,parsed")
+          .eq("id", bmId)
+          .eq("user_id", s.user_id)
+          .maybeSingle();
+        const parsed = bm?.parsed as (Parsed & { by?: string }) | null;
+        if (!bm || bm.status !== "parsed" || !parsed || parsed.kind !== "transaction") {
+          answer = "Already handled.";
+        } else if (accBtn[2] === "x") {
+          await admin.from("bot_messages").update({ status: "undone" }).eq("id", bm.id);
+          answer = "Cancelled.";
+          finalText = "Cancelled. Nothing was saved.";
+        } else {
+          try {
+            // Claim it first, so a double tap cannot save it twice
+            const { data: claimed } = await admin
+              .from("bot_messages")
+              .update({ status: "received" })
+              .eq("id", bm.id)
+              .eq("status", "parsed")
+              .select("id");
+            if (!claimed?.length) {
+              answer = "Already handled.";
+            } else {
+              const accountId = accBtn[2] === "n" ? null : unpackId(accBtn[2]);
+              const saved = await savePendingTransaction(admin, s.user_id, parsed, accountId);
+              await admin
+                .from("bot_messages")
+                .update({ status: "saved", entity_type: saved.entityType, entity_id: saved.id })
+                .eq("id", bm.id);
+              answer = "Saved ✓";
+              finalText = `Saved ✓ ${saved.summary}`;
+              undoId = bm.id;
+            }
+          } catch (e) {
+            await admin.from("bot_messages").update({ status: "parsed" }).eq("id", bm.id).eq("status", "received");
+            answer = e instanceof CaptureError ? e.message : "Could not save that. Try again.";
+          }
+        }
+      }
+    }
+    await tg("answerCallbackQuery", { callback_query_id: cq.id, text: answer.slice(0, 190) });
+    if (chatId && messageId && finalText) {
+      await tg("editMessageText", {
+        chat_id: chatId,
+        message_id: messageId,
+        text: finalText,
+        reply_markup: { inline_keyboard: undoId ? [[{ text: "Undo", callback_data: `undo:${undoId}` }]] : [] },
+      });
+    }
+    return ok();
+  }
+
   // ---- Habit buttons (evening check-in): hk:d = done, hk:s = skip, per habit inside its block ----
   const habitBtn = /^hk:([ds]):([A-Za-z0-9_-]{22}):([A-Za-z0-9_-]{22})$/.exec(update.callback_query?.data ?? "");
   if (update.callback_query && habitBtn) {
@@ -191,6 +261,27 @@ export async function POST(req: Request) {
     return ok();
   }
 
+  // ---- /balance: money in each account (read only) ---------------------------------
+  if (isBalanceRequest(text)) {
+    try {
+      await sendMessage(chatId, await balanceText(admin, userId));
+    } catch {
+      await sendMessage(chatId, "Sorry, I could not load your balances. Try again in a minute.");
+    }
+    return ok();
+  }
+
+  // ---- /tomorrow, /thisweek, /nextweek (read only) -------------------------
+  const ahead = aheadRequest(text);
+  if (ahead) {
+    try {
+      await sendMessage(chatId, await aheadText(admin, userId, (settings.timezone as string | null) ?? "America/Guayaquil", ahead));
+    } catch {
+      await sendMessage(chatId, "Sorry, I could not load that. Try again in a minute.");
+    }
+    return ok();
+  }
+
   // ---- /undo -------------------------------------------------------------
   if (/^\/undo\b/i.test(text)) {
     const { data: last } = await admin
@@ -258,7 +349,7 @@ export async function POST(req: Request) {
     .select("id")
     .single();
   try {
-    const { saved, parsed, by } = await processCapture(admin, userId, text, "telegram_bot");
+    const { saved, parsed, by } = await processCapture(admin, userId, text, "telegram_bot", null, true);
     if (bm) {
       await admin
         .from("bot_messages")
@@ -267,6 +358,25 @@ export async function POST(req: Request) {
     }
     await sendMessage(chatId, `Saved ✓ ${saved.summary}`, bm?.id);
   } catch (e) {
+    if (e instanceof AccountChoiceNeeded && bm) {
+      // Money message without an account: keep it pending and ask which account before saving
+      await admin.from("bot_messages").update({ status: "parsed", parsed: { ...e.parsed, by: e.by } }).eq("id", bm.id);
+      const key = packId(bm.id);
+      const rows: { text: string; callback_data: string }[][] = [];
+      for (let i = 0; i < e.accounts.length; i += 2) {
+        rows.push(e.accounts.slice(i, i + 2).map((a) => ({ text: a.name.slice(0, 30), callback_data: `ac:${key}:${packId(a.id)}` })));
+      }
+      rows.push([
+        { text: "No account", callback_data: `ac:${key}:n` },
+        { text: "Cancel", callback_data: `ac:${key}:x` },
+      ]);
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `${describe(e.parsed)}\n\nWhich account?`,
+        reply_markup: { inline_keyboard: rows },
+      });
+      return ok();
+    }
     const message = e instanceof Error ? e.message : "Unknown error";
     if (bm) await admin.from("bot_messages").update({ status: "failed", error: message }).eq("id", bm.id);
     await sendMessage(
