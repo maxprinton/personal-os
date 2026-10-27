@@ -4,7 +4,7 @@ import { addDays, utcToLocal } from "@/lib/time";
 import type { CalEvent, EventType } from "@/lib/calendar/types";
 
 export const EVENT_COLS =
-  "id,title,event_type_id,event_date,end_date,start_time,end_time,is_payment,payment_template_id,payment_status";
+  "id,title,event_type_id,event_date,end_date,start_time,end_time,is_payment,payment_template_id,payment_status,payment_expected_amount";
 
 export type EventDbRow = {
   id: string;
@@ -17,11 +17,17 @@ export type EventDbRow = {
   is_payment?: boolean;
   payment_template_id?: string | null;
   payment_status?: "paid" | "skipped" | null;
+  payment_expected_amount?: number | string | null;
 };
 
 export function toCalEvent(r: EventDbRow, tz: string): CalEvent {
   const pay = r.is_payment
-    ? { is_payment: true, payment_template_id: r.payment_template_id ?? null, payment_status: r.payment_status ?? null }
+    ? {
+        is_payment: true,
+        payment_template_id: r.payment_template_id ?? null,
+        payment_status: r.payment_status ?? null,
+        payment_expected_amount: r.payment_expected_amount == null ? null : Number(r.payment_expected_amount),
+      }
     : {};
   if (!r.start_time || !r.end_time) {
     return { id: r.id, title: r.title, event_type_id: r.event_type_id, date: r.event_date, end_date: r.end_date, start: null, end: null, ...pay };

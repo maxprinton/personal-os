@@ -50,6 +50,8 @@ export type CalEvent = {
   is_payment?: boolean;
   payment_template_id?: string | null;
   payment_status?: "paid" | "skipped" | null;
+  /** This payment's own expected amount ("edit only this one"); null = the series amount. */
+  payment_expected_amount?: number | null;
 };
 
 export type PaymentTemplate = {
@@ -136,4 +138,4 @@ export type CalendarData = {
 };
 
 /** Result of every calendar server action. */
-export type CalResult = { ok?: boolean; error?: string; code?: "PAST_LOCKED" | "READ_ONLY" | "NEEDS_CHOICE" | "ALREADY_PAID" };
+export type CalResult = { ok?: boolean; error?: string; notice?: string; code?: "PAST_LOCKED" | "READ_ONLY" | "NEEDS_CHOICE" | "ALREADY_PAID" };

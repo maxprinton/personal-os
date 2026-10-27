@@ -30,7 +30,7 @@ type Props = {
   onMoveOccurrence: (req: MoveRequest) => void;
   onToggleDone: (occurrenceId: string) => void;
   onDropTask: (drop: TaskDrop) => void;
-  onOpenFreeDay: (id: string) => void;
+  onOpenFreeDay: (id: string, date: string) => void;
   onBlocked: (message: string) => void;
   onPickDay?: (date: string) => void;
   /** Multi-select: Ctrl/⌘/Shift+click adds or removes a block; dragging a selected block moves them all. */
@@ -172,11 +172,14 @@ export default function TimeGrid({
   const blocksPerCol = useMemo(
     () =>
       days.map((date) =>
-        data.occurrences.flatMap((o) => {
-          const [a, b] = occAbs(o, date);
-          const c = clip(a, b, S);
-          return c ? [{ o, ...c, realStart: a }] : [];
-        })
+        data.occurrences
+          .flatMap((o) => {
+            const [a, b] = occAbs(o, date);
+            const c = clip(a, b, S);
+            return c ? [{ o, ...c, realStart: a }] : [];
+          })
+          // Paused blocks (shown faded on free days) are drawn first, so blocks added there sit on top
+          .sort((x, y) => Number(y.o.status === "free_day") - Number(x.o.status === "free_day"))
       ),
     [days, data.occurrences, S]
   );
@@ -505,7 +508,7 @@ export default function TimeGrid({
               return free ? (
                 <button
                   type="button"
-                  onClick={() => onOpenFreeDay(free.id)}
+                  onClick={() => onOpenFreeDay(free.id, date)}
                   className="mx-0.5 mb-0.5 block w-[calc(100%-4px)] truncate rounded bg-success-soft px-1 text-[11px] text-success"
                   title={free.note ?? "Free day"}
                 >
@@ -610,7 +613,7 @@ export default function TimeGrid({
                 return (
                   <div
                     key={`${o.id}-${date}`}
-                    data-occ={o.id}
+                    data-occ={muted ? undefined : o.id}
                     onPointerDown={(e) => !cutTop && startDrag(e, o, col, top, "move")}
                     onPointerMove={moveDrag}
                     onPointerUp={endDrag}
@@ -626,7 +629,7 @@ export default function TimeGrid({
                     }`}
                     className={`absolute inset-x-0.5 select-none overflow-hidden rounded-md px-1.5 py-0.5 shadow-sm ${
                       readOnly || cutTop ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
-                    } ${dragging ? "opacity-40" : ""} ${
+                    } ${dragging ? "opacity-40" : ""} ${muted ? "pointer-events-none border border-dashed border-line-strong shadow-none" : ""} ${
                       dropOn === `occ-${o.id}-${date}`
                         ? "ring-2 ring-accent ring-offset-1"
                         : isSelected
@@ -636,7 +639,7 @@ export default function TimeGrid({
                     style={{
                       top: (top / 60) * H,
                       height,
-                      background: muted ? alpha(color, 0.18) : color,
+                      background: muted ? alpha(color, 0.12) : color,
                       color: muted ? "var(--muted)" : textOn(color),
                       touchAction: readOnly ? "auto" : "none",
                     }}
@@ -644,7 +647,7 @@ export default function TimeGrid({
                     <p className={`truncate font-medium leading-tight ${canTick || (!readOnly && clickMode === "done") ? "pr-4" : ""}`}>
                       {o.status === "done" ? "✓ " : o.status === "partial" ? "◐ " : ""}
                       {type?.name ?? "Block"}
-                      {muted ? " · free day" : ""}
+                      {muted ? " · paused" : ""}
                       {hp.all > 0 && !muted ? <span className="ml-1 font-normal opacity-80">{hp.done}/{hp.total}</span> : null}
                       {blockTasks.length > 0 && taskRows === 0 ? (
                         <span className="ml-1 font-normal opacity-80">· {blockTasks.length} task{blockTasks.length > 1 ? "s" : ""}</span>

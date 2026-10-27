@@ -19,6 +19,7 @@ export default function BlockDialog({
   run,
   onClose,
   onMakeEvent,
+  freeDays = [],
 }: {
   date: string;
   start: number;
@@ -28,14 +29,17 @@ export default function BlockDialog({
   run: (fn: () => Promise<CalResult>) => Promise<boolean>;
   onClose: () => void;
   onMakeEvent?: (date: string, start: string, end: string, title: string) => void;
+  /** Free-day ranges: on those days a block is "only this day" by default */
+  freeDays?: { from_date: string; to_date: string }[];
 }) {
+  const isFree = (d: string) => freeDays.some((f) => f.from_date <= d && d <= f.to_date);
   const live = useMemo(() => blockTypes.filter((t) => !t.removed), [blockTypes]);
   const [name, setName] = useState(initialName);
   const [color, setColor] = useState("#6366f1");
   const [day, setDay] = useState(date);
   const [from, setFrom] = useState(minutesToTime(start));
   const [to, setTo] = useState(minutesToTime(end));
-  const [repeat, setRepeat] = useState<Repeat>("weekly");
+  const [repeat, setRepeat] = useState<Repeat>(() => (isFree(date) ? "this_day" : "weekly"));
   const [weekdays, setWeekdays] = useState<number[]>([isoWeekday(date)]);
   const [busy, setBusy] = useState(false);
 
@@ -144,7 +148,12 @@ export default function BlockDialog({
             <input type="radio" checked={repeat === "this_day"} onChange={() => setRepeat("this_day")} />
             Only this day
           </label>
-          {repeat === "this_day" && (
+          {isFree(day) && (
+            <p className="pl-6 text-xs text-success">
+              🌴 Free day: a block for only this day counts as normal (habits, ticks, streaks). Your weekly blocks stay paused.
+            </p>
+          )}
+          {repeat === "this_day" && !isFree(day) && (
             <p className="pl-6 text-xs text-muted">
               A one-day thing is usually an event.
               {onMakeEvent && (

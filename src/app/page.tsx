@@ -215,6 +215,7 @@ export default async function CommandCenter() {
                         title={p.title}
                         date={p.date}
                         template={p.template}
+                        expected={p.expected}
                         options={financeOptions}
                         today={now.date}
                         readOnly={mobile}

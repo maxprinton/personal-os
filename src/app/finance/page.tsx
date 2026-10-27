@@ -22,7 +22,7 @@ import {
 } from "@/app/finance-actions";
 import TxnAccountSelect from "@/components/TxnAccountSelect";
 import { AccountForm, BudgetForm, CategoryForm, TransactionForm, TransferForm } from "@/components/FinanceForms";
-import { PaymentDraft, PaymentForm, StopPaymentButton, PaymentRow, TemplateAccountSelect } from "@/components/PaymentForms";
+import { EditPaymentButton, PaymentDraft, PaymentForm, StopPaymentButton, PaymentRow, TemplateAccountSelect } from "@/components/PaymentForms";
 import { currentUserId } from "@/lib/calendar/model";
 import { getDuePayments, getPaymentTemplates } from "@/lib/calendar/payments";
 import { describeRepeat } from "@/lib/calendar/recurrence";
@@ -51,14 +51,23 @@ export default async function FinancePage() {
   // Payment events of the last month and the next one: upcoming ones can be paid early, paid ones show what was recorded
   const { data: payEventsData } = await supabase
     .from("events")
-    .select("id,title,event_date,payment_template_id,payment_status")
+    .select("id,title,event_date,payment_template_id,payment_status,payment_expected_amount")
     .eq("is_payment", true)
     .is("deleted_at", null)
     .gte("event_date", addDays(today, -31))
     .lte("event_date", addDays(today, 62))
     .order("event_date");
-  type PayEvent = { id: string; title: string; event_date: string; payment_template_id: string | null; payment_status: "paid" | "skipped" | null };
-  const payEvents = (payEventsData ?? []) as PayEvent[];
+  type PayEvent = {
+    id: string;
+    title: string;
+    event_date: string;
+    payment_template_id: string | null;
+    payment_status: "paid" | "skipped" | null;
+    payment_expected_amount: number | null;
+  };
+  const payEvents = ((payEventsData ?? []) as (Omit<PayEvent, "payment_expected_amount"> & { payment_expected_amount: number | string | null })[]).map(
+    (e) => ({ ...e, payment_expected_amount: e.payment_expected_amount === null ? null : Number(e.payment_expected_amount) })
+  );
   const dueIds = new Set(due.map((p) => p.eventId));
   const upcoming = payEvents.filter((e) => !e.payment_status && e.event_date > today && e.event_date <= addDays(today, 31));
   const recent = payEvents.filter((e) => e.payment_status && e.event_date <= today).reverse().slice(0, 8);
@@ -215,7 +224,7 @@ export default async function FinancePage() {
             </p>
             {due.map((p) => (
               <div key={p.eventId} className="rounded-lg border border-success/30 bg-success-soft p-3">
-                <PaymentDraft eventId={p.eventId} title={p.title} date={p.date} template={p.template} options={payOptions} today={today} readOnly={mobile} />
+                <PaymentDraft eventId={p.eventId} title={p.title} date={p.date} template={p.template} expected={p.expected} options={payOptions} today={today} readOnly={mobile} />
               </div>
             ))}
             {templates.length > 0 && (
@@ -235,6 +244,7 @@ export default async function FinancePage() {
                         </span>
                         <span className="flex items-center gap-3">
                           <TemplateAccountSelect templateId={t.id} accountId={t.account_id} accounts={payOptions.accounts} disabled={mobile} />
+                          {!mobile && <EditPaymentButton template={t} options={payOptions} today={today} />}
                           {!mobile && <StopPaymentButton id={t.id} name={t.name} />}
                         </span>
                       </div>
@@ -247,6 +257,7 @@ export default async function FinancePage() {
                             title={next.title}
                             date={next.event_date}
                             template={t}
+                            expected={next.payment_expected_amount}
                             options={payOptions}
                             today={today}
                             readOnly={mobile}
@@ -274,6 +285,7 @@ export default async function FinancePage() {
                         title={e.title}
                         date={e.event_date}
                         template={templates.find((x) => x.id === e.payment_template_id) ?? null}
+                        expected={e.payment_expected_amount}
                         options={payOptions}
                         today={today}
                         readOnly={mobile}
@@ -293,6 +305,7 @@ export default async function FinancePage() {
                       title={e.title}
                       date={e.event_date}
                       template={templates.find((x) => x.id === e.payment_template_id) ?? null}
+                      expected={e.payment_expected_amount}
                       options={payOptions}
                       today={today}
                       status={e.payment_status}

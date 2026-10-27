@@ -93,6 +93,7 @@ export default function EventDialog({
           options={fin}
           today={todayStr}
           status={event.payment_status ?? null}
+          expected={event.payment_expected_amount ?? null}
           readOnly={readOnly}
           onDone={onClose}
         />

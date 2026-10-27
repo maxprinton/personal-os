@@ -90,7 +90,7 @@ export async function getAgenda(supabase: Supabase, date: string, tz: string) {
   const items: AgendaItem[] = [];
   for (const o of occurrences) {
     const span = spanOn(o, date);
-    if (!span) continue;
+    if (!span || o.status === "free_day") continue; // paused by a free day: hidden, like in the calendar
     const type = typeById.get(o.block_type_id);
     items.push({
       kind: "block",

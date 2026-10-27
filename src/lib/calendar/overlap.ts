@@ -57,7 +57,8 @@ function absInterval(base: string, date: string, start: string, end: string): [n
 
 export type OccurrenceCandidate = Pick<Occurrence, "date" | "start_time" | "end_time">;
 
-/** First live occurrence that would overlap the candidate on the real timeline. */
+/** First live occurrence that would overlap the candidate on the real timeline.
+ * Blocks paused by a free day don't count: other blocks can be put in their place. */
 export function findOccurrenceConflict(
   candidate: OccurrenceCandidate,
   occurrences: Occurrence[],
@@ -65,7 +66,7 @@ export function findOccurrenceConflict(
 ) {
   const a = absInterval(candidate.date, candidate.date, candidate.start_time, candidate.end_time);
   return occurrences.find((o) => {
-    if (ignore.has(o.id) || o.status === "cancelled") return false;
+    if (ignore.has(o.id) || o.status === "cancelled" || o.status === "free_day") return false;
     const b = absInterval(candidate.date, o.date, o.start_time, o.end_time);
     return a[0] < b[1] && b[0] < a[1];
   });

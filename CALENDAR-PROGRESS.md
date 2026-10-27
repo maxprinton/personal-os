@@ -185,3 +185,36 @@ All files are written to be safe to run twice. `time_blocks` and `activity_logs`
 - Instant changes: moves, copies, stretches, ✓/undo, removes show at once (components/calendar/optimistic.ts) and are put back if the server refuses. Each change reloads once (no double reload); the full calendar page no longer refreshes the whole page after a change.
 - Esc closes the block window even while typing in it.
 - To test: box-select 3 blocks; Alt+drag them to another day; stretch one of them; try to stretch into another block → refused and put back.
+
+## Free days v2 (added 2026-10-26) — no migration needed
+- **Paused weekly blocks are hidden** in day/week/month and on Today, and they **don't count for overlaps**: you can put other blocks in their place. Calendar ⚙ → "Show paused blocks on free days" shows them faded and unclickable, under your blocks.
+- **Blocks you add on a free day are normal** (habits, ticks, streaks, reminders). A new block on a free day defaults to "Only this day". One-day blocks that already existed are not paused; only the weekly pattern pauses.
+- **Tasks:** only `migrate` tasks move (with the chosen policy). Tasks tied to an event stay with the event. Other tasks stay on their day; if they were in a paused block they wait in Unassigned.
+- **Ranges join:** marking days that overlap or touch an existing free range joins them into one (only the new days are applied; tasks go after the end of the joined range).
+- **Free one day only:** click the 🌴 label of a day → "Make only <day> a normal day again" (the range is cut if needed). "Remove all these free days" keeps days already past as free.
+- **Your blocks win:** when free days are removed, a paused block that would overlap a block you added stays paused that day (a message lists them).
+- **Overnight blocks** follow the day they start. Events and payments are never touched.
+- Dialog: quick buttons 1 / 2 / 3 days and Start today / Start tomorrow.
+- Telegram: the morning summary says the weekly blocks are paused and lists events + blocks you added; no reminders or night check for paused blocks; unassigned nag stays quiet.
+
+### What to test
+1. Mark tomorrow → day after (2 days), "Move them to the day after": weekly blocks vanish on both days, tasks land on day 3, events still there.
+2. Add a block "Only this day" where a paused block was: no overlap error; its habit can be ticked and counts for the streak.
+3. Mark the day after the range: a message says they were joined; one 🌴 range.
+4. Click 🌴 on the middle day → "Make only … a normal day again": that day's blocks come back except any that overlap the block you added (message).
+5. ⚙ → Show paused blocks: they appear faded behind yours.
+6. A task tied to an event on a free day stays with the event; a backlog task stays on its day.
+
+## Scheduled payments fully editable (added 2026-10-26) — needs migration 0016
+- **Run `MIGRACION-0016-editar-pagos.sql` in Supabase BEFORE publishing** (adds `events.payment_origin_date` and `events.payment_expected_amount`; the unique index now uses the original date).
+- **Edit the series:** Finance → Scheduled payments → **Edit** (window), or "Edit the series" inside any payment (calendar, Events, Finance, Today). Same form as creating: name, expense/income, expected amount, account, category, date, repeat, every N, end.
+  - Name, amount, account, category, type apply to **every payment not paid yet**, overdue ones included. Paid/skipped ones and their transactions don't change.
+  - New dates (first date, repeat, every, end): **future unpaid payments are redone** with the new schedule; **overdue unpaid ones stay** (a message says how many). One-time payment not paid yet: it just moves to the new date.
+- **Edit only this one:** inside a payment not paid yet → its own date and its own expected amount (empty = series amount). The series won't create it again on its old date (that's what `payment_origin_date` is for; this also fixes moving a payment event by hand). A payment's own amount wins over later series amount changes.
+
+### What to test
+1. Change a monthly payment's amount and name: next and overdue unpaid ones show the new ones; a paid one keeps its name and transaction.
+2. Change "every month on the 5th" to the 15th: upcoming ones move to the 15th; an overdue one from the 5th is still there.
+3. "Edit only this one" → move next month's to another day and set $5 more: only that one changes; it isn't created again on the old day.
+4. Change a one-time payment's date: it moves (no duplicate).
+5. Add an end date: payments after it disappear.

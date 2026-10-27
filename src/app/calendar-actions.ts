@@ -3,7 +3,7 @@
 // Calendar v2 server actions. Called directly from the calendar panel (client components).
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { addDays, isDate, isTime, isoWeekday, localNow, minutesToTime, timeToMinutes, zonedToUtc } from "@/lib/time";
+import { addDays, dateRange, daysBetween, isDate, isTime, isoWeekday, localNow, minutesToTime, timeToMinutes, zonedToUtc } from "@/lib/time";
 import { ensureOccurrences, getOccurrence, getOccurrences, getSlots } from "@/lib/calendar/model";
 import {
   afterOccurrencesChanged,
@@ -21,10 +21,10 @@ import { getChecks, getHabits, recomputeOccurrenceStatus, setHabitCheck } from "
 import { habitsForOccurrence } from "@/lib/calendar/habitview";
 import { autoPlaceTasks, countMove, getTask, nextOccurrenceAfter } from "@/lib/calendar/tasks";
 import { applyFreeDays, undoFreeDays } from "@/lib/calendar/freedays";
-import { ensurePaymentEvents } from "@/lib/calendar/payments";
+import { ensurePaymentEvents, reschedulePaymentEvents, TEMPLATE_COLS } from "@/lib/calendar/payments";
 import type { RepeatUnit } from "@/lib/calendar/recurrence";
 import { isMobileRequest, READ_ONLY_MESSAGE } from "@/lib/device";
-import type { CalResult, EditScope, FreeDayPolicy, HabitState, Occurrence } from "@/lib/calendar/types";
+import type { CalResult, EditScope, FreeDayPolicy, HabitState, Occurrence, PaymentTemplate } from "@/lib/calendar/types";
 import { durationOf, findOccurrenceConflict } from "@/lib/calendar/overlap";
 
 /** Thrown when an edit comes from a phone (the calendar is read-only there). */
@@ -91,9 +91,9 @@ export async function lockPast(): Promise<CalResult> {
   }
 }
 
-function done(): CalResult {
+function done(notice?: string): CalResult {
   revalidatePath("/", "layout");
-  return { ok: true };
+  return notice ? { ok: true, notice } : { ok: true };
 }
 
 function fail(e: unknown): CalResult {
@@ -985,7 +985,10 @@ export async function dismissRitual(): Promise<CalResult> {
 
 // ---------- Free days ------------------------------------------------------------
 
-/** Mark one day or a range as free (trip, holiday). Events stay visible. */
+/**
+ * Mark one day or a range as free (trip, holiday). Events stay visible.
+ * Touching or overlapping free ranges are joined into one; only the new dates are applied.
+ */
 export async function createFreeDays(input: {
   from: string;
   to?: string;
@@ -1000,30 +1003,61 @@ export async function createFreeDays(input: {
     const to = input.to && isDate(input.to) ? input.to : input.from;
     if (to < input.from) return { error: "The last day is before the first one." };
     const policy: FreeDayPolicy = ["move_next", "unassigned", "home_block"].includes(input.policy) ? input.policy : "move_next";
-    const { data: overlap } = await c.sb
+    const note = (input.note ?? "").trim().slice(0, 200) || null;
+
+    // Ranges that overlap or touch (the day before / after) are joined
+    const { data: near } = await c.sb
       .from("free_days")
-      .select("id")
+      .select("id,from_date,to_date,note")
       .eq("user_id", c.userId)
       .is("deleted_at", null)
-      .lte("from_date", to)
-      .gte("to_date", input.from)
-      .limit(1);
-    if (overlap?.length) return { error: "Some of those days are already free. Remove that range first." };
+      .lte("from_date", addDays(to, 1))
+      .gte("to_date", addDays(input.from, -1));
+    const old = (near ?? []) as { id: string; from_date: string; to_date: string; note: string | null }[];
+    let from = input.from;
+    let end = to;
+    for (const r of old) {
+      if (r.from_date < from) from = r.from_date;
+      if (r.to_date > end) end = r.to_date;
+    }
+    const covered = (d: string) => old.some((r) => r.from_date <= d && d <= r.to_date);
+    const fresh = dateRange(input.from, to).filter((d) => !covered(d));
+    if (!fresh.length) return { error: "Those days are already free." };
+
     const { error } = await c.sb.from("free_days").insert({
       user_id: c.userId,
-      from_date: input.from,
-      to_date: to,
+      from_date: from,
+      to_date: end,
       task_policy: policy,
-      note: (input.note ?? "").trim().slice(0, 200) || null,
+      note: note ?? old.find((r) => r.note)?.note ?? null,
     });
     if (error) return { error: error.message };
-    await applyFreeDays(c.sb, c.userId, input.from, to, policy, c.today);
-    return done();
+    if (old.length) {
+      await c.sb
+        .from("free_days")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("user_id", c.userId)
+        .in("id", old.map((r) => r.id));
+    }
+    // Apply only the dates that were not free yet, in runs of consecutive days
+    let runStart = fresh[0];
+    for (let i = 0; i < fresh.length; i++) {
+      const last = i === fresh.length - 1 || fresh[i + 1] !== addDays(fresh[i], 1);
+      if (last) {
+        await applyFreeDays(c.sb, c.userId, runStart, fresh[i], policy, c.today, end);
+        if (i < fresh.length - 1) runStart = fresh[i + 1];
+      }
+    }
+    return done(old.length ? `Joined with the free days next to it: ${from}${from === end ? "" : ` → ${end}`}.` : undefined);
   } catch (e) {
     return fail(e);
   }
 }
 
+/**
+ * Removes a free-day range. Today and later come back; days already past stay free.
+ * Blocks you added in place of paused ones win (those paused ones stay paused that day).
+ */
 export async function removeFreeDays(input: { id: string }): Promise<CalResult> {
   try {
     const c = await ctx();
@@ -1035,12 +1069,72 @@ export async function removeFreeDays(input: { id: string }): Promise<CalResult> 
       .is("deleted_at", null)
       .maybeSingle();
     if (!f) return { error: "That free day was already removed." };
-    await c.sb.from("free_days").update({ deleted_at: new Date().toISOString() }).eq("id", f.id).eq("user_id", c.userId);
-    await undoFreeDays(c.sb, c.userId, f.from_date as string, f.to_date as string, c.today);
-    return done();
+    const from = f.from_date as string;
+    const to = f.to_date as string;
+    if (to < c.today) return { error: "Those days are already past, so they stay free." };
+    if (from < c.today) {
+      // Keep the past part as free (its blocks stay paused, streaks stay on hold)
+      await c.sb.from("free_days").update({ to_date: addDays(c.today, -1) }).eq("id", f.id).eq("user_id", c.userId);
+    } else {
+      await c.sb.from("free_days").update({ deleted_at: new Date().toISOString() }).eq("id", f.id).eq("user_id", c.userId);
+    }
+    const kept = await undoFreeDays(c.sb, c.userId, from, to, c.today);
+    return done(keptNotice(kept, from < c.today));
   } catch (e) {
     return fail(e);
   }
+}
+
+/** Frees just one day of a range (the range is cut in two if needed). Past days stay free. */
+export async function removeFreeDay(input: { id: string; date: string }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    if (!isDate(input.date)) return { error: "Pick a day." };
+    if (input.date < c.today) return { error: "That day is already past, so it stays free." };
+    const { data: f } = await c.sb
+      .from("free_days")
+      .select("id,from_date,to_date,task_policy,note")
+      .eq("id", input.id)
+      .eq("user_id", c.userId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!f) return { error: "That free day was already removed." };
+    const from = f.from_date as string;
+    const to = f.to_date as string;
+    const d = input.date;
+    if (d < from || d > to) return { error: "That day is not part of this free range." };
+    if (from === to) {
+      await c.sb.from("free_days").update({ deleted_at: new Date().toISOString() }).eq("id", f.id).eq("user_id", c.userId);
+    } else if (d === from) {
+      await c.sb.from("free_days").update({ from_date: addDays(d, 1) }).eq("id", f.id).eq("user_id", c.userId);
+    } else if (d === to) {
+      await c.sb.from("free_days").update({ to_date: addDays(d, -1) }).eq("id", f.id).eq("user_id", c.userId);
+    } else {
+      const { error } = await c.sb.from("free_days").insert({
+        user_id: c.userId,
+        from_date: addDays(d, 1),
+        to_date: to,
+        task_policy: f.task_policy,
+        note: f.note,
+      });
+      if (error) return { error: error.message };
+      await c.sb.from("free_days").update({ to_date: addDays(d, -1) }).eq("id", f.id).eq("user_id", c.userId);
+    }
+    const kept = await undoFreeDays(c.sb, c.userId, d, d, c.today);
+    return done(keptNotice(kept, false));
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+function keptNotice(kept: string[], pastKept: boolean) {
+  const parts: string[] = [];
+  if (pastKept) parts.push("Days already past stay free.");
+  if (kept.length) {
+    const shown = kept.slice(0, 4).join(", ") + (kept.length > 4 ? ` +${kept.length - 4} more` : "");
+    parts.push(`Stayed paused because a block you added is there: ${shown}.`);
+  }
+  return parts.length ? parts.join(" ") : undefined;
 }
 
 // ---------- Payments (events with a pre-filled transaction) ------------------------
@@ -1064,39 +1158,171 @@ function money(v: string | undefined) {
   return Number.isFinite(n) ? Math.round(n * 100) / 100 : NaN;
 }
 
+/** Checks the payment form and turns it into the template's columns. */
+function paymentValues(input: PaymentInput): { error: string } | { values: Omit<PaymentTemplate, "id"> } {
+  const name = normalizeName(input.name ?? "");
+  if (!name) return { error: "Name the payment (e.g. Rent, Internet)." };
+  if (!isDate(input.startDate)) return { error: "Pick the (first) date." };
+  const expected = money(input.expectedAmount);
+  if (Number.isNaN(expected) || (expected !== null && expected <= 0)) return { error: "The expected amount must be a number above 0." };
+  const unit: RepeatUnit = ["none", "days", "weeks", "months", "years"].includes(input.repeatUnit) ? input.repeatUnit : "none";
+  const every = Math.min(366, Math.max(1, Math.floor(Number(input.repeatEvery) || 1)));
+  const end = unit !== "none" && input.endDate && isDate(input.endDate) ? input.endDate : null;
+  if (end && end < input.startDate) return { error: "The end date is before the first date." };
+  return {
+    values: {
+      name,
+      type: input.type === "income" ? "income" : "expense",
+      expected_amount: expected,
+      account_id: input.accountId || null,
+      category_id: input.categoryId || null,
+      repeat_unit: unit,
+      repeat_every: every,
+      start_date: input.startDate,
+      end_date: end,
+    },
+  };
+}
+
 /** Same record whether it is created from Finance or from the calendar: a template + its events. */
 export async function createPayment(input: PaymentInput): Promise<CalResult> {
   try {
     const c = await ctx();
-    const name = normalizeName(input.name ?? "");
-    if (!name) return { error: "Name the payment (e.g. Rent, Internet)." };
-    if (!isDate(input.startDate)) return { error: "Pick the (first) date." };
-    const expected = money(input.expectedAmount);
-    if (Number.isNaN(expected) || (expected !== null && expected <= 0)) return { error: "The expected amount must be a number above 0." };
-    const unit: RepeatUnit = ["none", "days", "weeks", "months", "years"].includes(input.repeatUnit) ? input.repeatUnit : "none";
-    const every = Math.min(366, Math.max(1, Math.floor(Number(input.repeatEvery) || 1)));
-    const end = input.endDate && isDate(input.endDate) ? input.endDate : null;
-    if (end && end < input.startDate) return { error: "The end date is before the first date." };
+    const parsed = paymentValues(input);
+    if ("error" in parsed) return parsed;
     const { data: t, error } = await c.sb
       .from("payment_templates")
-      .insert({
-        user_id: c.userId,
-        name,
-        type: input.type === "income" ? "income" : "expense",
-        expected_amount: expected,
-        account_id: input.accountId || null,
-        category_id: input.categoryId || null,
-        repeat_unit: unit,
-        repeat_every: every,
-        start_date: input.startDate,
-        end_date: end,
-      })
+      .insert({ user_id: c.userId, ...parsed.values })
       .select("id")
       .single();
     if (error || !t) return { error: error?.message ?? "Could not save the payment." };
     // Its events: from the first date (even if it's in the past) up to ~2 months ahead
     await ensurePaymentEvents(c.sb, c.userId, c.today, t.id as string, input.startDate < c.today ? input.startDate : c.today);
     revalidatePath("/finance");
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Edit a scheduled payment (any field). Every payment not paid yet follows the new details (name,
+ * amount, account, category, type), overdue ones included; paid and skipped ones keep their history.
+ * New dates (first date, repeat, end): future unpaid payments are redone with the new schedule,
+ * overdue unpaid ones stay. A one-time payment not paid yet is simply moved to the new date.
+ * A payment edited on its own ("edit only this one") keeps its own amount.
+ */
+export async function updatePayment(input: PaymentInput & { id: string }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const parsed = paymentValues(input);
+    if ("error" in parsed) return parsed;
+    const v = parsed.values;
+    const { data: old } = await c.sb
+      .from("payment_templates")
+      .select(TEMPLATE_COLS)
+      .eq("id", input.id)
+      .eq("user_id", c.userId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!old) return { error: "That payment no longer exists (it may have been stopped)." };
+    const before = old as unknown as PaymentTemplate;
+    const { error } = await c.sb.from("payment_templates").update(v).eq("id", input.id).eq("user_id", c.userId);
+    if (error) return { error: error.message };
+
+    // The name of every payment still to pay
+    if (v.name !== before.name) {
+      await c.sb
+        .from("events")
+        .update({ title: v.name })
+        .eq("user_id", c.userId)
+        .eq("payment_template_id", input.id)
+        .is("deleted_at", null)
+        .is("payment_status", null);
+    }
+
+    const datesChanged =
+      v.start_date !== before.start_date ||
+      v.repeat_unit !== before.repeat_unit ||
+      v.repeat_every !== before.repeat_every ||
+      (v.end_date ?? null) !== (before.end_date ?? null);
+    let note: string | undefined;
+    if (datesChanged) {
+      const template: PaymentTemplate = { id: input.id, ...v };
+      const { data: evs } = await c.sb
+        .from("events")
+        .select("id,event_date,payment_status")
+        .eq("user_id", c.userId)
+        .eq("payment_template_id", input.id)
+        .is("deleted_at", null);
+      const list = (evs ?? []) as { id: string; event_date: string; payment_status: string | null }[];
+      const unpaid = list.filter((e) => !e.payment_status);
+      if (v.repeat_unit === "none" && before.repeat_unit === "none") {
+        // One-time payment: move it (if it's still to pay); if it was paid or skipped, nothing new is created
+        if (unpaid.length) {
+          await c.sb
+            .from("events")
+            .update({ event_date: v.start_date, end_date: v.start_date, payment_origin_date: v.start_date })
+            .eq("id", unpaid[0].id)
+            .eq("user_id", c.userId);
+        } else if (!list.length) {
+          await ensurePaymentEvents(c.sb, c.userId, c.today, input.id, v.start_date < c.today ? v.start_date : c.today);
+        }
+      } else {
+        await reschedulePaymentEvents(c.sb, c.userId, template, c.today);
+        // Now a one-time payment on a past date: it shows as overdue
+        if (v.repeat_unit === "none" && v.start_date < c.today) {
+          await ensurePaymentEvents(c.sb, c.userId, c.today, input.id, v.start_date);
+        }
+        const overdue = unpaid.filter((e) => e.event_date < c.today).length;
+        if (overdue) {
+          note = `${overdue} overdue payment${overdue > 1 ? "s" : ""} from before still ${overdue > 1 ? "need" : "needs"} paying or skipping (Finance → Scheduled payments).`;
+        }
+      }
+    }
+    revalidatePath("/finance");
+    revalidatePath("/events");
+    return done(note);
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Edit only one payment of a series: its date and/or its own expected amount (empty = the series
+ * amount). The series is not touched and won't create it again on its old date.
+ */
+export async function editPaymentOccurrence(input: { eventId: string; date: string; expectedAmount?: string }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    if (!isDate(input.date)) return { error: "Pick a date." };
+    const own = money(input.expectedAmount);
+    if (Number.isNaN(own) || (own !== null && own <= 0)) return { error: "The expected amount must be a number above 0 (or empty)." };
+    const { data: ev } = await c.sb
+      .from("events")
+      .select("id,event_date,end_date,start_time,end_time,is_payment,payment_status,payment_origin_date")
+      .eq("id", input.eventId)
+      .eq("user_id", c.userId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!ev || !ev.is_payment) return { error: "That payment no longer exists." };
+    if (ev.payment_status) return { error: "This one is already paid or skipped, so it can't be changed." };
+    const shift = daysBetween(ev.event_date as string, input.date);
+    const values: Record<string, unknown> = {
+      event_date: input.date,
+      end_date: addDays(ev.end_date as string, shift),
+      payment_expected_amount: own,
+      payment_origin_date: (ev.payment_origin_date as string | null) ?? (ev.event_date as string),
+    };
+    // A payment with a time keeps its time on the new day
+    if (ev.start_time && ev.end_time && shift) {
+      values.start_time = new Date(new Date(ev.start_time as string).getTime() + shift * 86400000).toISOString();
+      values.end_time = new Date(new Date(ev.end_time as string).getTime() + shift * 86400000).toISOString();
+    }
+    const { error } = await c.sb.from("events").update(values).eq("id", ev.id).eq("user_id", c.userId);
+    if (error) return { error: error.message };
+    revalidatePath("/finance");
+    revalidatePath("/events");
     return done();
   } catch (e) {
     return fail(e);

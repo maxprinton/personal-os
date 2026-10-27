@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { confirmPayment, createPayment, skipPayment, stopPaymentTemplate } from "@/app/calendar-actions";
+import { confirmPayment, createPayment, editPaymentOccurrence, skipPayment, stopPaymentTemplate, updatePayment } from "@/app/calendar-actions";
 import type { CalResult, FinanceOptions, PaymentTemplate } from "@/lib/calendar/types";
 import type { RepeatUnit } from "@/lib/calendar/recurrence";
 import { emitCalendarChanged } from "@/components/calendar/util";
+import Modal from "@/components/calendar/Modal";
 import { getPaymentRecords, getSuggestedPaymentAccount, setPaymentTemplateAccount } from "@/app/payment-actions";
 
 const input = "rounded-md border border-line-strong px-3 py-2 text-sm";
@@ -14,77 +15,103 @@ function useRun(run?: (fn: () => Promise<CalResult>) => Promise<boolean>) {
   const router = useRouter();
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  /** The last success message from the server (e.g. "2 overdue payments stay to pay"). */
+  const lastNote = useRef<string | null>(null);
   async function go(fn: () => Promise<CalResult>) {
     setBusy(true);
     let ok: boolean;
-    if (run) ok = await run(fn);
+    lastNote.current = null;
+    if (run) ok = await run(fn); // the calendar shows errors and notices itself
     else {
       const r = await fn();
       ok = !r.error;
       setMsg(r.error ?? null);
+      lastNote.current = r.notice ?? null;
+      setNote(r.notice ?? null);
       emitCalendarChanged();
       router.refresh();
     }
     setBusy(false);
     return ok;
   }
-  return { go, msg, busy };
+  return { go, msg, busy, note, lastNote };
 }
 
 /**
- * New scheduled payment. The same form is used on the Finance page and in the calendar,
- * and both create the same records (a template and its events).
+ * New scheduled payment, or (with `template`) edit one. The same form is used on the Finance page and
+ * in the calendar, and both create the same records (a template and its events).
  */
 export function PaymentForm({
   options,
   date,
   run,
   onDone,
+  template,
+  onCancel,
 }: {
   options: Omit<FinanceOptions, "templates">;
   date: string;
   run?: (fn: () => Promise<CalResult>) => Promise<boolean>;
   onDone?: () => void;
+  /** Edit this scheduled payment instead of creating a new one. */
+  template?: PaymentTemplate;
+  onCancel?: () => void;
 }) {
-  const { go, msg, busy } = useRun(run);
-  const [name, setName] = useState("");
-  const [type, setType] = useState<"expense" | "income">("expense");
-  const [amount, setAmount] = useState("");
-  const [account, setAccount] = useState(options.accounts[0]?.id ?? "");
-  const [category, setCategory] = useState("");
-  const [start, setStart] = useState(date);
-  const [unit, setUnit] = useState<RepeatUnit>("months");
-  const [every, setEvery] = useState(1);
-  const [end, setEnd] = useState("");
+  const { go, msg, busy, note, lastNote } = useRun(run);
+  const [saved, setSaved] = useState(false);
+  const t = template;
+  const [name, setName] = useState(t?.name ?? "");
+  const [type, setType] = useState<"expense" | "income">(t?.type ?? "expense");
+  const [amount, setAmount] = useState(t?.expected_amount ? t.expected_amount.toFixed(2) : "");
+  const [account, setAccount] = useState(t ? t.account_id ?? "" : options.accounts[0]?.id ?? "");
+  const [category, setCategory] = useState(t?.category_id ?? "");
+  const [start, setStart] = useState(t?.start_date ?? date);
+  const [unit, setUnit] = useState<RepeatUnit>((t?.repeat_unit as RepeatUnit | undefined) ?? "months");
+  const [every, setEvery] = useState(t?.repeat_every ?? 1);
+  const [end, setEnd] = useState(t?.end_date ?? "");
+  const datesChanged =
+    !!t && (start !== t.start_date || unit !== t.repeat_unit || every !== t.repeat_every || (end || null) !== (t.end_date ?? null));
 
   return (
     <form
       onSubmit={async (e) => {
         e.preventDefault();
-        const ok = await go(() =>
-          createPayment({
-            name,
-            type,
-            expectedAmount: amount,
-            accountId: account,
-            categoryId: category,
-            startDate: start,
-            repeatUnit: unit,
-            repeatEvery: every,
-            endDate: end,
-          })
-        );
+        const values = {
+          name,
+          type,
+          expectedAmount: amount,
+          accountId: account,
+          categoryId: category,
+          startDate: start,
+          repeatUnit: unit,
+          repeatEvery: every,
+          endDate: end,
+        };
+        const ok = await go(() => (t ? updatePayment({ id: t.id, ...values }) : createPayment(values)));
         if (ok) {
-          setName("");
-          setAmount("");
-          onDone?.();
+          if (!t) {
+            setName("");
+            setAmount("");
+          }
+          // Something to read first (e.g. overdue payments that stay): keep the form open with the message
+          if (lastNote.current) setSaved(true);
+          else onDone?.();
         }
       }}
       className="space-y-2 rounded-lg border border-line p-3 text-sm bg-surface shadow-card"
     >
+      {t && <p className="text-xs font-medium text-muted">Edit scheduled payment</p>}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Rent, Internet…" className={`${input} col-span-2`} />
-        <select value={type} onChange={(e) => setType(e.target.value as "expense" | "income")} className={input}>
+        <select
+          value={type}
+          onChange={(e) => {
+            setType(e.target.value as "expense" | "income");
+            setCategory(""); // categories are per kind
+          }}
+          className={input}
+        >
           <option value="expense">Payment (expense)</option>
           <option value="income">Income</option>
         </select>
@@ -104,13 +131,15 @@ export function PaymentForm({
             ))}
         </select>
         <label className="text-xs text-muted">
-          First date
+          {unit === "none" ? "Date" : "First date"}
           <input type="date" required value={start} onChange={(e) => setStart(e.target.value)} className={`${input} w-full`} />
         </label>
-        <label className="text-xs text-muted">
-          Ends (optional)
-          <input type="date" value={end} min={start} onChange={(e) => setEnd(e.target.value)} className={`${input} w-full`} />
-        </label>
+        {unit !== "none" && (
+          <label className="text-xs text-muted">
+            Ends (optional)
+            <input type="date" value={end} min={start} onChange={(e) => setEnd(e.target.value)} className={`${input} w-full`} />
+          </label>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <span>Repeats</span>
@@ -127,11 +156,37 @@ export function PaymentForm({
             <input type="number" min={1} max={366} value={every} onChange={(e) => setEvery(Number(e.target.value))} className={`${input} w-20`} />
           </label>
         )}
-        <button disabled={busy} className="ml-auto rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-2 text-accent-fg disabled:opacity-50">
-          {busy ? "Saving…" : "Schedule payment"}
-        </button>
+        <span className="ml-auto flex gap-2">
+          {onCancel && (
+            <button type="button" onClick={onCancel} className="rounded-md border border-edge px-3 py-2 transition-colors hover:bg-subtle">
+              Cancel
+            </button>
+          )}
+          <button disabled={busy} className="rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-2 text-accent-fg disabled:opacity-50">
+            {busy ? "Saving…" : t ? "Save changes" : "Schedule payment"}
+          </button>
+        </span>
       </div>
-      <p className="text-xs text-muted">It shows on the calendar as an event. Pay it from here, the calendar or Events: the transaction comes pre-filled with these details.</p>
+      {saved && note && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-success-soft px-3 py-2 text-xs text-success">
+          <span>✓ Saved. {note}</span>
+          <button type="button" onClick={() => onDone?.()} className="font-medium underline">
+            OK
+          </button>
+        </div>
+      )}
+      {t ? (
+        <p className="text-xs text-muted">
+          Every payment not paid yet follows these details, overdue ones too. Paid and skipped ones keep what was recorded.
+          {datesChanged &&
+            (unit === "none" && t.repeat_unit === "none"
+              ? " New date: the payment moves there (if it isn't paid yet)."
+              : " New dates: upcoming unpaid payments are redone with the new schedule; overdue ones stay to pay.")}{" "}
+          A payment you edited on its own keeps its own amount.
+        </p>
+      ) : (
+        <p className="text-xs text-muted">It shows on the calendar as an event. Pay it from here, the calendar or Events: the transaction comes pre-filled with these details.</p>
+      )}
       {msg && <p className="text-danger">{msg}</p>}
     </form>
   );
@@ -156,13 +211,17 @@ export function PaymentDraft({
   onDone,
   readOnly = false,
   status = null,
+  expected = null,
 }: {
   eventId: string;
   title: string;
   date: string;
+  /** The series this payment belongs to (null = a payment on its own). */
   template: PaymentTemplate | null;
   options: Omit<FinanceOptions, "templates">;
   today: string;
+  /** This payment's own expected amount ("edit only this one"); null = the series amount. */
+  expected?: number | null;
   /** Kept for old call sites; the draft talks to the server itself so it can show the "already paid" warning. */
   run?: (fn: () => Promise<CalResult>) => Promise<boolean>;
   onDone?: () => void;
@@ -172,7 +231,10 @@ export function PaymentDraft({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [amount, setAmount] = useState(template?.expected_amount ? template.expected_amount.toFixed(2) : "");
+  const own = expected ?? null;
+  const expectedAmount = own ?? template?.expected_amount ?? null;
+  const [amount, setAmount] = useState(expectedAmount ? expectedAmount.toFixed(2) : "");
+  const [editing, setEditing] = useState<null | "one" | "series">(null);
   const [account, setAccount] = useState(template?.account_id ?? options.accounts[0]?.id ?? "");
   const [category, setCategory] = useState(template?.category_id ?? "");
   const [on, setOn] = useState(date > today ? today : date);
@@ -252,10 +314,51 @@ export function PaymentDraft({
       💳 {title}{" "}
       <span className="font-normal text-muted">
         · {kind === "income" ? "expected" : "due"} {nice(date)}
-        {template?.expected_amount ? ` · ${usd(template.expected_amount)}` : ""}
+        {expectedAmount ? ` · ${usd(expectedAmount)}` : ""}
+        {own !== null && template?.expected_amount && own !== template.expected_amount ? " (this one only)" : ""}
       </span>
     </p>
   );
+
+  const editLinks = !readOnly && (
+    <p className="flex flex-wrap gap-3 text-xs">
+      {status === null && (
+        <button type="button" onClick={() => setEditing(editing === "one" ? null : "one")} className="text-muted underline hover:text-fg">
+          {editing === "one" ? "Close" : "Edit only this one"}
+        </button>
+      )}
+      {template && (
+        <button type="button" onClick={() => setEditing(editing === "series" ? null : "series")} className="text-muted underline hover:text-fg">
+          {editing === "series" ? "Close" : "Edit the series"}
+        </button>
+      )}
+    </p>
+  );
+  const editPanel =
+    editing === "one" ? (
+      <EditOnePayment
+        eventId={eventId}
+        date={date}
+        own={own}
+        seriesAmount={template?.expected_amount ?? null}
+        onDone={() => {
+          setEditing(null);
+          onDone?.();
+        }}
+        onCancel={() => setEditing(null)}
+      />
+    ) : editing === "series" && template ? (
+      <PaymentForm
+        options={options}
+        date={today}
+        template={template}
+        onCancel={() => setEditing(null)}
+        onDone={() => {
+          setEditing(null);
+          onDone?.();
+        }}
+      />
+    ) : null;
 
   if (readOnly) {
     return (
@@ -269,6 +372,8 @@ export function PaymentDraft({
   return (
     <div className="space-y-2 text-sm">
       {header}
+      {editLinks}
+      {editPanel}
 
       {paid && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface/70 px-3 py-2">
@@ -289,7 +394,7 @@ export function PaymentDraft({
         </div>
       )}
 
-      {showForm && (
+      {showForm && !editing && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -411,6 +516,7 @@ export function PaymentRow({
   status = null,
   readOnly = false,
   prefix,
+  expected = null,
 }: {
   eventId: string;
   title: string;
@@ -422,7 +528,10 @@ export function PaymentRow({
   readOnly?: boolean;
   /** Optional text before the title (e.g. "Next:"). */
   prefix?: string;
+  /** This payment's own expected amount; null = the series amount. */
+  expected?: number | null;
 }) {
+  const amountShown = expected ?? template?.expected_amount ?? null;
   const [open, setOpen] = useState(false);
   const due = !status && date <= today;
   const badge =
@@ -439,7 +548,7 @@ export function PaymentRow({
         <span className="min-w-0 flex-1 truncate">
           {prefix && <span className="text-muted">{prefix} </span>}💳 {title} <span className="text-faint">· {nice(date)}</span>
         </span>
-        <span className="tabular-nums text-muted">{template?.expected_amount ? usd(template.expected_amount) : "—"}</span>
+        <span className="tabular-nums text-muted">{amountShown ? usd(amountShown) : "—"}</span>
         {badge && <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${badge.cls}`}>{badge.text}</span>}
         <button
           type="button"
@@ -467,6 +576,7 @@ export function PaymentRow({
             today={today}
             status={status}
             readOnly={readOnly}
+            expected={expected}
             onDone={() => setOpen(false)}
           />
         </div>
@@ -514,5 +624,88 @@ export function TemplateAccountSelect({
       {state === "saved" && <span className="text-success">✓</span>}
       {state === "error" && <span className="text-danger">Not saved</span>}
     </label>
+  );
+}
+
+/** "Edit only this one": a payment's own date and expected amount. The series is not touched. */
+function EditOnePayment({
+  eventId,
+  date,
+  own,
+  seriesAmount,
+  onDone,
+  onCancel,
+}: {
+  eventId: string;
+  date: string;
+  own: number | null;
+  seriesAmount: number | null;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const { go, msg, busy } = useRun();
+  const [on, setOn] = useState(date);
+  const [amount, setAmount] = useState(own !== null ? own.toFixed(2) : "");
+  return (
+    <form
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (await go(() => editPaymentOccurrence({ eventId, date: on, expectedAmount: amount }))) onDone();
+      }}
+      className="space-y-2 rounded-md border border-line bg-surface p-3"
+    >
+      <p className="text-xs font-medium text-muted">Only this payment (the series stays as it is)</p>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="text-xs text-muted">
+          Date
+          <input type="date" required value={on} onChange={(e) => setOn(e.target.value)} className={`${input} mt-0.5 w-full`} />
+        </label>
+        <label className="text-xs text-muted">
+          Expected amount
+          <input
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            inputMode="decimal"
+            placeholder={seriesAmount ? `${usd(seriesAmount)} (series)` : "$"}
+            className={`${input} mt-0.5 w-full`}
+          />
+        </label>
+      </div>
+      <p className="text-[11px] text-muted">Leave the amount empty to use the series amount.</p>
+      <div className="flex gap-2">
+        <button disabled={busy} className="rounded-md bg-accent px-3 py-1.5 font-medium text-accent-fg shadow-sm hover:bg-accent-hover disabled:opacity-50">
+          {busy ? "Saving…" : "Save this one"}
+        </button>
+        <button type="button" onClick={onCancel} className="rounded-md border border-edge px-3 py-1.5 hover:bg-subtle">
+          Cancel
+        </button>
+      </div>
+      {msg && <p className="text-danger">{msg}</p>}
+    </form>
+  );
+}
+
+/** Finance → Scheduled payments: "Edit" opens the whole payment (name, amount, type, account, category, dates). */
+export function EditPaymentButton({
+  template,
+  options,
+  today,
+}: {
+  template: PaymentTemplate;
+  options: Omit<FinanceOptions, "templates">;
+  today: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} className="text-xs text-muted underline hover:text-fg">
+        Edit
+      </button>
+      {open && (
+        <Modal title={`Edit “${template.name}”`} onClose={() => setOpen(false)} wide>
+          <PaymentForm options={options} date={today} template={template} onCancel={() => setOpen(false)} onDone={() => setOpen(false)} />
+        </Modal>
+      )}
+    </>
   );
 }

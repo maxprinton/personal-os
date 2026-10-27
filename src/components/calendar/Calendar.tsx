@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   editOccurrence,
@@ -64,7 +64,7 @@ type Dialog =
   | { kind: "event"; id: string }
   | { kind: "move"; id: string; date: string; start: number; end: number }
   | { kind: "new-free"; date: string }
-  | { kind: "free"; id: string }
+  | { kind: "free"; id: string; date: string }
   | { kind: "bulk-remove" }
   | null;
 
@@ -79,6 +79,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
   const [moveScope, setMoveScope] = useState<MoveScope>("ask");
   const [progressMode, setProgressMode] = useState<ProgressMode>("sofar");
   const [tint, setTint] = useState(false);
+  const [showPaused, setShowPaused] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [dayStart, setDayStart] = useState(0);
   const [hidden, setHidden] = useState<number[]>([]);
@@ -100,6 +101,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
     setMoveScope(ms === "this_day" || ms === "forward" ? ms : "ask");
     setProgressMode(readPref("cal.progress") === "week" ? "week" : "sofar");
     setTint(readPref("cal.tint") === "1");
+    setShowPaused(readPref("cal.showPaused") === "1");
     setMounted(true);
   }, [variant]);
 
@@ -107,6 +109,11 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
   // When the day starts after midnight, the last column also shows the next morning
   const fetchTo = dayStart > 0 && view !== "month" ? addDays(to, 1) : to;
   const { data, error, loading, reload, patch, id: calendarId } = useCalendarData(from, fetchTo, mounted);
+  // Blocks paused by a free day are hidden (unless asked), so other blocks can be planned there
+  const gridData = useMemo(
+    () => (data && !showPaused ? { ...data, occurrences: data.occurrences.filter((o) => o.status !== "free_day") } : data),
+    [data, showPaused]
+  );
   // Phones are view-only (the server says so from the browser; small touch screens too, as a backup)
   const [touchPhone, setTouchPhone] = useState(false);
   useEffect(() => {
@@ -222,6 +229,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
         if (instant) void reload(); // put things back where the server has them
         return false;
       }
+      if (res.notice) setToast({ ok: true, text: res.notice });
       await reload();
       emitCalendarChanged(calendarId); // the other calendars (dock/page) reload; this one just did
       // Server-rendered pages under the dock (Today, Habits…) need a refresh; the full calendar page doesn't
@@ -429,6 +437,14 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
               />
               Page color of the current block
             </label>
+            <label className="flex items-center gap-1" title="Blocks paused by a free day are hidden so you can plan other blocks there. Tick to see them faded.">
+              <input
+                type="checkbox"
+                checked={showPaused}
+                onChange={(e) => pref("cal.showPaused", e.target.checked ? "1" : "0", (v) => setShowPaused(v === "1"))}
+              />
+              Show paused blocks on free days
+            </label>
             <span className="flex items-center gap-1">
               Show in week:
               {ISO_DAY_SHORT.map((d, i) => (
@@ -515,7 +531,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
           })()}
           {view === "month" ? (
             <MonthGrid
-              data={data}
+              data={gridData ?? data}
               month={anchor.slice(0, 7)}
               onPickDay={(d) => {
                 setAnchor(d);
@@ -525,7 +541,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
           ) : (
             <TimeGrid
               days={days}
-              data={data}
+              data={gridData ?? data}
               hourHeight={hourHeight}
               dayStart={dayStart}
               readOnly={readOnly}
@@ -535,7 +551,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
               onOpenEvent={(id) => setDialog({ kind: "event", id })}
               onMoveOccurrence={onMove}
               onToggleDone={(id) => run(() => toggleOccurrenceDone({ occurrenceId: id }), optimistic.toggleDone(id))}
-              onOpenFreeDay={(id) => setDialog({ kind: "free", id })}
+              onOpenFreeDay={(id, date) => setDialog({ kind: "free", id, date })}
               onDropTask={(d) =>
                 run(() => placeTask({ taskId: d.taskId, occurrenceId: d.occurrenceId ?? null, eventId: d.eventId ?? null, date: d.date }))
               }
@@ -609,6 +625,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
           end={dialog.end}
           initialName={dialog.name}
           blockTypes={data.blockTypes}
+          freeDays={data.freeDays}
           run={run}
           onClose={() => setDialog(null)}
           onMakeEvent={(date, start, end, title) =>
@@ -636,12 +653,13 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
         <EventDialog event={ev} data={data} eventTypes={data.eventTypes} readOnly={readOnly} run={run} onClose={() => setDialog(null)} />
       )}
       {data && dialog?.kind === "new-free" && (
-        <FreeDayDialog date={dialog.date} run={run} readOnly={readOnly} onClose={() => setDialog(null)} />
+        <FreeDayDialog date={dialog.date} today={data.today} run={run} readOnly={readOnly} onClose={() => setDialog(null)} />
       )}
       {data && dialog?.kind === "free" && data.freeDays.find((f) => f.id === dialog.id) && (
         <FreeDayDialog
           existing={data.freeDays.find((f) => f.id === dialog.id)}
-          date={data.today}
+          date={dialog.date}
+          today={data.today}
           run={run}
           readOnly={readOnly}
           onClose={() => setDialog(null)}

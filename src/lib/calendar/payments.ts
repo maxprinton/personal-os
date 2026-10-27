@@ -63,14 +63,17 @@ export async function ensurePaymentEvents(sb: SupabaseClient, userId: string, to
   if (!templates.length) return 0;
   const until = addDays(today, AHEAD_DAYS);
   const start = from ?? today;
+  // By the date the series gave each payment (a payment moved to another day keeps it), removed ones included
   const { data: existing } = await sb
     .from("events")
-    .select("payment_template_id,event_date")
+    .select("payment_template_id,payment_origin_date")
     .eq("user_id", userId)
     .in("payment_template_id", templates.map((t) => t.id))
-    .gte("event_date", start)
-    .lte("event_date", until);
-  const have = new Set(((existing ?? []) as { payment_template_id: string; event_date: string }[]).map((e) => `${e.payment_template_id}|${e.event_date}`));
+    .gte("payment_origin_date", start)
+    .lte("payment_origin_date", until);
+  const have = new Set(
+    ((existing ?? []) as { payment_template_id: string; payment_origin_date: string }[]).map((e) => `${e.payment_template_id}|${e.payment_origin_date}`)
+  );
   const typeId = await paymentsEventType(sb, userId);
   const rows: Record<string, unknown>[] = [];
   for (const t of templates) {
@@ -81,6 +84,7 @@ export async function ensurePaymentEvents(sb: SupabaseClient, userId: string, to
         title: t.name,
         event_date: d,
         end_date: d,
+        payment_origin_date: d,
         start_time: null,
         end_time: null,
         is_payment: true,
@@ -98,15 +102,19 @@ export type DuePayment = {
   eventId: string;
   date: string;
   title: string;
+  /** The series (its own details, not this payment's). */
   template: PaymentTemplate | null;
+  /** This payment's own expected amount ("edit only this one"), or null. */
+  expected: number | null;
 };
+
 
 /** Payment events from the last month up to today that are not paid or skipped yet. */
 export async function getDuePayments(sb: SupabaseClient, userId: string, today: string): Promise<DuePayment[]> {
   const [{ data }, templates] = await Promise.all([
     sb
       .from("events")
-      .select("id,title,event_date,payment_template_id")
+      .select("id,title,event_date,payment_template_id,payment_expected_amount")
       .eq("user_id", userId)
       .is("deleted_at", null)
       .eq("is_payment", true)
@@ -117,10 +125,40 @@ export async function getDuePayments(sb: SupabaseClient, userId: string, today: 
     getPaymentTemplates(sb, userId),
   ]);
   const byId = new Map(templates.map((t) => [t.id, t]));
-  return ((data ?? []) as { id: string; title: string; event_date: string; payment_template_id: string | null }[]).map((e) => ({
+  type Row = { id: string; title: string; event_date: string; payment_template_id: string | null; payment_expected_amount: number | string | null };
+  return ((data ?? []) as Row[]).map((e) => ({
     eventId: e.id,
     date: e.event_date,
     title: e.title,
     template: e.payment_template_id ? byId.get(e.payment_template_id) ?? null : null,
+    expected: e.payment_expected_amount === null ? null : Number(e.payment_expected_amount),
   }));
+}
+
+/**
+ * After a series' dates changed (first date, repeat, end): its future unpaid payments whose series date
+ * is no longer in the new schedule are removed (deleted for good: nothing was paid, so no history),
+ * then the new ones are created. Overdue unpaid ones stay (you still owe them). Paid and skipped
+ * ones are never touched. One-time payments are moved instead (see updatePayment).
+ */
+export async function reschedulePaymentEvents(sb: SupabaseClient, userId: string, template: PaymentTemplate, today: string) {
+  const until = addDays(today, AHEAD_DAYS);
+  const keep = new Set(
+    repeatDates(template.start_date, template.repeat_unit as RepeatUnit, template.repeat_every, today, until, template.end_date)
+  );
+  const { data } = await sb
+    .from("events")
+    .select("id,payment_origin_date")
+    .eq("user_id", userId)
+    .eq("payment_template_id", template.id)
+    .is("deleted_at", null)
+    .is("payment_status", null)
+    .gte("payment_origin_date", today);
+  const drop = ((data ?? []) as { id: string; payment_origin_date: string }[]).filter((e) => !keep.has(e.payment_origin_date)).map((e) => e.id);
+  for (let i = 0; i < drop.length; i += 200) {
+    await sb.from("events").delete().eq("user_id", userId).in("id", drop.slice(i, i + 200));
+  }
+  // Removed earlier by hand on a date that's back in the schedule: those stay removed (your choice)
+  await ensurePaymentEvents(sb, userId, today, template.id, today);
+  return drop.length;
 }

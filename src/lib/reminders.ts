@@ -101,7 +101,7 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
     payments: due.map((p) => ({
       title: p.title,
       date: p.date,
-      expected: p.template?.expected_amount ?? null,
+      expected: p.expected ?? p.template?.expected_amount ?? null,
     })),
     tasks,
     unassigned: tasks.filter((x) => !x.occurrence_id && !x.event_id).length,
@@ -116,7 +116,7 @@ const list = (titles: string[], max = 5) =>
 
 export function morningText(date: string, d: Day) {
   const parts = [`☀️ Good morning! ${formatDateLong(date)}`];
-  if (d.freeDay) parts.push("🌴 Free day: blocks are paused and streaks are on hold. Enjoy.");
+  if (d.freeDay) parts.push("🌴 Free day: your weekly blocks are paused and their streaks are on hold. Below: events and any block you added. Enjoy.");
   if (d.dayNotes.length) parts.push(`📌 ${d.dayNotes.join(" · ")}`);
   parts.push(
     d.items.length
