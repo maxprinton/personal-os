@@ -9,6 +9,7 @@ import { completeTaskFromBot, markHabitFromBot } from "@/lib/reminders";
 import { parseHabitCommand, runHabitCommand } from "@/lib/bot-habits";
 import { isTodayRequest, todayStatus } from "@/lib/bot-today";
 import { aheadRequest, aheadText } from "@/lib/bot-ahead";
+import { gemAnswer, gemQuestion } from "@/lib/bot-gem";
 import { archiveFromBot, rescheduleNextFromBot } from "@/lib/bot-task-actions";
 
 export const runtime = "nodejs";
@@ -348,6 +349,28 @@ export async function POST(req: Request) {
     }
     const mime = msg.document?.mime_type?.startsWith("image/") && !msg.photo?.length ? msg.document.mime_type : "image/jpeg";
     await replyCapture(pm?.id, () => processImageCapture(admin, userId, { base64: file.base64, mimeType: mime }, caption, "telegram_bot", true));
+    return ok();
+  }
+
+  // ---- @gem / /gem / gem: — ask Gemini about your own data (read only) ----------
+  const question = gemQuestion(text);
+  if (question !== null) {
+    if (!hasGemini()) {
+      await sendMessage(chatId, "✨ @gem needs the free Gemini key (GEMINI_API_KEY in Vercel). Check with /ai.");
+      return ok();
+    }
+    if (await overLimit(admin, userId)) {
+      await sendMessage(chatId, `Daily limit of ${DAILY_LIMIT} messages reached. Try again tomorrow.`);
+      return ok();
+    }
+    await tg("sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => null);
+    try {
+      for (const part of await gemAnswer(admin, userId, (settings.timezone as string | null) ?? "America/Guayaquil", question)) {
+        await sendMessage(chatId, part);
+      }
+    } catch {
+      await sendMessage(chatId, "✨ Sorry, I could not read your data this time. Try again in a minute.");
+    }
     return ok();
   }
 

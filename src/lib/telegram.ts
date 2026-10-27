@@ -51,6 +51,7 @@ export const HELP = [
   "/undo removes the last thing I saved.",
   "",
   "✨ With Gemini connected: write it any way you like (\"ayer pagué 32 del internet con la Pichincha\"), send a voice note 🎙, or a photo of a receipt 🧾. /ai checks the connection.",
+  "✨ @gem (or /gem) + a question → Gemini reads your whole system and answers: \"@gem ¿en qué gasté más este mes?\", \"@gem ¿qué hábito estoy descuidando?\". It only reads; it never changes anything.",
 ].join("\n");
 
 /** UUID <-> 22-character base64url, so two ids fit in Telegram's 64-byte button data. */

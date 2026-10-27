@@ -66,6 +66,7 @@ export async function connectBot(_prev: ActionState): Promise<ActionState> {
       { command: "thisweek", description: "Rest of this week, day by day" },
       { command: "nextweek", description: "Next week, day by day" },
       { command: "undo", description: "Remove the last thing I saved" },
+      { command: "gem", description: "Ask Gemini about your data: /gem question" },
       { command: "ai", description: "Check the Gemini connection" },
       { command: "help", description: "What I understand" },
     ],
