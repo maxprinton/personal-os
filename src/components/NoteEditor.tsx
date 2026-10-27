@@ -1,50 +1,102 @@
 "use client";
 
-import { useActionState } from "react";
-import { saveNote } from "@/app/note-actions";
-import type { ActionState } from "@/app/actions";
+import { useEffect, useRef, useState } from "react";
+import { autosaveNote } from "@/app/note-actions";
+import dynamic from "next/dynamic";
 
-export default function NoteEditor({
-  id,
-  title,
-  content,
-  tags,
-}: {
-  id: string;
-  title: string;
-  content: string;
-  tags: string;
-}) {
-  const [state, action, pending] = useActionState<ActionState, FormData>(saveNote, {});
+// The editor is loaded only when a note is shown (keeps every other page light)
+const RichEditor = dynamic(() => import("@/components/editor/RichEditor"), {
+  ssr: false,
+  loading: () => <div className="rich-prose min-h-24 text-faint">Loading…</div>,
+});
+
+type Status = "idle" | "saving" | "saved" | "error";
+
+/** A normal note: title + Notion-style editor. Saves by itself 1 s after you stop typing. */
+export default function NoteEditor({ id, title, content }: { id: string; title: string; content: string }) {
+  const [t, setT] = useState(title);
+  const [status, setStatus] = useState<Status>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const latest = useRef({ title, content });
+  const saved = useRef({ title, content });
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inFlight = useRef(false);
+  const again = useRef(false);
+
+  async function flush() {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    if (inFlight.current) {
+      again.current = true;
+      return;
+    }
+    const v = { ...latest.current };
+    if (v.title === saved.current.title && v.content === saved.current.content) return;
+    inFlight.current = true;
+    setStatus("saving");
+    const r = await autosaveNote({ id, ...v });
+    inFlight.current = false;
+    if (r.error) {
+      setStatus("error");
+      setError(r.error);
+    } else {
+      saved.current = v;
+      setError(null);
+      setStatus("saved");
+    }
+    if (again.current) {
+      again.current = false;
+      void flush();
+    }
+  }
+
+  function schedule() {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => void flush(), 1000);
+  }
+
+  // Leaving the page saves what is pending
+  useEffect(() => {
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+      const v = latest.current;
+      if (v.title !== saved.current.title || v.content !== saved.current.content) void autosaveNote({ id, ...v });
+    };
+  }, [id]);
+
+  useEffect(() => {
+    if (status !== "saved") return;
+    const x = setTimeout(() => setStatus("idle"), 2000);
+    return () => clearTimeout(x);
+  }, [status]);
+
   return (
-    <form action={action} className="space-y-3">
-      <input type="hidden" name="id" value={id} />
+    <div className="space-y-3">
       <input
-        name="title"
-        defaultValue={title}
-        placeholder="Title"
-        className="w-full border-0 border-b border-line px-0 py-2 text-2xl font-semibold focus:outline-none"
+        value={t}
+        onChange={(e) => {
+          setT(e.target.value);
+          latest.current = { ...latest.current, title: e.target.value };
+          schedule();
+        }}
+        onBlur={() => void flush()}
+        placeholder="Untitled"
+        className="w-full border-0 bg-transparent px-0 py-2 text-3xl font-bold tracking-tight placeholder:text-faint focus:outline-none"
       />
-      <input
-        name="tags"
-        defaultValue={tags}
-        placeholder="Tags, comma separated"
-        className="w-full rounded-md border border-line-strong px-3 py-2 text-sm"
+      <RichEditor
+        value={content}
+        onChange={(md) => {
+          latest.current = { ...latest.current, content: md };
+          schedule();
+        }}
+        onBlur={() => void flush()}
+        minHeight={320}
       />
-      <textarea
-        name="content"
-        defaultValue={content}
-        rows={16}
-        placeholder="Write in Markdown…"
-        className="w-full rounded-md border border-line-strong px-3 py-2 font-mono text-sm"
-      />
-      <div className="flex items-center gap-3">
-        <button disabled={pending} className="rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-2 text-sm text-accent-fg disabled:opacity-50">
-          {pending ? "Saving..." : "Save"}
-        </button>
-        {state.ok && <span className="text-sm text-success">Saved.</span>}
-        {state.error && <span className="text-sm text-danger">{state.error}</span>}
-      </div>
-    </form>
+      <p className="h-4 text-xs text-faint" aria-live="polite">
+        {status === "saving" ? "Saving…" : status === "saved" ? "Saved ✓" : status === "error" ? <span className="text-danger">{error}</span> : ""}
+      </p>
+    </div>
   );
 }

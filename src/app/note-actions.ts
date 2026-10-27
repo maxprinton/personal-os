@@ -41,3 +41,18 @@ export async function deleteNote(form: FormData) {
   revalidatePath("/notes");
   redirect("/notes");
 }
+
+/** Autosave of a normal note from the Notion-style editor (title and Markdown content). */
+export async function autosaveNote(input: { id: string; title: string; content: string }): Promise<{ ok?: boolean; error?: string }> {
+  const id = String(input.id ?? "");
+  if (!id) return { error: "Missing note." };
+  const content = String(input.content ?? "").replace(/\r\n?/g, "\n");
+  if (content.length > 200_000) return { error: "This note is too long." };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("notes")
+    .update({ title: String(input.title ?? "").trim() || "Untitled", content })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  return { ok: true };
+}

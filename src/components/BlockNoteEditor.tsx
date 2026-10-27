@@ -2,15 +2,20 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { saveBlockNote } from "@/app/block-note-actions";
-import { renderMarkdown, toggleTaskLine } from "@/lib/markdown";
+import dynamic from "next/dynamic";
+
+// The editor is loaded only when a note is shown (keeps every other page light)
+const RichEditor = dynamic(() => import("@/components/editor/RichEditor"), {
+  ssr: false,
+  loading: () => <div className="rich-prose min-h-24 text-faint">Loading…</div>,
+});
 import { emitCalendarChanged } from "@/components/calendar/util";
 
 type Status = "idle" | "saving" | "saved" | "error";
 
 /**
- * The note shared by every block with this name (like LifeOS): shown formatted, a click on the
- * text turns it into Markdown to write, and it saves by itself 1 s after you stop typing (and
- * when you leave it). Checkboxes "- [ ]" can be ticked right in the formatted view.
+ * The note shared by every block with this name (like LifeOS), in the Notion-style editor.
+ * It saves by itself 1 s after you stop typing, when you leave it, and when the window closes.
  */
 export default function BlockNoteEditor({
   name,
@@ -21,42 +26,39 @@ export default function BlockNoteEditor({
 }: {
   /** Block name: the key of the note. */
   name: string;
-  /** Last content known from the server. */
+  /** Last content known from the server (Markdown). */
   content: string;
   /** Lets the parent update its own copy (e.g. the ✏️ marker on the calendar). */
   onSaved?: (content: string) => void;
   minRows?: number;
   className?: string;
 }) {
-  const [text, setText] = useState(content);
-  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(content);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const saved = useRef(content); // what the server has
-  const latest = useRef(content); // what the user has typed
+  const latest = useRef(content); // what the user has written
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const area = useRef<HTMLTextAreaElement | null>(null);
   const nameRef = useRef(name);
   const inFlight = useRef(false);
   const again = useRef(false);
 
-  // A new block (or fresh data from the server) replaces the text unless you are writing
+  // Another block, or fresh data from the server while nothing is pending: show it
   useEffect(() => {
     if (nameRef.current !== name) {
       nameRef.current = name;
       saved.current = content;
       latest.current = content;
-      setText(content);
-      setEditing(false);
+      setValue(content);
       setStatus("idle");
       return;
     }
-    if (!editing && latest.current === saved.current && content !== saved.current) {
+    if (latest.current === saved.current && content !== saved.current) {
       saved.current = content;
       latest.current = content;
-      setText(content);
+      setValue(content);
     }
-  }, [name, content, editing]);
+  }, [name, content]);
 
   const flush = useCallback(async () => {
     if (timer.current) {
@@ -68,20 +70,20 @@ export default function BlockNoteEditor({
       again.current = true;
       return;
     }
-    const value = latest.current;
-    if (value === saved.current) return;
+    const v = latest.current;
+    if (v === saved.current) return;
     inFlight.current = true;
     setStatus("saving");
-    const r = await saveBlockNote({ name: nameRef.current, content: value });
+    const r = await saveBlockNote({ name: nameRef.current, content: v });
     inFlight.current = false;
     if (r.error) {
       setStatus("error");
       setError(r.error);
     } else {
-      saved.current = value;
+      saved.current = v;
       setError(null);
       setStatus("saved");
-      onSaved?.(value);
+      onSaved?.(v);
     }
     if (again.current) {
       again.current = false;
@@ -105,87 +107,22 @@ export default function BlockNoteEditor({
     return () => clearTimeout(t);
   }, [status]);
 
-  function change(value: string) {
-    latest.current = value;
-    setText(value);
+  function change(md: string) {
+    latest.current = md;
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => void flush(), 1000);
   }
 
-  function startEditing() {
-    setEditing(true);
-    requestAnimationFrame(() => {
-      const el = area.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(el.value.length, el.value.length);
-    });
-  }
-
-  function onViewClick(e: React.MouseEvent<HTMLDivElement>) {
-    const target = e.target as HTMLElement;
-    const line = target.getAttribute?.("data-task-line");
-    if (line !== null && line !== undefined) {
-      e.preventDefault();
-      latest.current = toggleTaskLine(latest.current, Number(line));
-      setText(latest.current);
-      void flush();
-      return;
-    }
-    if (target.closest("a")) return; // links open normally
-    startEditing();
-  }
-
-  // Grow the text box with its content
-  useEffect(() => {
-    const el = area.current;
-    if (!editing || !el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.max(el.scrollHeight, minRows * 22)}px`;
-  }, [text, editing, minRows]);
-
   return (
     <div className={`space-y-1 ${className}`}>
-      {editing ? (
-        <textarea
-          ref={area}
-          value={text}
-          onChange={(e) => change(e.target.value)}
-          onBlur={() => {
-            void flush();
-            setEditing(false);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              e.stopPropagation();
-              (e.target as HTMLTextAreaElement).blur();
-            }
-          }}
-          rows={minRows}
-          placeholder={"Markdown: # title, **bold**, - list, - [ ] checkbox"}
-          className="w-full resize-none rounded-md border border-line-strong bg-surface px-3 py-2 font-mono text-sm leading-relaxed"
-        />
-      ) : (
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={onViewClick}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && e.target === e.currentTarget) {
-              e.preventDefault();
-              startEditing();
-            }
-          }}
-          title="Click to write"
-          className="min-h-[3rem] cursor-text space-y-2 rounded-md border border-transparent px-3 py-2 text-sm leading-relaxed hover:border-line"
-        >
-          {text.trim() ? (
-            <div className="space-y-2" dangerouslySetInnerHTML={{ __html: renderMarkdown(text, { interactiveTasks: true }) }} />
-          ) : (
-            <p className="text-faint">Click to write a note for every “{name}” block…</p>
-          )}
-        </div>
-      )}
+      <RichEditor
+        key={name}
+        value={value}
+        onChange={change}
+        onBlur={() => void flush()}
+        minHeight={minRows * 24}
+        placeholder={`Write the note of every “${name}” block, or type “/” for blocks…`}
+      />
       <p className="h-4 px-1 text-xs text-faint" aria-live="polite">
         {status === "saving" ? "Saving…" : status === "saved" ? "Saved ✓" : status === "error" ? <span className="text-danger">{error}</span> : ""}
       </p>

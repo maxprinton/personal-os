@@ -110,6 +110,12 @@ export async function copyBlockNote(sb: SupabaseClient, userId: string, fromName
 export function noteAsPlainText(md: string) {
   return md
     .replace(/\r\n?/g, "\n")
+    // Toggles: "▸ Title" and their content below it
+    .replace(/<summary>([\s\S]*?)<\/summary>/gi, "▸ $1")
+    .replace(/<\/?details\b[^>]*>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
     .split("\n")
     .map((l) =>
       l
@@ -120,6 +126,10 @@ export function noteAsPlainText(md: string) {
         .replace(/\*\*([^*]+)\*\*/g, "$1")
         .replace(/__([^_]+)__/g, "$1")
         .replace(/~~([^~]+)~~/g, "$1")
+        .replace(/==([^=]+)==/g, "$1")
+        .replace(/\+\+([^+]+)\+\+/g, "$1")
+        .replace(/^\|?\s*:?-{3,}.*$/, "")
+        .replace(/\\([\\`*_{}\[\]()#+\-.!|=~<>])/g, "$1")
         .replace(/`([^`]+)`/g, "$1")
         .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, "$1 ($2)")
     )

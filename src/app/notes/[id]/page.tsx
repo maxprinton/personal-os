@@ -9,7 +9,6 @@ import { deleteNote } from "@/app/note-actions";
 import { removeLink } from "@/app/task-actions";
 import NoteEditor from "@/components/NoteEditor";
 import LinkForm from "@/components/LinkForm";
-import { renderMarkdown } from "@/lib/markdown";
 import BlockNoteEditor from "@/components/BlockNoteEditor";
 import NoteTagsForm from "@/components/NoteTagsForm";
 
@@ -47,27 +46,15 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
                 Shared by every “{note.block_name}” block. Its title follows the block&apos;s name; it saves by itself.
               </p>
             </div>
-            <div className="rounded-lg border border-line bg-surface p-2 shadow-card">
-              <BlockNoteEditor name={note.block_name} content={note.content} minRows={14} />
-            </div>
+            <BlockNoteEditor name={note.block_name} content={note.content} minRows={14} />
             <NoteTagsForm id={note.id} tags={(tags.get(id) ?? []).map((t) => t.name).join(", ")} />
           </>
         ) : (
           <>
             <Link href="/notes" className="text-sm text-muted hover:text-fg">← All notes</Link>
-            <NoteEditor
-              id={note.id}
-              title={note.title}
-              content={note.content}
-              tags={(tags.get(id) ?? []).map((t) => t.name).join(", ")}
-            />
+            <NoteEditor id={note.id} title={note.title} content={note.content} />
+            <NoteTagsForm id={note.id} tags={(tags.get(id) ?? []).map((t) => t.name).join(", ")} />
           </>
-        )}
-        {!note.block_name && note.content.trim() && (
-          <section className="space-y-2 rounded-lg border border-line p-4 bg-surface shadow-card">
-            <h2 className="section-title">Preview</h2>
-            <div className="space-y-3 text-[15px] leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMarkdown(note.content) }} />
-          </section>
         )}
 
         <section className="space-y-2 rounded-lg border border-line p-4 bg-surface shadow-card">
