@@ -5,31 +5,43 @@ import { getTagsFor, idsWithTag } from "@/lib/tags";
 import { formatDateLong, utcToLocal } from "@/lib/time";
 import { createNote } from "@/app/note-actions";
 import TagChips from "@/components/TagChips";
+import { currentUserId, getBlockTypes, getSlots } from "@/lib/calendar/model";
+import { getBlockNotes, noteAsPlainText, noteKey } from "@/lib/block-notes";
+import { localNow } from "@/lib/time";
+import { openBlockNote } from "@/app/block-note-actions";
 
 export const dynamic = "force-dynamic";
 
-type NoteRow = { id: string; title: string; content: string; updated_at: string };
+type NoteRow = { id: string; title: string; content: string; updated_at: string; block_name?: string | null };
 
 export default async function NotesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tag?: string; q?: string }>;
+  searchParams: Promise<{ tag?: string; q?: string; view?: string }>;
 }) {
-  const { tag, q } = await searchParams;
+  const { tag, q, view } = await searchParams;
   const supabase = await createClient();
   const { timezone } = await getSettings(supabase);
+  if (view === "blocks") return <BlockNotes timezone={timezone} />;
 
-  let query = supabase
-    .from("notes")
-    .select("id,title,content,updated_at")
-    .is("deleted_at", null)
-    .order("updated_at", { ascending: false })
-    .limit(100);
   const search = (q ?? "").replace(/[%_,()]/g, " ").trim();
-  if (search) query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
-  if (tag) query = query.in("id", await idsWithTag(supabase, "note", tag));
-  const { data } = await query;
-  const notes = (data ?? []) as NoteRow[];
+  const tagIds = tag ? await idsWithTag(supabase, "note", tag) : null;
+  const build = (withBlocks: boolean) => {
+    let query = supabase
+      .from("notes")
+      .select(withBlocks ? "id,title,content,updated_at,block_name" : "id,title,content,updated_at")
+      .is("deleted_at", null)
+      .order("updated_at", { ascending: false })
+      .limit(100);
+    if (search) query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
+    // Block notes have their own tab (a search or a tag still finds them)
+    else if (withBlocks && !tagIds) query = query.is("block_name", null);
+    if (tagIds) query = query.in("id", tagIds);
+    return query;
+  };
+  let { data, error } = await build(true);
+  if (error) ({ data } = await build(false)); // migration 0017 not run yet
+  const notes = (data ?? []) as unknown as NoteRow[];
   const tags = await getTagsFor(supabase, "note", notes.map((n) => n.id));
 
   return (
@@ -49,6 +61,7 @@ export default async function NotesPage({
             <button className="rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-2 text-sm text-accent-fg">New note</button>
           </form>
         </div>
+        <Tabs current="all" />
         <form className="flex gap-2">
           <input
             name="q"
@@ -63,7 +76,10 @@ export default async function NotesPage({
           {notes.map((n) => (
             <li key={n.id} className="rounded-lg border border-line p-3 hover:border-line-strong">
               <Link href={`/notes/${n.id}`} className="block">
-                <p className="font-medium">{n.title || "Untitled"}</p>
+                <p className="font-medium">
+                  {n.block_name && <span className="mr-1.5 rounded bg-subtle px-1.5 text-xs font-normal text-muted">✏️ Block</span>}
+                  {n.title || "Untitled"}
+                </p>
                 <p className="line-clamp-2 text-sm text-muted">{n.content.slice(0, 200) || "Empty note"}</p>
               </Link>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-faint">
@@ -76,5 +92,122 @@ export default async function NotesPage({
         </ul>
       </main>
     </>
+  );
+}
+
+function Tabs({ current }: { current: "all" | "blocks" }) {
+  const cls = (on: boolean) =>
+    `rounded-md px-3 py-1.5 text-sm ${on ? "bg-accent-soft font-medium text-accent" : "text-muted hover:bg-subtle hover:text-fg"}`;
+  return (
+    <nav className="flex gap-1" aria-label="Notes views">
+      <Link href="/notes" className={cls(current === "all")}>All notes</Link>
+      <Link href="/notes?view=blocks" className={cls(current === "blocks")}>✏️ Block notes</Link>
+    </nav>
+  );
+}
+
+/**
+ * Block notes (the central notes manager of LifeOS): one note per block name.
+ * Active = the block still has a weekly time or an appearance from today on. Orphaned = no future
+ * (or the block was deleted); it comes back by itself if a block with that name is created again.
+ */
+async function BlockNotes({ timezone }: { timezone: string }) {
+  const supabase = await createClient();
+  const userId = await currentUserId(supabase);
+  if (!userId) return null;
+  const today = localNow(timezone).date;
+  const [types, slots, notes, futureRes] = await Promise.all([
+    getBlockTypes(supabase, userId),
+    getSlots(supabase, userId, today),
+    getBlockNotes(supabase, userId),
+    supabase
+      .from("block_occurrences")
+      .select("block_type_id")
+      .eq("user_id", userId)
+      .gte("date", today)
+      .neq("status", "cancelled")
+      .limit(5000),
+  ]);
+  const withFuture = new Set([
+    ...slots.map((s) => s.block_type_id),
+    ...((futureRes.data ?? []) as { block_type_id: string }[]).map((o) => o.block_type_id),
+  ]);
+  const active = types.filter((t) => withFuture.has(t.id)).sort((a, b) => a.name.localeCompare(b.name));
+  const activeKeys = new Set(active.map((t) => noteKey(t.name)));
+  const liveKeys = new Set(types.map((t) => noteKey(t.name)));
+  const byKey = new Map(notes.map((n) => [noteKey(n.name), n]));
+  const orphaned = notes.filter((n) => !activeKeys.has(noteKey(n.name))).sort((a, b) => a.name.localeCompare(b.name));
+  const preview = (md: string) => {
+    const t = noteAsPlainText(md).replace(/\s+/g, " ");
+    return t ? (t.length > 90 ? `${t.slice(0, 90)}…` : t) : "";
+  };
+
+  return (
+    <main className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 lg:py-8">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Notes</h1>
+        <p className="text-sm text-muted">
+          Every block name has one note, shared by all its appearances. Write it from the block&apos;s window, the focus panel or here.
+        </p>
+      </div>
+      <Tabs current="blocks" />
+
+      <section className="space-y-2">
+        <h2 className="section-title">Active ({active.length})</h2>
+        {active.length === 0 && <p className="text-sm text-muted">No blocks with times from today on.</p>}
+        <ul className="space-y-2">
+          {active.map((t) => {
+            const n = byKey.get(noteKey(t.name));
+            const body = (
+              <>
+                <p className="flex items-center gap-2 font-medium">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: t.color }} />
+                  {t.name}
+                </p>
+                <p className="line-clamp-2 text-sm text-muted">
+                  {n && preview(n.content) ? preview(n.content) : <span className="italic text-faint">No note yet</span>}
+                </p>
+              </>
+            );
+            return (
+              <li key={t.id} className="rounded-lg border border-line p-3 hover:border-line-strong">
+                {n ? (
+                  <Link href={`/notes/${n.id}`} className="block">{body}</Link>
+                ) : (
+                  <form action={openBlockNote}>
+                    <input type="hidden" name="name" value={t.name} />
+                    <button className="block w-full text-left">{body}</button>
+                  </form>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+
+      <section className="space-y-2">
+        <h2 className="section-title">Orphaned ({orphaned.length})</h2>
+        <p className="text-xs text-muted">
+          Notes of blocks with no times from today on, or deleted. Create a block with the same name and its note is back.
+        </p>
+        {orphaned.length === 0 && <p className="text-sm text-muted">Your notes are clean.</p>}
+        <ul className="space-y-2">
+          {orphaned.map((n) => (
+            <li key={n.id} className="rounded-lg border border-dashed border-line p-3 hover:border-line-strong">
+              <Link href={`/notes/${n.id}`} className="block">
+                <p className="font-medium">
+                  {n.name}
+                  <span className="ml-2 text-xs font-normal text-faint">
+                    {liveKeys.has(noteKey(n.name)) ? "no times from today on" : "block deleted"} · edited{" "}
+                    {formatDateLong(utcToLocal(n.updated_at, timezone).date)}
+                  </span>
+                </p>
+                <p className="line-clamp-2 text-sm text-muted">{preview(n.content) || <span className="italic text-faint">Empty</span>}</p>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </main>
   );
 }

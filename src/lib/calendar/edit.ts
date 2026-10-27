@@ -220,6 +220,40 @@ export async function changeSlotForward(
   return newSlot;
 }
 
+/**
+ * "Este horario desde hoy" with another name: the slot is closed the day before `from` and the same
+ * weekday/time continues as `toTypeId`. Its future appearances (moved ones too) change block; days that
+ * were already renamed on their own keep theirs. Nothing before `from` changes.
+ */
+export async function renameSlotForward(sb: SupabaseClient, userId: string, slot: Slot, toTypeId: string, from: string) {
+  await closeSlot(sb, userId, slot, from);
+  const { data: created, error } = await sb
+    .from("block_slots")
+    .insert({
+      user_id: userId,
+      block_type_id: toTypeId,
+      weekday: slot.weekday,
+      start_time: slot.start_time,
+      end_time: slot.end_time,
+      valid_from: from,
+      valid_to: slot.valid_to && slot.valid_to >= from ? slot.valid_to : null,
+    })
+    .select(SLOT_COLS)
+    .single();
+  if (error || !created) throw new Error(error?.message ?? "Could not save the new pattern.");
+  const newSlot = created as Slot;
+  const future = await futureOccurrencesOf(sb, userId, slot.id, from);
+  for (const f of future) {
+    await sb
+      .from("block_occurrences")
+      .update(f.block_type_id === slot.block_type_id ? { slot_id: newSlot.id, block_type_id: toTypeId } : { slot_id: newSlot.id })
+      .eq("id", f.id)
+      .eq("user_id", userId);
+  }
+  await ensureOccurrences(sb, userId, from, addDays(from, 13));
+  return newSlot;
+}
+
 /** "From today on" removal: the block stops repeating; the past stays as it was. */
 export async function removeSlotForward(sb: SupabaseClient, userId: string, slot: Slot, from: string) {
   await closeSlot(sb, userId, slot, from);

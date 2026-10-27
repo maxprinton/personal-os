@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { formatMinutes, localNow, timeToMinutes } from "@/lib/time";
-import { getBlockTypes } from "@/lib/calendar/model";
+import { addDays, formatMinutes, localNow, timeToMinutes } from "@/lib/time";
+import { getBlockTypes, getOccurrences } from "@/lib/calendar/model";
+import { getChecks, getHabits } from "@/lib/calendar/habits";
+import { habitsForOccurrence } from "@/lib/calendar/habitview";
+import { pickFocus } from "@/lib/calendar/focus";
+import { sameBlockSameDay } from "@/lib/calendar/taskview";
+import { blockNotesByKey, noteAsPlainText, noteKey } from "@/lib/block-notes";
 import { dayData } from "@/lib/reminders";
 import { packId } from "@/lib/telegram";
 
@@ -8,13 +13,13 @@ import { packId } from "@/lib/telegram";
 
 /** Words that ask for today's status (whole message, case and accents ignored, "?" allowed). */
 const TRIGGERS = new Set([
-  "/hoy", "/today", "/now", "/status", "/pendientes",
-  "hoy", "today", "now", "status", "estado", "pendientes", "pending",
+  "/hoy", "/today", "/status", "/pendientes",
+  "hoy", "today", "status", "estado", "pendientes", "pending",
   "que tengo", "que tengo hoy", "que me falta", "que falta", "whats left", "what's left",
 ]);
 
-export function isTodayRequest(text: string) {
-  const t = text
+function clean(text: string) {
+  return text
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
@@ -22,7 +27,32 @@ export function isTodayRequest(text: string) {
     .replace(/@\w+$/, "") // "/hoy@maxpersonalos_bot" in groups
     .replace(/\s+/g, " ")
     .trim();
-  return TRIGGERS.has(t);
+}
+
+export function isTodayRequest(text: string) {
+  return TRIGGERS.has(clean(text));
+}
+
+/** "/now": only the block of right now, with its times, habits, tasks and note. */
+const NOW_TRIGGERS = new Set(["/now", "now", "/ahora", "ahora", "que toca ahora", "que toca"]);
+export function isNowRequest(text: string) {
+  return NOW_TRIGGERS.has(clean(text));
+}
+
+const TG_MAX = 3900;
+
+/** Splits long text into Telegram-sized messages (at line breaks when possible). */
+export function splitForTelegram(text: string, max = TG_MAX) {
+  const out: string[] = [];
+  let rest = text.trim();
+  while (rest.length > max) {
+    let cut = rest.lastIndexOf("\n", max);
+    if (cut < max / 2) cut = max;
+    out.push(rest.slice(0, cut).trimEnd());
+    rest = rest.slice(cut).trimStart();
+  }
+  if (rest) out.push(rest);
+  return out;
 }
 
 const dur = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`);
@@ -31,12 +61,16 @@ const shortDate = (d: string) =>
 
 type Btn = { text: string; callback_data: string };
 
-export async function todayStatus(admin: SupabaseClient, userId: string, timezone: string): Promise<{ text: string; keyboard: Btn[][] }> {
+export async function todayStatus(
+  admin: SupabaseClient,
+  userId: string,
+  timezone: string
+): Promise<{ text: string; keyboard: Btn[][]; extra: string[] }> {
   const now = localNow(timezone);
   const today = now.date;
   const nowMin = now.minutes;
 
-  const [day, types, taskRes] = await Promise.all([
+  const [day, types, taskRes, notes] = await Promise.all([
     dayData(admin, { user_id: userId, timezone }, today),
     getBlockTypes(admin, userId, { includeDeleted: true }),
     admin
@@ -48,6 +82,7 @@ export async function todayStatus(admin: SupabaseClient, userId: string, timezon
       .lte("scheduled_for", today)
       .order("scheduled_for")
       .order("created_at"),
+    blockNotesByKey(admin, userId),
   ]);
   const typeName = new Map(types.map((t) => [t.id, t.name]));
   const tasks = (taskRes.data ?? []) as {
@@ -186,5 +221,94 @@ export async function todayStatus(admin: SupabaseClient, userId: string, timezon
       { text: "🗄", callback_data: `ta:${packId(t.id)}` },
     ]),
   ];
-  return { text: lines.join("\n").slice(0, 4000), keyboard };
+  // The full note of every block of today (like LifeOS: the name is the key), in the day's order
+  const noteParts: string[] = [];
+  const seen = new Set<string>();
+  for (const b of blocks) {
+    const k = noteKey(b.title);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const body = noteAsPlainText(notes.get(k)?.content ?? "");
+    if (body) noteParts.push(`📝 ${b.title}\n${body}`);
+  }
+  const main = lines.join("\n");
+  const notesText = noteParts.length ? `\n\n📝 Block notes\n\n${noteParts.join("\n\n")}` : "";
+  if (main.length + notesText.length <= TG_MAX) return { text: main + notesText, keyboard, extra: [] };
+  // Too long for one message: the notes go in the next message(s)
+  return {
+    text: main.slice(0, 4000),
+    keyboard,
+    extra: noteParts.length ? splitForTelegram(`📝 Block notes\n\n${noteParts.join("\n\n")}`) : [],
+  };
+}
+
+/** "/now": the block of right now (metadata, habits, tasks, full note). Free time says what is next. */
+export async function nowStatus(admin: SupabaseClient, userId: string, timezone: string): Promise<{ text: string[]; keyboard: Btn[][] }> {
+  const now = localNow(timezone);
+  const today = now.date;
+  const [occurrences, types, habits, checks, notes] = await Promise.all([
+    getOccurrences(admin, userId, today, today),
+    getBlockTypes(admin, userId, { includeDeleted: true }),
+    getHabits(admin, userId, { includeRemoved: true }),
+    getChecks(admin, userId, addDays(today, -1), today),
+    blockNotesByKey(admin, userId),
+  ]);
+  const focus = pickFocus(occurrences, today, now.minutes);
+  const name = (id: string) => types.find((t) => t.id === id)?.name ?? "Block";
+  if (!focus || focus.mode === "next") {
+    const lines = [`📍 ${formatMinutes(now.minutes)} · ▶ Now: free time`];
+    if (focus) lines.push(`Next: ${name(focus.occ.block_type_id)} at ${formatMinutes(focus.startAbs)} (in ${dur(focus.startAbs - now.minutes)})`);
+    else lines.push("No more blocks today.");
+    return { text: [lines.join("\n")], keyboard: [] };
+  }
+  const { occ } = focus;
+  const blockName = name(occ.block_type_id);
+  const left = Math.max(0, focus.endAbs - now.minutes);
+  const status = occ.status === "done" ? " · ✓ done" : occ.status === "partial" ? " · ◐ partly done" : "";
+  const lines = [
+    `▶ Now: ${blockName}`,
+    `🕐 ${formatMinutes(timeToMinutes(occ.start_time))} – ${formatMinutes(timeToMinutes(occ.end_time))} · ${dur(left)} left${status}`,
+  ];
+
+  const hs = habitsForOccurrence(occ, habits, checks, today);
+  if (hs.length) {
+    lines.push("", "🔁 Habits");
+    for (const h of hs) {
+      lines.push(`• ${h.habit.name} — ${h.state === "done" ? "✓ done" : h.state === "skipped" ? "⏭ skipped" : h.state === "missed" ? "✗ missed" : "to log"}`);
+    }
+  }
+
+  const ids = [...sameBlockSameDay(occ, occurrences)];
+  const { data: taskData } = await admin
+    .from("tasks")
+    .select("id,title,status")
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .in("occurrence_id", ids)
+    .eq("scheduled_for", occ.date)
+    .in("status", ["pending", "completed"])
+    .order("created_at");
+  const tasks = (taskData ?? []) as { id: string; title: string; status: string }[];
+  if (tasks.length) {
+    lines.push("", "✅ Tasks");
+    for (const t of tasks) lines.push(`• ${t.status === "completed" ? "✓ " : ""}${t.title}`);
+  }
+
+  const note = noteAsPlainText(notes.get(noteKey(blockName))?.content ?? "");
+  lines.push("", `📝 Note`, note || "(no note yet — write it in the block's window or on Today)");
+
+  const keyboard: Btn[][] = [
+    ...hs
+      .filter((h) => !h.state)
+      .slice(0, 8)
+      .map((h) => [
+        { text: `✓ ${h.habit.name}`.slice(0, 60), callback_data: `hk:d:${packId(h.habit.id)}:${packId(occ.id)}` },
+        { text: "Skip", callback_data: `hk:s:${packId(h.habit.id)}:${packId(occ.id)}` },
+      ]),
+    ...tasks
+      .filter((t) => t.status === "pending")
+      .slice(0, 6)
+      .map((t) => [{ text: `✓ ${t.title}`.slice(0, 40), callback_data: `tk:${packId(t.id)}` }]),
+  ];
+  return { text: splitForTelegram(lines.join("\n")), keyboard };
 }

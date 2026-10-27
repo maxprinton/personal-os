@@ -6,7 +6,7 @@ import { assignLanes, durationOf, eventSpanOn, findOccurrenceConflict } from "@/
 import { habitProgress, habitsForOccurrence } from "@/lib/calendar/habitview";
 import { tasksForEvent, tasksForOccurrence } from "@/lib/calendar/taskview";
 import type { CalendarData, CalEvent, Occurrence } from "@/lib/calendar/types";
-import { alpha, dayLabel, snap, textOn, timeRange } from "@/components/calendar/util";
+import { alpha, blockNoteOf, dayLabel, snap, textOn, timeRange } from "@/components/calendar/util";
 import { resizeOcc, shiftOcc, type Shift } from "@/components/calendar/optimistic";
 
 export type MoveRequest = { id: string; date: string; start: number; end: number; duplicate: boolean; /** Only the end changed (bottom handle) */ resize?: boolean };
@@ -610,6 +610,7 @@ export default function TimeGrid({
                 const canTick = !readOnly && !cutTop && !muted && o.date <= data.today;
                 const blockTasks = cutTop ? [] : tasksForOccurrence(o, data.occurrences, data.tasks);
                 const taskRows = Math.max(0, Math.floor((height - 30) / 14));
+                const hasNote = Boolean(blockNoteOf(data.blockNotes, type?.name).trim());
                 return (
                   <div
                     key={`${o.id}-${date}`}
@@ -644,7 +645,7 @@ export default function TimeGrid({
                       touchAction: readOnly ? "auto" : "none",
                     }}
                   >
-                    <p className={`truncate font-medium leading-tight ${canTick || (!readOnly && clickMode === "done") ? "pr-4" : ""}`}>
+                    <p className={`truncate font-medium leading-tight ${canTick && clickMode === "open" ? "pr-9" : !readOnly || hasNote ? "pr-4" : ""}`}>
                       {o.status === "done" ? "✓ " : o.status === "partial" ? "◐ " : ""}
                       {type?.name ?? "Block"}
                       {muted ? " · paused" : ""}
@@ -653,7 +654,8 @@ export default function TimeGrid({
                         <span className="ml-1 font-normal opacity-80">· {blockTasks.length} task{blockTasks.length > 1 ? "s" : ""}</span>
                       ) : null}
                     </p>
-                    {!readOnly && clickMode === "done" && (
+                    {(!readOnly || hasNote) && !muted && (
+                      // ✏️ like LifeOS: faint without a note, bright (with a dot) when the block has one
                       <button
                         type="button"
                         onPointerDown={(e) => e.stopPropagation()}
@@ -661,10 +663,13 @@ export default function TimeGrid({
                           e.stopPropagation();
                           onOpenOccurrence(o.id);
                         }}
-                        title="Edit this block"
-                        className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center text-[10px] leading-none opacity-70 hover:opacity-100"
+                        title={hasNote ? `Open “${type?.name ?? "Block"}” and its note` : "Edit this block (and write its note)"}
+                        className={`absolute top-0.5 flex h-4 w-4 items-center justify-center text-[10px] leading-none hover:opacity-100 ${
+                          canTick && clickMode === "open" ? "right-5" : "right-0.5"
+                        } ${hasNote ? "opacity-100" : "opacity-30"}`}
                       >
                         ✏️
+                        {hasNote && <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-white ring-1 ring-black/30" />}
                       </button>
                     )}
                     {canTick && clickMode === "open" && (

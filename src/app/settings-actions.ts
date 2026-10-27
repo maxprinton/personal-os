@@ -61,7 +61,8 @@ export async function connectBot(_prev: ActionState): Promise<ActionState> {
   // The menu Telegram shows when you type "/" (not essential: a failure here doesn't stop the connection)
   await tg("setMyCommands", {
     commands: [
-      { command: "hoy", description: "Today: current block, pending tasks and habits" },
+      { command: "hoy", description: "Today: current block, pending tasks, habits and block notes" },
+      { command: "now", description: "Right now: the current block with its habits, tasks and note" },
       { command: "tomorrow", description: "Tomorrow: schedule, tasks, payments, habits" },
       { command: "thisweek", description: "Rest of this week, day by day" },
       { command: "nextweek", description: "Next week, day by day" },

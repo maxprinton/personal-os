@@ -7,7 +7,7 @@ import { describe, type Parsed } from "@/lib/parse";
 import { balanceText, isBalanceRequest } from "@/lib/bot-balance";
 import { completeTaskFromBot, markHabitFromBot } from "@/lib/reminders";
 import { parseHabitCommand, runHabitCommand } from "@/lib/bot-habits";
-import { isTodayRequest, todayStatus } from "@/lib/bot-today";
+import { isNowRequest, isTodayRequest, nowStatus, todayStatus } from "@/lib/bot-today";
 import { aheadRequest, aheadText } from "@/lib/bot-ahead";
 import { gemAnswer, gemQuestion } from "@/lib/bot-gem";
 import { archiveFromBot, rescheduleNextFromBot } from "@/lib/bot-task-actions";
@@ -374,11 +374,30 @@ export async function POST(req: Request) {
     return ok();
   }
 
-  // ---- "/hoy": what's pending today, the block I'm in, what's left ------------
+  // ---- "/now": only the block of right now, with its habits, tasks and note ----------
+  if (isNowRequest(text)) {
+    try {
+      const r = await nowStatus(admin, userId, (settings.timezone as string | null) ?? "America/Guayaquil");
+      for (let i = 0; i < r.text.length; i++) {
+        const last = i === r.text.length - 1;
+        await tg("sendMessage", {
+          chat_id: chatId,
+          text: r.text[i],
+          ...(last && r.keyboard.length ? { reply_markup: { inline_keyboard: r.keyboard } } : {}),
+        });
+      }
+    } catch {
+      await sendMessage(chatId, "Sorry, I could not load the current block. Try again in a minute.");
+    }
+    return ok();
+  }
+
+  // ---- "/hoy": what's pending today, the block I'm in, what's left (+ every block's note) ----
   if (isTodayRequest(text)) {
     try {
       const r = await todayStatus(admin, userId, (settings.timezone as string | null) ?? "America/Guayaquil");
       await tg("sendMessage", { chat_id: chatId, text: r.text, ...(r.keyboard.length ? { reply_markup: { inline_keyboard: r.keyboard } } : {}) });
+      for (const extra of r.extra) await tg("sendMessage", { chat_id: chatId, text: extra });
     } catch {
       await sendMessage(chatId, "Sorry, I could not load today. Try again in a minute.");
     }

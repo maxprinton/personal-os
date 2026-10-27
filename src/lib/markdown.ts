@@ -24,7 +24,8 @@ function inline(text: string): string {
   return s.replace(/\u0000(\d+)\u0000/g, (_, i: string) => codes[Number(i)]);
 }
 
-export function renderMarkdown(src: string): string {
+/** interactiveTasks: checkboxes can be clicked; each carries data-task-line (its line in the source). */
+export function renderMarkdown(src: string, opts: { interactiveTasks?: boolean } = {}): string {
   const lines = src.replace(/\r\n?/g, "\n").split("\n");
   const out: string[] = [];
   let i = 0;
@@ -66,12 +67,13 @@ export function renderMarkdown(src: string): string {
       const items: string[] = [];
       const sameType = (l: string) => (ordered ? /^\s*\d+\.\s+/ : /^\s*[-*+]\s+/).test(l);
       while (i < lines.length && sameType(lines[i])) {
+        const lineNo = i;
         let item = lines[i++].replace(/^\s*([-*+]|\d+\.)\s+/, "");
         const task = /^\[( |x|X)\]\s+/.exec(item);
         if (task) {
           item = item.slice(task[0].length);
           const done = task[1] !== " ";
-          items.push(`<li class="list-none -ml-5"><input type="checkbox" disabled ${done ? "checked" : ""} class="mr-2 align-middle" />${done ? `<span class="line-through text-faint">${inline(item)}</span>` : inline(item)}</li>`);
+          items.push(`<li class="list-none -ml-5"><input type="checkbox" ${opts.interactiveTasks ? `data-task-line="${lineNo}"` : "disabled"} ${done ? "checked" : ""} class="mr-2 align-middle${opts.interactiveTasks ? " cursor-pointer" : ""}" />${done ? `<span class="line-through text-faint">${inline(item)}</span>` : inline(item)}</li>`);
         } else items.push(`<li>${inline(item)}</li>`);
       }
       out.push(ordered ? `<ol class="list-decimal pl-5 space-y-1">${items.join("")}</ol>` : `<ul class="list-disc pl-5 space-y-1">${items.join("")}</ul>`);
@@ -90,4 +92,13 @@ export function renderMarkdown(src: string): string {
     out.push(`<p>${para.map(inline).join("<br />")}</p>`);
   }
   return out.join("\n");
+}
+
+/** Ticks or unticks the "- [ ]" item on that line of the source. */
+export function toggleTaskLine(src: string, line: number): string {
+  const lines = src.replace(/\r\n?/g, "\n").split("\n");
+  const l = lines[line];
+  if (l === undefined) return src;
+  lines[line] = l.replace(/^(\s*(?:[-*+]|\d+\.)\s+)\[( |x|X)\]/, (_, pre: string, mark: string) => `${pre}[${mark === " " ? "x" : " "}]`);
+  return lines.join("\n");
 }

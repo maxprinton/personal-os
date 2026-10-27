@@ -25,6 +25,7 @@ import MonthGrid from "@/components/calendar/MonthGrid";
 import BlockDialog from "@/components/calendar/BlockDialog";
 import EventDialog from "@/components/calendar/EventDialog";
 import OccurrenceDialog from "@/components/calendar/OccurrenceDialog";
+import FocusPanel from "@/components/FocusPanel";
 import ScopeDialog, { forwardLabel, ResizeDialog } from "@/components/calendar/ScopeDialog";
 import { useCalendarData } from "@/components/calendar/useCalendarData";
 import { optimistic } from "@/components/calendar/optimistic";
@@ -33,6 +34,7 @@ import {
   browserToday,
   emitCalendarChanged,
   rangeFor,
+  noteKeyOf,
   rangeLabel,
   readPref,
   shiftAnchor,
@@ -82,6 +84,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
   const [progressMode, setProgressMode] = useState<ProgressMode>("sofar");
   const [tint, setTint] = useState(false);
   const [showPaused, setShowPaused] = useState(false);
+  const [showFocus, setShowFocus] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [dayStart, setDayStart] = useState(0);
   const [hidden, setHidden] = useState<number[]>([]);
@@ -106,6 +109,7 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
     setProgressMode(readPref("cal.progress") === "week" ? "week" : "sofar");
     setTint(readPref("cal.tint") === "1");
     setShowPaused(readPref("cal.showPaused") === "1");
+    setShowFocus(readPref("cal.focus") === "1");
     setMounted(true);
   }, [variant]);
 
@@ -448,6 +452,20 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
               </button>
             ))}
           </div>
+          {variant === "page" && (
+            <button
+              type="button"
+              onClick={() => {
+                setShowFocus(!showFocus);
+                writePref("cal.focus", showFocus ? "0" : "1");
+              }}
+              className={`rounded-md border px-2 py-0.5 text-xs whitespace-nowrap ${showFocus ? "border-accent bg-accent-soft text-accent" : "border-edge hover:bg-subtle"}`}
+              title="Focus panel: the block of now with its note, habits and tasks"
+              aria-pressed={showFocus}
+            >
+              🎯 Focus
+            </button>
+          )}
           <button type="button" onClick={() => setShowSettings(!showSettings)} className="rounded px-1.5 text-muted hover:bg-subtle" aria-label="View settings" title="View settings">
             ⚙
           </button>
@@ -559,7 +577,8 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
         <UnassignedTray tasks={unassignedOn(data.today, data.today, data.tasks)} readOnly={readOnly} />
       )}
       {data && (
-        <div className="relative min-h-0 flex-1">
+        <div className="relative flex min-h-0 flex-1">
+        <div className="relative min-h-0 min-w-0 flex-1">
           {!readOnly && data && selected.size > 0 && (() => {
             const sel = data.occurrences.filter((o) => selected.has(o.id));
             const tickable = sel.filter((o) => o.date <= data.today && o.status !== "free_day");
@@ -655,6 +674,21 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
               }}
             />
           )}
+        </div>
+        {variant === "page" && showFocus && (
+          // Beside the grid on a computer; over it (right side) on small screens
+          <aside
+            aria-label="Focus"
+            className="absolute inset-y-0 right-0 z-30 w-80 max-w-[90%] overflow-y-auto border-l border-line bg-surface shadow-pop lg:static lg:z-auto lg:max-w-none lg:shadow-none"
+          >
+            <div className="flex justify-end px-2 pt-1 lg:hidden">
+              <button type="button" onClick={() => { setShowFocus(false); writePref("cal.focus", "0"); }} className="text-faint hover:text-fg" aria-label="Close focus">
+                ✕
+              </button>
+            </div>
+            <FocusPanel variant="side" />
+          </aside>
+        )}
         </div>
       )}
 
@@ -753,6 +787,12 @@ export default function Calendar({ variant }: { variant: "dock" | "page" | "pane
           readOnly={readOnly}
           run={run}
           onClose={() => setDialog(null)}
+          onNoteSaved={(name, content) =>
+            patch((d) => ({
+              ...d,
+              blockNotes: { ...d.blockNotes, [noteKeyOf(name)]: { id: d.blockNotes[noteKeyOf(name)]?.id ?? "", content } },
+            }))
+          }
           onDuplicate={() => {
             const start = Number(occ.start_time.slice(0, 2)) * 60 + Number(occ.start_time.slice(3, 5));
             const end = Number(occ.end_time.slice(0, 2)) * 60 + Number(occ.end_time.slice(3, 5));

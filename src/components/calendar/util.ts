@@ -3,6 +3,16 @@ import { addDays, formatMinutes, isoWeekday, startOfWeek } from "@/lib/time";
 
 export type View = "day" | "week" | "month";
 
+/** Key of a block note: the block name, case-insensitive (same rule as the server). */
+export function noteKeyOf(name: string) {
+  return name.trim().replace(/\s+/g, " ").slice(0, 80).toLowerCase();
+}
+
+/** The note shared by every block with this name ("" when there is none yet). */
+export function blockNoteOf(notes: Record<string, { content: string }> | undefined, name: string | undefined) {
+  return name ? notes?.[noteKeyOf(name)]?.content ?? "" : "";
+}
+
 /** Dark or light text, whichever reads better on the color. */
 export function textOn(hex: string) {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);

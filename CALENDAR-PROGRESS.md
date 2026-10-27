@@ -232,3 +232,28 @@ All files are written to be safe to run twice. `time_blocks` and `activity_logs`
 1. Stretch Tuesday's Gym 9–10 to 9–10:30 → "This and every following Tuesday": next Tuesdays are 9–10:30; a Tuesday you had moved by hand stays as it was. Undo restores 9–10.
 2. Put a one-day block next Tuesday at 10:15, then stretch again to 10:30 every week → error naming that block; the block goes back; "Resize only this day" works.
 3. Same with that one-day block on a free day → the weekly change goes through.
+
+## Block notes, focus panel and renaming like LifeOS (added 2026-10-27) — needs migration 0017
+Spec: project doc `claude/notas-de-bloque-spec.md`. "The name is the key": one note per block name, shared by all its appearances.
+Run `MIGRACION-0017-notas-de-bloque.sql` in Supabase first (adds `notes.block_name`). Without it the app works, but block notes can't be saved.
+
+Test list:
+- [ ] Open a block → "✏️ Note" at the top. Click the text → Markdown box; type → "Saving… / Saved ✓" after 1 s. Click outside → formatted view.
+- [ ] `- [ ] item` shows a checkbox; clicking it ticks/unticks and saves. Links open normally.
+- [ ] Every other block with the same name (other days) shows the same note. Esc / ✕ while typing still saves.
+- [ ] Calendar: ✏️ faint on blocks without a note, bright with a dot when they have one (both click modes; in "click = open" mode it sits left of the ✓ circle).
+- [ ] Phone: the calendar stays view-only, but the note can be written in the block window and on Today.
+- [ ] Notes → "✏️ Block notes": Active (blocks with times from today on, "No note yet" opens/creates it) and Orphaned (no future or deleted). Block notes are not in "All notes" unless you search or filter by tag (with a "✏️ Block" badge).
+- [ ] A block note page: title = block name (not editable), autosave editor, tags, links, delete.
+- [ ] Delete a block that has a note → it moves to Orphaned. Create a block with the same name → the note is back.
+- [ ] Today: Focus card under "Right now" with the block of now (or "Free time · next in …" and the next block), its note (editable), habits (✓ / Skip) and tasks.
+- [ ] Calendar page: "🎯 Focus" button opens a side column with the same panel; remembered per browser. Hidden in the right-side calendar panel.
+- [ ] Telegram /hoy: ends with "📝 Block notes" (full notes of today's blocks); long notes arrive in an extra message.
+- [ ] Telegram /now (or "ahora"): only the current block with times, left, habits, tasks, note and buttons. Free time → next block. Press "Connect bot" again in Settings so /now appears in the "/" menu.
+- [ ] Rename from a block window, default "Only this day": new name → new block for that day only (note copied, own color/habits), next week the old name is back; existing name → joins it with a ⚠ notice.
+- [ ] "This time every week: Mondays 7:00 AM from … on": that weekly time becomes the new/existing block from that day; other times and the past stay.
+- [ ] "Rename all": renames everywhere (past too), note follows; an existing name is refused.
+- [ ] A day with habits marked: "Only this day" is refused; "This time every week" starts from the next one (notice says today stays).
+- [ ] Tasks placed in a day that is split off stay in that block.
+- [ ] A day renamed on its own: drag/resize/remove only offer "only this day" ("renamed on its own" badge in its window).
+- [ ] Only capital letters changed (gym → Gym): renamed everywhere.

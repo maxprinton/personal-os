@@ -10,6 +10,8 @@ import { removeLink } from "@/app/task-actions";
 import NoteEditor from "@/components/NoteEditor";
 import LinkForm from "@/components/LinkForm";
 import { renderMarkdown } from "@/lib/markdown";
+import BlockNoteEditor from "@/components/BlockNoteEditor";
+import NoteTagsForm from "@/components/NoteTagsForm";
 
 export const dynamic = "force-dynamic";
 
@@ -18,12 +20,10 @@ const KIND: Record<string, string> = { time_block: "Block (old)", block_type: "B
 export default async function NotePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
-  const { data: note } = await supabase
-    .from("notes")
-    .select("id,title,content")
-    .eq("id", id)
-    .is("deleted_at", null)
-    .maybeSingle();
+  const read = (cols: string) => supabase.from("notes").select(cols).eq("id", id).is("deleted_at", null).maybeSingle();
+  let { data, error } = await read("id,title,content,block_name");
+  if (error) ({ data } = await read("id,title,content")); // migration 0017 not run yet
+  const note = data as unknown as { id: string; title: string; content: string; block_name?: string | null } | null;
   if (!note) notFound();
 
   const { timezone } = await getSettings(supabase);
@@ -37,14 +37,33 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
   return (
     <>
       <main className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 lg:py-8">
-        <Link href="/notes" className="text-sm text-muted hover:text-fg">← All notes</Link>
-        <NoteEditor
-          id={note.id}
-          title={note.title}
-          content={note.content}
-          tags={(tags.get(id) ?? []).map((t) => t.name).join(", ")}
-        />
-        {note.content.trim() && (
+        {note.block_name ? (
+          <>
+            <Link href="/notes?view=blocks" className="text-sm text-muted hover:text-fg">← Block notes</Link>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted">✏️ Block note</p>
+              <h1 className="text-2xl font-semibold">{note.block_name}</h1>
+              <p className="text-sm text-muted">
+                Shared by every “{note.block_name}” block. Its title follows the block&apos;s name; it saves by itself.
+              </p>
+            </div>
+            <div className="rounded-lg border border-line bg-surface p-2 shadow-card">
+              <BlockNoteEditor name={note.block_name} content={note.content} minRows={14} />
+            </div>
+            <NoteTagsForm id={note.id} tags={(tags.get(id) ?? []).map((t) => t.name).join(", ")} />
+          </>
+        ) : (
+          <>
+            <Link href="/notes" className="text-sm text-muted hover:text-fg">← All notes</Link>
+            <NoteEditor
+              id={note.id}
+              title={note.title}
+              content={note.content}
+              tags={(tags.get(id) ?? []).map((t) => t.name).join(", ")}
+            />
+          </>
+        )}
+        {!note.block_name && note.content.trim() && (
           <section className="space-y-2 rounded-lg border border-line p-4 bg-surface shadow-card">
             <h2 className="section-title">Preview</h2>
             <div className="space-y-3 text-[15px] leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMarkdown(note.content) }} />

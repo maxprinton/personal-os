@@ -27,6 +27,8 @@ export type Occurrence = {
   end_time: string;
   status: OccurrenceStatus;
   is_override: boolean;
+  /** Renamed on its own ("only this day"): its weekly pattern belongs to another block, so only this day can change. */
+  detached?: boolean;
 };
 
 /** "this_day" = only this occurrence, "forward" = this day and every later week. */
@@ -133,8 +135,10 @@ export type CalendarData = {
   finance: FinanceOptions;
   /** ISO time until which past days can be edited (null = the past is locked). */
   pastEditUntil: string | null;
-  /** True on a phone: view only (no dragging, no editing). */
+  /** True on a phone: view only (no dragging, no editing). The block notes can still be written. */
   readOnly: boolean;
+  /** Block notes by lower-case block name (the name is the key, like LifeOS). */
+  blockNotes: Record<string, { id: string; content: string }>;
 };
 
 /** Result of every calendar server action. */

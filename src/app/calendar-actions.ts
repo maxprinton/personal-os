@@ -3,7 +3,8 @@
 // Calendar v2 server actions. Called directly from the calendar panel (client components).
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { addDays, dateRange, daysBetween, isDate, isTime, isoWeekday, localNow, minutesToTime, timeToMinutes, zonedToUtc } from "@/lib/time";
+import { addDays, dateRange, daysBetween, formatDateLong, formatMinutes, isDate, isTime, isoWeekday, localNow, minutesToTime, timeToMinutes, zonedToUtc } from "@/lib/time";
+import { copyBlockNote, renameBlockNote } from "@/lib/block-notes";
 import { ensureOccurrences, getOccurrence, getOccurrences, getSlots } from "@/lib/calendar/model";
 import {
   afterOccurrencesChanged,
@@ -14,6 +15,7 @@ import {
   normalizeName,
   occurrenceConflictMessage,
   removeSlotForward,
+  renameSlotForward,
   slotConflictMessage,
 } from "@/lib/calendar/edit";
 import { userTimezone } from "@/lib/calendar/load";
@@ -219,6 +221,7 @@ export async function editOccurrence(input: EditOccurrenceInput): Promise<CalRes
       if (occ.date < c.today) return { error: "Past days can only be changed for that day." };
       const slot = await getSlot(c.sb, c.userId, occ.slot_id);
       if (!slot) return { error: "The weekly pattern of this block was not found." };
+      if (slot.block_type_id !== occ.block_type_id) return { error: DETACHED };
       const origin = occ.origin_date ?? occ.date;
       const from = origin > c.today ? origin : c.today;
       let next = { weekday: isoWeekday(input.date), start_time, end_time };
@@ -302,6 +305,7 @@ export async function removeOccurrence(input: { id: string; scope: EditScope }):
       if (occ.date < c.today) return { error: "Past days can only be changed for that day." };
       const slot = await getSlot(c.sb, c.userId, occ.slot_id);
       if (!slot) return { error: "The weekly pattern of this block was not found." };
+      if (slot.block_type_id !== occ.block_type_id) return { error: DETACHED };
       const origin = occ.origin_date ?? occ.date;
       await removeSlotForward(c.sb, c.userId, slot, origin > c.today ? origin : c.today);
     }
@@ -546,10 +550,117 @@ export async function renameBlockType(input: { id: string; name: string }): Prom
     const clash = ((same ?? []) as { id: string; name: string }[]).find(
       (t) => t.id !== input.id && t.name.toLowerCase() === name.toLowerCase()
     );
-    if (clash) return { error: `There is already a block called "${clash.name}".` };
+    if (clash) {
+      return {
+        error: `There is already a block called “${clash.name}”. To join just one day (or one weekly time) to it, rename from that block with “Only this day” or “This time every week”; otherwise pick another name.`,
+      };
+    }
+    const old = ((same ?? []) as { id: string; name: string }[]).find((t) => t.id === input.id);
     const { error } = await c.sb.from("block_types").update({ name }).eq("id", input.id).eq("user_id", c.userId);
     if (error) return { error: error.message };
-    return done();
+    // The note follows its block (the name is its key)
+    const { parked } = old ? await renameBlockNote(c.sb, c.userId, old.name, name) : { parked: null };
+    return done(
+      parked
+        ? `Renamed everywhere. An old note of a deleted “${parked}” block is kept in Notes as “${parked} (old block note)”.`
+        : undefined
+    );
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+const DETACHED = "This day was renamed on its own, so only this day can change.";
+
+export type RenameScope = "this_day" | "slot_forward" | "all";
+
+/**
+ * Renaming from a block's window, like LifeOS:
+ * - "this_day" (default): only this appearance changes block. A new name = a new block with a copy of
+ *   the note; an existing name = it joins that block (its color, note and habits). Next week the
+ *   weekly block is back as it was.
+ * - "slot_forward": this weekly time (e.g. Monday 7:00) belongs to the new name from this day on.
+ * - "all": the block is renamed everywhere (past too); refused if the name already exists.
+ * A day with habits already marked can't be split off (its streaks would get mixed).
+ */
+export async function renameOccurrence(input: {
+  id: string;
+  name: string;
+  scope: RenameScope;
+  /** Color for the new block, if the name is new (an existing block keeps its own). */
+  color?: string;
+}): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const occ = await getOccurrence(c.sb, c.userId, input.id);
+    if (!occ || occ.status === "cancelled") return { error: "That block is no longer on the calendar." };
+    const name = normalizeName(input.name ?? "");
+    if (!name) return { error: "Give the block a name." };
+    const { data: row } = await c.sb
+      .from("block_types")
+      .select("id,name")
+      .eq("id", occ.block_type_id)
+      .eq("user_id", c.userId)
+      .maybeSingle();
+    const current = row as { id: string; name: string } | null;
+    if (!current) return { error: "This block was not found." };
+    if (input.scope === "all") return await renameBlockType({ id: current.id, name });
+    if (name.toLowerCase() === current.name.toLowerCase()) return { error: `It is already called “${current.name}”.` };
+    const locked = pastGuard(c, occ.date);
+    if (locked) return locked;
+    const { count } = await c.sb
+      .from("habit_checks")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", c.userId)
+      .eq("occurrence_id", occ.id);
+    const hasMarks = (count ?? 0) > 0;
+    const day = formatDateLong(occ.date);
+
+    if (input.scope === "slot_forward") {
+      if (!occ.slot_id) return { error: "This block was only for one day, so it has no weekly time. Use “Only this day”." };
+      if (occ.date < c.today) return { error: "Past days can only be renamed for that day." };
+      const slot = await getSlot(c.sb, c.userId, occ.slot_id);
+      if (!slot) return { error: "The weekly pattern of this block was not found." };
+      if (slot.block_type_id !== occ.block_type_id) return { error: DETACHED };
+      const origin = occ.origin_date ?? occ.date;
+      let from = origin > c.today ? origin : c.today;
+      // Habits already marked today: today stays as it is and the change starts after it
+      if (hasMarks) from = addDays(from, 1);
+      const { type: target, created } = await findOrCreateBlockType(c.sb, c.userId, name, input.color);
+      await renameSlotForward(c.sb, c.userId, slot, target.id, from);
+      const copied = created ? await copyBlockNote(c.sb, c.userId, current.name, target.name) : false;
+      const when = `${["Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"][slot.weekday - 1]} ${formatMinutes(
+        timeToMinutes(slot.start_time)
+      )}`;
+      const parts = [
+        created
+          ? `From ${formatDateLong(from)} on, ${when} is the new block “${target.name}”${copied ? " (with a copy of the note)" : ""}.`
+          : `From ${formatDateLong(from)} on, ${when} joined “${target.name}”: it uses its color, note and habits.`,
+        `Other “${current.name}” times and the past stay as they were.`,
+      ];
+      if (hasMarks) parts.push(`Today stays “${current.name}” because its habits are already marked.`);
+      return done(parts.join(" "));
+    }
+
+    if (hasMarks) {
+      return {
+        error: `This “${current.name}” already has habits marked on ${day}, so it can't be split off. Unmark them first, or rename it from the next time on.`,
+      };
+    }
+    const { type: target, created } = await findOrCreateBlockType(c.sb, c.userId, name, input.color);
+    const { error } = await c.sb
+      .from("block_occurrences")
+      .update({ block_type_id: target.id, is_override: true })
+      .eq("id", occ.id)
+      .eq("user_id", c.userId);
+    if (error) return { error: error.message };
+    if (created) {
+      const copied = await copyBlockNote(c.sb, c.userId, current.name, target.name);
+      return done(
+        `Only ${day}: it is now its own block “${target.name}”${copied ? " with a copy of the note" : ""}. Next week it is “${current.name}” again.`
+      );
+    }
+    return done(`Only ${day}: joined “${target.name}”. It now uses its color, note and habits.`);
   } catch (e) {
     return fail(e);
   }

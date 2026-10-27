@@ -20,6 +20,7 @@ import { PaymentDraft } from "@/components/PaymentForms";
 import { isMobileRequest } from "@/lib/device";
 import MetricWidget from "@/components/MetricWidget";
 import QuickCapture from "@/components/QuickCapture";
+import FocusPanel from "@/components/FocusPanel";
 import { markInsightRead } from "@/app/settings-actions";
 import { getFinance } from "@/lib/finance";
 import { budgetUsage, formatUSD, inRange, monthRange, totals } from "@/lib/money";
@@ -195,6 +196,9 @@ export default async function CommandCenter() {
             </div>
           )}
         </section>
+
+        {/* Focus panel (LifeOS): the block of now, or the next one, with its note, habits and tasks */}
+        <FocusPanel variant="today" />
 
         <div className="grid grid-cols-1 items-start gap-6 @4xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
           {/* Left: things to act on */}

@@ -5,8 +5,9 @@ import Modal, { btnPrimary, btnSecondary } from "@/components/calendar/Modal";
 import { dayLabel } from "@/components/calendar/util";
 
 /** Label for the "forward" option, or null when only "this day" is possible. */
-export function forwardLabel(occ: Pick<Occurrence, "slot_id" | "date">, today: string) {
-  if (!occ.slot_id || occ.date < today) return null;
+export function forwardLabel(occ: Pick<Occurrence, "slot_id" | "date" | "detached">, today: string) {
+  // A day renamed on its own has no weekly pattern of its own
+  if (!occ.slot_id || occ.detached || occ.date < today) return null;
   return occ.date === today ? "From today on" : `From ${dayLabel(occ.date)} on`;
 }
 
@@ -18,7 +19,7 @@ export function ScopeButtons({
   busy,
   onPick,
 }: {
-  occ: Pick<Occurrence, "slot_id" | "date">;
+  occ: Pick<Occurrence, "slot_id" | "date" | "detached">;
   today: string;
   verb: string;
   busy?: boolean;
@@ -51,7 +52,7 @@ export default function ScopeDialog({
 }: {
   title: string;
   detail?: string;
-  occ: Pick<Occurrence, "slot_id" | "date">;
+  occ: Pick<Occurrence, "slot_id" | "date" | "detached">;
   today: string;
   verb: string;
   onPick: (scope: EditScope) => void;
@@ -85,7 +86,7 @@ export function ResizeDialog({
   onPick,
   onClose,
 }: {
-  occ: Pick<Occurrence, "slot_id" | "date" | "origin_date" | "start_time" | "end_time">;
+  occ: Pick<Occurrence, "slot_id" | "date" | "detached" | "origin_date" | "start_time" | "end_time">;
   name: string;
   start: number;
   end: number;
