@@ -61,15 +61,30 @@ export async function connectBot(_prev: ActionState): Promise<ActionState> {
   // The menu Telegram shows when you type "/" (not essential: a failure here doesn't stop the connection)
   await tg("setMyCommands", {
     commands: [
-      { command: "hoy", description: "Today: current block, pending tasks, habits and block notes" },
-      { command: "now", description: "Right now: current block, its note, habits and your balance" },
-      { command: "tomorrow", description: "Tomorrow: schedule, tasks, payments, habits" },
-      { command: "thisweek", description: "Rest of this week, day by day" },
+      { command: "today", description: "Today: block, tasks, habits, payments, notes" },
+      { command: "now", description: "The block of right now: tasks, habits, note" },
+      { command: "tomorrow", description: "Tomorrow: schedule, tasks, payments" },
+      { command: "week", description: "Rest of this week, day by day" },
       { command: "nextweek", description: "Next week, day by day" },
-      { command: "undo", description: "Remove the last thing I saved" },
+      { command: "day", description: "Any day: /day friday · /day 5 nov" },
+      { command: "tasks", description: "All open tasks, with buttons" },
+      { command: "payments", description: "What to pay now and next" },
+      { command: "balance", description: "Money in each account" },
+      { command: "budget", description: "Budgets: spent, left" },
+      { command: "movements", description: "Latest transactions (delete, account, receipt)" },
+      { command: "unassigned", description: "Transactions without an account" },
+      { command: "search", description: "Find tasks, notes, events, money: /search word" },
+      { command: "notes", description: "Latest notes" },
+      { command: "habits", description: "Streaks and today's habits" },
+      { command: "metrics", description: "Today's metrics" },
+      { command: "archived", description: "Archived tasks (restore)" },
+      { command: "insights", description: "Unread insights" },
+      { command: "settings", description: "Telegram reminders on/off and times" },
+      { command: "undo", description: "Undo the last thing" },
+      { command: "menu", description: "Show the buttons under the keyboard" },
       { command: "gem", description: "Ask Gemini about your data: /gem question" },
       { command: "ai", description: "Check the Gemini connection" },
-      { command: "help", description: "What I understand" },
+      { command: "help", description: "Everything the bot understands" },
     ],
   }).catch(() => null);
   revalidatePath("/settings");
@@ -131,6 +146,10 @@ export async function saveReminders(_prev: ActionState, form: FormData): Promise
     return /^\d{2}:\d{2}$/.test(s) ? s : fallback;
   };
   const before = Number(form.get("before") ?? 10);
+  // "When a block ends" exists after migration 0019 (and only shows in the form then)
+  if (form.get("block_end_present") !== null) {
+    await supabase.from("user_settings").update({ reminder_block_end: form.get("block_end_on") === "on" }).eq("user_id", user.id);
+  }
   const { error } = await supabase
     .from("user_settings")
     .update({

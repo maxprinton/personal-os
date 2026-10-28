@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { norm } from "@/lib/bot/text";
 import { accountBalance, formatUSD, type Snapshot, type Transfer, type Txn } from "@/lib/money";
 
 // Server-only: the "/balance" message for Telegram. Runs with the admin client, so EVERY query filters by user_id.
@@ -6,15 +7,7 @@ import { accountBalance, formatUSD, type Snapshot, type Transfer, type Txn } fro
 const TRIGGERS = new Set(["/balance", "/balances", "balance", "balances", "/saldo", "/saldos", "saldo", "saldos", "/cuentas", "cuentas", "/accounts", "accounts"]);
 
 export function isBalanceRequest(text: string) {
-  const t = text
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[¿?!.]/g, "")
-    .replace(/@\w+$/, "") // "/balance@maxpersonalos_bot" in groups
-    .replace(/\s+/g, " ")
-    .trim();
-  return TRIGGERS.has(t);
+  return TRIGGERS.has(norm(text));
 }
 
 /** Reads every row (Supabase returns at most 1000 per request). */

@@ -5,6 +5,9 @@ import { eventSpanOn, spanOn } from "@/lib/calendar/overlap";
 import { getEvents } from "@/lib/calendar/events";
 import { getPaymentTemplates } from "@/lib/calendar/payments";
 import { dayData } from "@/lib/reminders";
+import { norm } from "@/lib/bot/text";
+import { taskRows } from "@/lib/bot/tasks";
+import { btn, type Kb } from "@/lib/bot/tg";
 
 // Server-only: /tomorrow, /thisweek and /nextweek for Telegram. Runs with the admin client, so EVERY
 // query filters by user_id. Read only: nothing here changes data.
@@ -15,7 +18,7 @@ export type AheadKind = "tomorrow" | "thisweek" | "nextweek";
 const TRIGGERS: Record<string, AheadKind> = {
   "/tomorrow": "tomorrow", "/manana": "tomorrow", tomorrow: "tomorrow", manana: "tomorrow",
   "que tengo manana": "tomorrow", "what's tomorrow": "tomorrow", "whats tomorrow": "tomorrow",
-  "/thisweek": "thisweek", "/week": "thisweek", "/semana": "thisweek", "/estasemana": "thisweek",
+  "/thisweek": "thisweek", "/week": "thisweek", week: "thisweek", semana: "thisweek", "/semana": "thisweek", "/estasemana": "thisweek",
   "this week": "thisweek", "esta semana": "thisweek", "que tengo esta semana": "thisweek",
   "/nextweek": "nextweek", "/proximasemana": "nextweek", "next week": "nextweek", "proxima semana": "nextweek",
   "la proxima semana": "nextweek", "semana que viene": "nextweek", "la semana que viene": "nextweek",
@@ -23,15 +26,7 @@ const TRIGGERS: Record<string, AheadKind> = {
 };
 
 export function aheadRequest(text: string): AheadKind | null {
-  const t = text
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[¿?!.]/g, "")
-    .replace(/@\w+$/, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return TRIGGERS[t] ?? null;
+  return TRIGGERS[norm(text)] ?? null;
 }
 
 const MAX_LEN = 3900; // Telegram allows 4096 characters
@@ -43,24 +38,28 @@ const short = (min: number) => formatMinutes(min).replace(":00 ", " ").replace("
 const list = (items: string[], max: number) =>
   items.slice(0, max).map((x) => `  • ${x}`).concat(items.length > max ? [`  • +${items.length - max} more`] : []);
 
-export async function aheadText(admin: SupabaseClient, userId: string, timezone: string, kind: AheadKind) {
+export async function aheadText(admin: SupabaseClient, userId: string, timezone: string, kind: AheadKind): Promise<{ text: string; kb: Kb }> {
   const today = localNow(timezone).date;
-  if (kind === "tomorrow") return tomorrowText(admin, userId, timezone, today);
+  if (kind === "tomorrow") return dayText(admin, userId, timezone, today, addDays(today, 1));
   const wd = isoWeekday(today); // 1 = Monday … 7 = Sunday
   const from = kind === "thisweek" ? today : addDays(today, 8 - wd);
   const to = kind === "thisweek" ? addDays(today, 7 - wd) : addDays(from, 6);
-  return weekText(admin, userId, timezone, today, from, to, kind);
+  const text = await weekText(admin, userId, timezone, today, from, to, kind);
+  // Each day of the week opens with one tap
+  const days = dateRange(kind === "thisweek" ? addDays(today, 1) : from, to);
+  const kb: Kb = [];
+  for (let i = 0; i < days.length; i += 4) kb.push(days.slice(i, i + 4).map((d) => btn(dayName(d).split(",")[0] + " " + Number(d.slice(8)), `dv:${d.replace(/-/g, "")}`)));
+  return { text, kb };
 }
 
-/** Like the morning summary, for tomorrow. */
-async function tomorrowText(admin: SupabaseClient, userId: string, tz: string, today: string) {
-  const date = addDays(today, 1);
+/** One day ahead (tomorrow or any later day): like the morning summary, with buttons for its tasks. */
+export async function dayText(admin: SupabaseClient, userId: string, tz: string, today: string, date: string): Promise<{ text: string; kb: Kb }> {
   const [d, free, taskRes] = await Promise.all([
     dayData(admin, { user_id: userId, timezone: tz }, date),
     getFreeDays(admin, userId, date, date),
     admin
       .from("tasks")
-      .select("title,scheduled_for,rollover_policy")
+      .select("id,title,scheduled_for,rollover_policy")
       .eq("user_id", userId)
       .is("deleted_at", null)
       .eq("status", "pending")
@@ -68,11 +67,11 @@ async function tomorrowText(admin: SupabaseClient, userId: string, tz: string, t
       .order("scheduled_for")
       .order("created_at"),
   ]);
-  const tasks = (taskRes.data ?? []) as { title: string; scheduled_for: string; rollover_policy: string }[];
+  const tasks = (taskRes.data ?? []) as { id: string; title: string; scheduled_for: string; rollover_policy: string }[];
   const forTomorrow = tasks.filter((t) => t.scheduled_for === date);
-  const carried = tasks.filter((t) => t.scheduled_for < date && t.rollover_policy === "migrate");
+  const carried = date === addDays(today, 1) ? tasks.filter((t) => t.scheduled_for < date && t.rollover_policy === "migrate") : [];
 
-  const L: string[] = [`🌙 Tomorrow · ${dayName(date)}`];
+  const L: string[] = [date === addDays(today, 1) ? `🌙 Tomorrow · ${dayName(date)}` : `🗓 ${dayName(date)}`];
   if (free.length) {
     L.push(`🌴 Free day${free[0].note ? ` (${free[0].note})` : ""}: your weekly blocks are paused, streaks on hold.`);
   }
@@ -84,7 +83,7 @@ async function tomorrowText(admin: SupabaseClient, userId: string, tz: string, t
   );
   if (forTomorrow.length) L.push(`\n✅ Tasks (${forTomorrow.length})\n${list(forTomorrow.map((t) => t.title), 8).join("\n")}`);
   if (carried.length) {
-    L.push(`\n↪ Still open from today or before (they move to tomorrow if not done): ${carried.length}\n${list(carried.map((t) => t.title), 5).join("\n")}`);
+    L.push(`\n↪ Still open from today or before (they move on their own if not done): ${carried.length}\n${list(carried.map((t) => t.title), 5).join("\n")}`);
   }
   if (!forTomorrow.length && !carried.length) L.push("\n✅ No tasks yet.");
   const pay = d.payments.filter((p) => p.date === date);
@@ -92,7 +91,7 @@ async function tomorrowText(admin: SupabaseClient, userId: string, tz: string, t
   if (pay.length) L.push(`\n💳 Payments\n${list(pay.map((p) => `${p.title}${p.expected ? ` (${usd(p.expected)})` : ""}`), 6).join("\n")}`);
   if (overdue.length) L.push(`💳 Still to pay from before: ${overdue.map((p) => p.title).join(", ")}`);
   if (d.habits.length) L.push(`\n🔁 Habits: ${d.habits.map((h) => h.title).join(", ")}`);
-  return clip(L.join("\n"));
+  return { text: clip(L.join("\n")), kb: taskRows(forTomorrow, 8) };
 }
 
 /** One short block per day: events, payments, tasks, free days and the blocks in one line. */

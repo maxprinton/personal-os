@@ -34,7 +34,7 @@ export function parseHabitCommand(text: string): HabitCommand | null {
     const block = m ? normalizeName(m[2]) : null;
     return name ? { kind: "create", name, block } : null;
   }
-  const mark = /^(done|hecho|listo|skip|skipped|saltar|salte|salté)\s+(.+)$/i.exec(text.trim());
+  const mark = /^(done|hecho|hecha|listo|lista|hice|termin[eé]|complet[eé]|finished|skip|skipped|saltar|salte|salté)\s+(.+)$/i.exec(text.trim());
   if (mark) {
     const word = simplify(mark[1]);
     const state = ["skip", "skipped", "saltar", "salte"].includes(word) ? "skipped" : "done";

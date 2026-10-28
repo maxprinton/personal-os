@@ -27,6 +27,9 @@ export default async function SettingsPage() {
     .from("user_settings")
     .select("timezone,currency,locale,telegram_chat_id,telegram_link_code,telegram_link_expires,reminder_morning_enabled,reminder_morning_time,reminder_evening_enabled,reminder_evening_time,reminder_before_minutes,reminder_insights,reminder_unassigned_nag")
     .maybeSingle();
+  // "When a block ends" (migration 0019): ON until it exists
+  const blockEnd = await supabase.from("user_settings").select("reminder_block_end").maybeSingle();
+  const blockEndOn = blockEnd.error ? null : (blockEnd.data?.reminder_block_end as boolean | null | undefined) ?? true;
 
   const hasToken = Boolean(botToken());
   const hasSecret = Boolean(process.env.SUPABASE_SECRET_KEY);
@@ -114,6 +117,7 @@ export default async function SettingsPage() {
               before: s.reminder_before_minutes ?? 10,
               insightsOn: s.reminder_insights ?? true,
               unassignedOn: s.reminder_unassigned_nag ?? true,
+              blockEndOn,
             }}
           />
         )}

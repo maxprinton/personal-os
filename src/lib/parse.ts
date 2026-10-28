@@ -3,6 +3,7 @@
 // to the AI when a key exists (Gemini: GEMINI_API_KEY; or Claude: ANTHROPIC_API_KEY), and the
 // rules' best guess is the fallback.
 import { geminiJson, hasGemini } from "@/lib/gemini";
+import { AMOUNT, findDate, fold, toAmount as amountOf, type DateMode } from "@/lib/bot/text";
 
 export type Parsed =
   | { kind: "task"; title: string; date: string | null }
@@ -17,7 +18,8 @@ export type Parsed =
       date: string | null;
     };
 
-const NUM = String.raw`\$?\s*(\d{1,7}(?:[.,]\d{1,2})?)\s*(?:usd|dollars?|dólares?|dolares?|\$)?`;
+// One amount: 12 · 12.50 · 12,5 · 1.500 (thousands) · 1.234,56 — see AMOUNT in lib/bot/text.ts
+const NUM = String.raw`\$?\s*${AMOUNT}\s*(?:usd|dollars?|dólares?|dolares?|\$)?`;
 
 const CATEGORY_WORDS: Record<string, string[]> = {
   Food: ["lunch", "dinner", "breakfast", "coffee", "groceries", "grocery", "restaurant", "food", "pizza", "snack",
@@ -30,40 +32,30 @@ const CATEGORY_WORDS: Record<string, string[]> = {
 };
 
 export function guessCategory(text: string, available: string[] = []): string | null {
-  const t = text.toLowerCase();
+  const t = fold(text);
+  // Whole words, accents ignored ("café" = "cafe"), so "\b" problems with accented letters don't happen
+  const has = (w: string) => new RegExp(`(?<![\\p{L}\\p{N}])${fold(w).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}])`, "u").test(t);
   for (const [cat, words] of Object.entries(CATEGORY_WORDS)) {
-    if (words.some((w) => new RegExp(`\\b${w}\\b`, "i").test(t))) {
+    if (words.some(has)) {
       if (!available.length || available.some((a) => a.toLowerCase() === cat.toLowerCase())) return cat;
     }
   }
   for (const a of available) {
-    if (new RegExp(`\\b${a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(t)) return a;
+    if (has(a)) return a;
   }
   return null;
 }
 
-function addDays(date: string, n: number) {
-  const d = new Date(`${date}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
+/**
+ * Pulls a date out of a text: hoy / mañana / ayer / pasado mañana / el viernes / 5 nov / 12/11 / el 5…
+ * "por la mañana" is not a date. mode "past" (money) reads "el viernes" as the last one.
+ */
+function extractDay(text: string, today: string, mode: DateMode = "future"): { text: string; date: string | null } {
+  const hit = findDate(text, today, mode);
+  return hit ? { text: hit.rest, date: hit.date } : { text, date: null };
 }
 
-/** Pulls "today / tomorrow / yesterday / hoy / mañana / ayer" out of a text. */
-function extractDay(text: string, today: string): { text: string; date: string | null } {
-  const rules: [RegExp, number][] = [
-    [/\b(tomorrow|mañana|manana)\b/i, 1],
-    [/\b(yesterday|ayer)\b/i, -1],
-    [/\b(today|hoy)\b/i, 0],
-  ];
-  for (const [re, n] of rules) {
-    if (re.test(text)) {
-      return { text: text.replace(re, "").replace(/\s{2,}/g, " ").trim(), date: addDays(today, n) };
-    }
-  }
-  return { text, date: null };
-}
-
-const toAmount = (s: string) => Math.round(Number(s.replace(",", ".")) * 100) / 100;
+const toAmount = (s: string) => amountOf(s);
 const clean = (s: string) => s.replace(/^(on|for|at|en|de|por|para)\s+/i, "").trim();
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
@@ -80,7 +72,7 @@ export function ruleTransfer(input: string, today: string): { parsed: Extract<Pa
   const m = new RegExp(`^(${MOVE_STRICT}|${MOVE_SOFT})\\s+${NUM}\\s+([\\s\\S]+)$`, "i").exec(text);
   if (!m) return null;
   const strict = new RegExp(`^${MOVE_STRICT}$`, "i").test(m[1]);
-  const d = extractDay(m[3].trim(), today);
+  const d = extractDay(m[3].trim(), today, "past");
   const rest = d.text;
   const TO = "(?:to|a|hacia|into|para)";
   const FROM = "(?:from|de|desde)";
@@ -119,13 +111,13 @@ export function ruleGuess(input: string, today: string): Parsed {
 export function ruleParseStrict(input: string, today: string, categories: string[] = []): Parsed | null {
   const text = input.trim();
 
-  let m = /^(?:task|todo|tarea|t)\s*[:\-]\s*([\s\S]+)$/i.exec(text);
+  let m = /^(?:(?:task|todo|tarea)\s*[:\-]|t\s*:)\s*([\s\S]+)$/i.exec(text);
   if (m) {
     const d = extractDay(m[1].trim(), today);
     return { kind: "task", title: cap(d.text), date: d.date };
   }
 
-  m = /^(?:note|nota|n)\s*[:\-]\s*([\s\S]+)$/i.exec(text);
+  m = /^(?:(?:note|nota)\s*[:\-]|n\s*:)\s*([\s\S]+)$/i.exec(text);
   if (m) {
     const body = m[1].trim();
     const [first, ...rest] = body.split("\n");
@@ -134,31 +126,31 @@ export function ruleParseStrict(input: string, today: string, categories: string
 
   m = new RegExp(`^(?:spent|paid|bought|pay|gast[eé]|pagu[eé]|compr[eé])\\s+${NUM}\\s*([\\s\\S]*)$`, "i").exec(text);
   if (m) {
-    const d = extractDay(clean(m[2]), today);
-    return { kind: "transaction", txnType: "expense", amount: toAmount(m[1]), description: cap(d.text),
+    const d = extractDay(clean(m[2]), today, "past");
+    return { kind: "transaction", txnType: "expense", amount: toAmount(m[1]), description: cap(clean(d.text)),
       category: guessCategory(d.text, categories), date: d.date };
   }
 
   m = new RegExp(`^(?:earned|received|got paid|income|cobr[eé]|recib[ií]|gan[eé])\\s+${NUM}\\s*([\\s\\S]*)$`, "i").exec(text);
   if (m) {
-    const d = extractDay(clean(m[2]), today);
-    return { kind: "transaction", txnType: "income", amount: toAmount(m[1]), description: cap(d.text),
+    const d = extractDay(clean(m[2]), today, "past");
+    return { kind: "transaction", txnType: "income", amount: toAmount(m[1]), description: cap(clean(d.text)),
       category: guessCategory(d.text, categories), date: d.date };
   }
 
   m = new RegExp(`^([+-])\\s*${NUM}\\s*([\\s\\S]*)$`).exec(text) ;
   if (m) {
-    const d = extractDay(clean(m[3]), today);
+    const d = extractDay(clean(m[3]), today, "past");
     return { kind: "transaction", txnType: m[1] === "+" ? "income" : "expense", amount: toAmount(m[2]),
-      description: cap(d.text), category: guessCategory(d.text, categories), date: d.date };
+      description: cap(clean(d.text)), category: guessCategory(d.text, categories), date: d.date };
   }
 
-  m = new RegExp(`^\\$\\s*(\\d{1,7}(?:[.,]\\d{1,2})?)\\s+([\\s\\S]+)$|^(\\d{1,7}(?:[.,]\\d{1,2})?)\\s*(?:usd|\\$)\\s+([\\s\\S]+)$`, "i").exec(text);
+  m = new RegExp(`^\\$\\s*${AMOUNT}\\s+([\\s\\S]+)$|^${AMOUNT}\\s*(?:usd|\\$)\\s+([\\s\\S]+)$`, "i").exec(text);
   if (m) {
     const amount = m[1] ?? m[3];
     const rest = m[2] ?? m[4];
-    const d = extractDay(clean(rest), today);
-    return { kind: "transaction", txnType: "expense", amount: toAmount(amount), description: cap(d.text),
+    const d = extractDay(clean(rest), today, "past");
+    return { kind: "transaction", txnType: "expense", amount: toAmount(amount), description: cap(clean(d.text)),
       category: guessCategory(d.text, categories), date: d.date };
   }
 

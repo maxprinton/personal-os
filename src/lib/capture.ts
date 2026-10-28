@@ -2,6 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { aiParse, describe, ruleGuess, ruleParseStrict, ruleTransfer, validateParsed, type Parsed } from "@/lib/parse";
 import { geminiJson } from "@/lib/gemini";
 import { localNow, zonedToUtc } from "@/lib/time";
+import { getBlockTypes } from "@/lib/calendar/model";
+import { autoPlaceTasks } from "@/lib/calendar/tasks";
+import { bestMatches } from "@/lib/bot/text";
 
 // Works with both the signed-in user's client (RLS) and the admin client (Telegram).
 // It always writes user_id explicitly, so with RLS it must match the signed-in user.
@@ -80,7 +83,7 @@ export function findAccount(text: string, accounts: AccountRef[]): { account: Ac
 }
 
 /** Removes "from <account>" from a description (same indexes in folded and original text). */
-function stripAccount(description: string, needle: string) {
+export function stripAccount(description: string, needle: string) {
   const folded = fold(description);
   const m = phraseRe(needle, "iu").exec(folded);
   if (!m) return description;
@@ -231,22 +234,51 @@ export async function saveParsed(
   account: AccountRef | null = null
 ): Promise<Saved> {
   if (parsed.kind === "task") {
+    // "@Gym" = home block (the task goes into it on its day), "#work" = tag. A past day becomes today.
+    const { text: title, tags } = pullTags(parsed.title);
+    let homeId: string | null = null;
+    let homeName: string | null = null;
+    let finalTitle = title;
+    const at = /(?:^|\s)@([\p{L}\p{N}][\p{L}\p{N}_-]*(?:\s+[\p{L}\p{N}][\p{L}\p{N}_-]*)?)/u.exec(title);
+    if (at) {
+      const types = await getBlockTypes(supabase, userId);
+      // "@Deep work" (two words) first, then "@Deep"
+      for (const cand of [at[1], at[1].split(/\s+/)[0]]) {
+        const found = bestMatches(types, cand, (t) => t.name);
+        if (found.length === 1) {
+          homeId = found[0].id;
+          homeName = found[0].name;
+          finalTitle = title.replace(`@${cand}`, " ").replace(/\s{2,}/g, " ").trim();
+          break;
+        }
+      }
+    }
+    if (!finalTitle) finalTitle = parsed.title.trim() || "Task";
+    const day = parsed.date && parsed.date >= ctx.today ? parsed.date : ctx.today;
     const { data, error } = await supabase
       .from("tasks")
-      .insert({ user_id: userId, title: parsed.title, scheduled_for: parsed.date ?? ctx.today, source })
+      .insert({ user_id: userId, title: finalTitle, scheduled_for: day, source, ...(homeId ? { home_block_type_id: homeId } : {}) })
       .select("id")
       .single();
     if (error || !data) throw new Error(error?.message ?? "Could not save task");
-    return { entityType: "task", id: data.id, summary: describe(parsed) };
+    if (homeId) await autoPlace(supabase, userId, ctx.today);
+    if (tags.length) await addTags(supabase, userId, "task", data.id as string, tags);
+    const summary =
+      describe({ ...parsed, title: finalTitle, date: day === ctx.today ? null : day }) +
+      (homeName ? ` · home: ${homeName}` : "") +
+      (tags.length ? ` · #${tags.join(" #")}` : "");
+    return { entityType: "task", id: data.id, summary };
   }
   if (parsed.kind === "note") {
+    const { tags } = pullTags(`${parsed.title}\n${parsed.content}`);
     const { data, error } = await supabase
       .from("notes")
       .insert({ user_id: userId, title: parsed.title, content: parsed.content, source })
       .select("id")
       .single();
     if (error || !data) throw new Error(error?.message ?? "Could not save note");
-    return { entityType: "note", id: data.id, summary: describe(parsed) };
+    if (tags.length) await addTags(supabase, userId, "note", data.id as string, tags);
+    return { entityType: "note", id: data.id, summary: describe(parsed) + (tags.length ? ` · #${tags.join(" #")}` : "") };
   }
   const category = parsed.category
     ? ctx.categories.find((c) => c.kind === parsed.txnType && c.name.toLowerCase() === parsed.category!.toLowerCase())
@@ -325,4 +357,39 @@ export async function processImageCapture(
   // The caption names the account first; otherwise what the receipt shows (e.g. "VISA Pichincha")
   const accountText = findAccount(caption, ctx.accounts) ? caption : `${caption} ${paidWith}`.trim();
   return finishCapture(supabase, userId, parsed, "ai", accountText, source, ctx, null, askAccount);
+}
+
+/** "#work #ideas" → tags (and the text without them). Only words that start with a letter count. */
+export function pullTags(text: string): { text: string; tags: string[] } {
+  const tags: string[] = [];
+  const out = text.replace(/(^|\s)#([\p{L}][\p{L}\p{N}_-]{0,39})/gu, (_m, pre: string, name: string) => {
+    if (!tags.some((t) => t.toLowerCase() === name.toLowerCase())) tags.push(name);
+    return pre;
+  });
+  return { text: out.replace(/\s{2,}/g, " ").trim(), tags };
+}
+
+/** Adds tags to a task or note (creates missing tags). Filters by user_id, so it works with the admin client. */
+export async function addTags(supabase: SupabaseClient, userId: string, entityType: "task" | "note", entityId: string, names: string[]) {
+  const { data: existing } = await supabase.from("tags").select("id,name").eq("user_id", userId).is("deleted_at", null);
+  const byName = new Map(((existing ?? []) as { id: string; name: string }[]).map((t) => [t.name.toLowerCase(), t.id]));
+  const ids: string[] = [];
+  for (const name of names) {
+    let id = byName.get(name.toLowerCase());
+    if (!id) {
+      const { data } = await supabase.from("tags").insert({ user_id: userId, name }).select("id").single();
+      if (!data) continue;
+      id = data.id as string;
+      byName.set(name.toLowerCase(), id);
+    }
+    ids.push(id);
+  }
+  if (ids.length) {
+    await supabase.from("entity_tags").insert(ids.map((tag_id) => ({ user_id: userId, tag_id, entity_type: entityType, entity_id: entityId })));
+  }
+}
+
+/** Puts tasks with a home block into that block on their day (same as the calendar does each morning). */
+async function autoPlace(supabase: SupabaseClient, userId: string, today: string) {
+  await autoPlaceTasks(supabase, userId, today).catch(() => 0);
 }

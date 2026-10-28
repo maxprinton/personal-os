@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { formatDateLong, formatMinutes, localNow, timeToMinutes } from "@/lib/time";
+import { addDays, formatDateLong, formatMinutes, localNow, timeToMinutes } from "@/lib/time";
 import { freeDatesBetween, getBlockTypes, getOccurrence, getOccurrences } from "@/lib/calendar/model";
 import { eventSpanOn, spanOn } from "@/lib/calendar/overlap";
 import { getEvents } from "@/lib/calendar/events";
@@ -9,6 +9,7 @@ import { SKIP_LIMIT } from "@/lib/calendar/streaks";
 import type { HabitState } from "@/lib/calendar/types";
 import { packId } from "@/lib/telegram";
 import { getDuePayments } from "@/lib/calendar/payments";
+import { taskRows } from "@/lib/bot/tasks";
 
 // Server-only: runs with the admin client, so EVERY query filters by user_id.
 
@@ -99,6 +100,8 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
     dayNotes,
     freeDay: free.has(date),
     payments: due.map((p) => ({
+      eventId: p.eventId,
+      template: p.template,
       title: p.title,
       date: p.date,
       expected: p.expected ?? p.template?.expected_amount ?? null,
@@ -129,7 +132,7 @@ export function morningText(date: string, d: Day) {
     parts.push(
       `\n💳 Payments to confirm\n${list(
         d.payments.map((p) => `${p.title}${p.expected ? ` (expected $${p.expected.toFixed(2)})` : ""}${p.date < date ? ` · since ${p.date}` : ""}`)
-      )}\nWrite the real amount in the app to confirm.`
+      )}\nTap 💳 below to pay it (or /payments).`
     );
   }
   if (d.habits.length) parts.push(`\n🔁 Habits: ${d.habits.map((h) => h.title).join(", ")}`);
@@ -137,12 +140,17 @@ export function morningText(date: string, d: Day) {
 }
 
 export function unassignedText(n: number) {
-  return `\n📥 ${n} task${n > 1 ? "s" : ""} still without a block. Open the app on the computer to place ${n > 1 ? "them" : "it"}.`;
+  return `\n📥 ${n} task${n > 1 ? "s" : ""} still without a block. Tap 🧱 (or ⋯ → 🧱) to place ${n > 1 ? "them" : "it"} in a block, or ⋯ → 📅 for another day.`;
 }
 
-/** ✓ buttons to complete tasks from Telegram (the only task action allowed there). */
+/** One row per task: ✓ done · ⏭ next time its block happens · ⋯ date, block, rename, archive. */
 export function taskButtons(tasks: { id: string; title: string }[], max = 8) {
-  return tasks.slice(0, max).map((t) => [{ text: `✓ ${t.title}`.slice(0, 60), callback_data: `tk:${packId(t.id)}` }]);
+  return taskRows(tasks, max);
+}
+
+/** 🧱 buttons to place tasks that have no block yet (they open the list of today's blocks). */
+export function placeButtons(tasks: { id: string; title: string }[], max = 8) {
+  return tasks.slice(0, max).map((t) => [{ text: `🧱 ${t.title}`.slice(0, 60), callback_data: `tB:${packId(t.id)}:0` }]);
 }
 
 /** Completes a task from a Telegram button. */
@@ -177,7 +185,9 @@ export function eveningText(d: Day) {
   const lines = ["🌙 Evening check-in"];
   if (pending.length) lines.push("\nDid you do these today? Tap to log:");
   else if (d.habits.length) lines.push("\nAll habits logged today. 👏");
-  if (d.tasks.length) lines.push(`\n${d.tasks.length} task${d.tasks.length > 1 ? "s" : ""} still open. Unfinished ones go to tomorrow's morning ritual.`);
+  if (d.tasks.length) {
+    lines.push(`\n${d.tasks.length} task${d.tasks.length > 1 ? "s" : ""} still open. If you don't do them, they move on their own to the next time their block happens (or to tomorrow). ⏭ / ⋯ to choose yourself.`);
+  }
   return { text: lines.join("\n"), pending };
 }
 
@@ -226,13 +236,14 @@ export async function markHabitFromBot(
   occurrenceId: string,
   state: "done" | "skipped"
 ): Promise<{ text: string; ok: boolean }> {
-  const today = localNow(timezone).date;
+  const now = localNow(timezone);
+  const today = now.date;
   const [occ, { data: habit }] = await Promise.all([
     getOccurrence(admin, userId, occurrenceId),
     admin.from("habits").select("id,name").eq("id", habitId).eq("user_id", userId).maybeSingle(),
   ]);
   if (!occ || !habit) return { ok: false, text: "Could not find that habit." };
-  if (occ.date !== today) return { ok: false, text: "That day is closed. Fix it on the computer." };
+  if (!canMarkFromBot(occ, today, now.minutes)) return { ok: false, text: "That day is closed. Fix it on the computer." };
   await setHabitCheck(admin, userId, habitId, occ, state, "telegram");
   await recomputeOccurrenceStatus(admin, userId, occ.id, today);
   if (state === "done") return { ok: true, text: `✓ ${habit.name} logged` };
@@ -258,6 +269,17 @@ export async function markHabitFromBot(
         ? `${habit.name} skipped. That's more than ${SKIP_LIMIT} in a row, so the streak breaks.`
         : `${habit.name} skipped (streak kept, ${SKIP_LIMIT - run} skip${SKIP_LIMIT - run === 1 ? "" : "s"} left in a row)`,
   };
+}
+
+/**
+ * Telegram can mark today's blocks, and yesterday's until 3:00 AM (late check-ins), or until 3 hours
+ * after an overnight block ends (a 23:00–01:00 block can be marked at 00:30).
+ */
+export function canMarkFromBot(occ: { date: string; start_time: string; end_time: string }, today: string, nowMinutes: number) {
+  if (occ.date === today) return true;
+  if (occ.date !== addDays(today, -1)) return false;
+  const overnight = timeToMinutes(occ.end_time) <= timeToMinutes(occ.start_time);
+  return nowMinutes < 180 || (overnight && nowMinutes < timeToMinutes(occ.end_time) + 180);
 }
 
 export function nowFor(s: Pick<ReminderSettings, "timezone">) {

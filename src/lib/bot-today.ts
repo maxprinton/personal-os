@@ -8,6 +8,13 @@ import { balanceText } from "@/lib/bot-balance";
 import { blockNotesByKey, noteAsPlainText, noteKey } from "@/lib/block-notes";
 import { dayData } from "@/lib/reminders";
 import { packId } from "@/lib/telegram";
+import { taskRows } from "@/lib/bot/tasks";
+import { habitRow } from "@/lib/bot/habits";
+import { blockDoneRow, payRow } from "@/lib/bot/calendar";
+import { btn } from "@/lib/bot/tg";
+import { sameBlockSameDay } from "@/lib/calendar/taskview";
+import { usd } from "@/lib/bot/core";
+import { norm } from "@/lib/bot/text";
 
 // Server-only: the "/hoy" status message for Telegram. Runs with the admin client, so EVERY query filters by user_id.
 
@@ -18,25 +25,14 @@ const TRIGGERS = new Set([
   "que tengo", "que tengo hoy", "que me falta", "que falta", "whats left", "what's left",
 ]);
 
-function clean(text: string) {
-  return text
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[¿?!.]/g, "")
-    .replace(/@\w+$/, "") // "/hoy@maxpersonalos_bot" in groups
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 export function isTodayRequest(text: string) {
-  return TRIGGERS.has(clean(text));
+  return TRIGGERS.has(norm(text));
 }
 
 /** "/now": only the block of right now, with its times, habits, tasks and note. */
 const NOW_TRIGGERS = new Set(["/now", "now", "/ahora", "ahora", "que toca ahora", "que toca"]);
 export function isNowRequest(text: string) {
-  return NOW_TRIGGERS.has(clean(text));
+  return NOW_TRIGGERS.has(norm(text));
 }
 
 const TG_MAX = 3900;
@@ -202,25 +198,27 @@ export async function todayStatus(
     lines.push("\n⏭ No more blocks today.");
   }
   if (day.dayNotes.length) lines.push(`\n📌 ${day.dayNotes.join(" · ")}`);
+  if (day.payments.length) {
+    lines.push(`\n💳 To pay (${day.payments.length})`);
+    for (const p of day.payments) {
+      lines.push(`• ${p.title}${p.expected ? ` ${usd(p.expected)}` : ""}${p.date < today ? ` · since ${shortDate(p.date)}` : ""}`);
+    }
+  }
 
   const keyboard: Btn[][] = [
+    // ✓ / Skip for habits whose block has started
     ...pendingHabits
       .filter((h) => {
         const b = byOcc.get(h.occurrenceId);
-        return !b || nowMin >= b.start; // only habits whose block has started
+        return !b || nowMin >= b.start;
       })
       .slice(0, 8)
-      .map((h) => [
-        { text: `✓ ${h.title}`.slice(0, 60), callback_data: `hk:d:${packId(h.habitId)}:${packId(h.occurrenceId)}` },
-        { text: "Skip", callback_data: `hk:s:${packId(h.habitId)}:${packId(h.occurrenceId)}` },
-      ]),
-    // One row per open task: ✓ done · ⏭ next time its block happens · 🗄 archive
-    ...sorted.slice(0, 6).map((t) => [
-      { text: `✓ ${t.title}`.slice(0, 40), callback_data: `tk:${packId(t.id)}` },
-      { text: "⏭ Next", callback_data: `tn:${packId(t.id)}` },
-      { text: "🗄", callback_data: `ta:${packId(t.id)}` },
-    ]),
+      .map(habitRow),
+    // One row per open task: ✓ done · ⏭ next time its block happens · ⋯ date, block, rename, archive
+    ...taskRows(sorted, 8),
+    ...day.payments.slice(0, 5).map((p) => payRow({ ...p, template: p.template ?? null }, today)),
   ];
+  if (sorted.length > 8) keyboard.push([btn(`📋 All ${sorted.length} tasks`, "pl:0")]);
   // The full note of every block of today (like LifeOS: the name is the key), in the day's order
   const noteParts: string[] = [];
   const seen = new Set<string>();
@@ -274,7 +272,25 @@ export async function nowStatus(admin: SupabaseClient, userId: string, timezone:
   ];
 
   const note = noteAsPlainText(notes.get(noteKey(blockName))?.content ?? "");
-  lines.push("", "📝 Note", note || "(no note yet — write it in the block's window or on Today)");
+  lines.push("", "📝 Note", note || "(no note yet — write “nb: text” here, or in the block's window)");
+
+  // Tasks placed in this block today (in any of its appearances)
+  const ids = [...sameBlockSameDay(occ, occurrences)];
+  const { data: taskData } = await admin
+    .from("tasks")
+    .select("id,title")
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .eq("status", "pending")
+    .in("occurrence_id", ids)
+    .order("created_at");
+  const blockTasks = (taskData ?? []) as { id: string; title: string }[];
+  if (blockTasks.length) {
+    lines.push("", `✅ Tasks here (${blockTasks.length})`);
+    for (const t of blockTasks) lines.push(`• ${t.title}`);
+  } else {
+    lines.push("", "✅ No tasks in this block.");
+  }
 
   const hs = habitsForOccurrence(occ, habits, checks, today);
   if (hs.length) {
@@ -285,12 +301,13 @@ export async function nowStatus(admin: SupabaseClient, userId: string, timezone:
   }
   lines.push(balancePart);
 
-  const keyboard: Btn[][] = hs
-    .filter((h) => !h.state)
-    .slice(0, 8)
-    .map((h) => [
-      { text: `✓ ${h.habit.name}`.slice(0, 60), callback_data: `hk:d:${packId(h.habit.id)}:${packId(occ.id)}` },
-      { text: "Skip", callback_data: `hk:s:${packId(h.habit.id)}:${packId(occ.id)}` },
-    ]);
+  const keyboard: Btn[][] = [
+    ...hs
+      .filter((h) => !h.state)
+      .slice(0, 8)
+      .map((h) => habitRow({ habitId: h.habit.id, occurrenceId: occ.id, title: h.habit.name })),
+    ...taskRows(blockTasks, 8),
+    blockDoneRow(occ.id, blockName, occ.status === "done"),
+  ];
   return { text: splitForTelegram(lines.join("\n")), keyboard };
 }

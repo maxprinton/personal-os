@@ -12,6 +12,8 @@ type Values = {
   before: number;
   insightsOn: boolean;
   unassignedOn: boolean;
+  /** null = the database update (migration 0019) is not in yet. */
+  blockEndOn: boolean | null;
 };
 
 const input = "rounded-md border border-line-strong px-2 py-1 text-sm";
@@ -48,6 +50,14 @@ export default function ReminderSettings({ values }: { values: Values }) {
           <input type="time" name="evening_time" defaultValue={values.eveningTime} className={input} />
           <span className="text-faint">log habits with one tap</span>
         </label>
+        {values.blockEndOn !== null && (
+          <label className="flex flex-wrap items-center gap-2">
+            <input type="hidden" name="block_end_present" value="1" />
+            <input type="checkbox" name="block_end_on" defaultChecked={values.blockEndOn} />
+            When a block ends
+            <span className="text-faint">what is still open in it, with ✓ / ⏭</span>
+          </label>
+        )}
         <label className="flex flex-wrap items-center gap-2">
           <input type="checkbox" name="unassigned_on" defaultChecked={values.unassignedOn} />
           Keep reminding me (11:00 and 16:00) while tasks have no block

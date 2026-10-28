@@ -32,28 +32,47 @@ export function sendMessage(chatId: number, text: string, undoId?: string) {
 }
 
 export const HELP = [
-  "Send me anything and I'll file it in Personal OS:",
-  "• spent 12 on lunch  → expense",
-  "• spent 12 lunch from Pichincha → expense on that account (if you don't name one, I'll ask which account)",
-  "• received 1500 salary → income",
-  "• transfer 50 from cash to Pichincha → move money between accounts",
-  "• task: call mom tomorrow → task",
-  "• note: idea… → note",
-  "• plain short text → task",
-  "• habit: Stretch in Gym → new habit inside a block",
-  "• done stretch / skip stretch → mark today's habit",
+  "Personal OS bot: write it the way you'd say it, then tap the buttons. Spanish works too.",
   "",
-  "/hoy (or: hoy, pendientes, qué tengo) → what's pending today, the block you're in, what's left and the note of every block (✓ done · ⏭ next block · 🗄 archive)",
-  "/now (or: ahora) → only the block of right now: its times, note and habits, plus your current balance",
-  "/balance (or: saldo, cuentas) → how much money is in each account",
-  "/tomorrow (or: mañana) → tomorrow's schedule, tasks, payments and habits",
-  "/thisweek (or: esta semana) → today to Sunday, day by day",
-  "/nextweek (or: próxima semana) → next Monday to Sunday, day by day",
-  "/undo removes the last thing I saved.",
+  "SAVE",
+  "• spent 12 lunch · -20 dinner · $45 groceries · gasté 1.500 arriendo",
+  "• received 1500 salary · +300 client",
+  "• transfer 50 from cash to Pichincha",
+  "• task: call mom friday @Home #family",
+  "• note: Title (more lines = the text)",
+  "• event: dentist friday 3pm · event: trip 2-5 nov",
+  "• payment: internet 32 monthly on the 10th · income: salary 1500 monthly on the 1st",
+  "• free day tomorrow · free day 2-5 nov",
+  "• nb: text → the note of the block you're in (nb Gym: text for another one)",
+  "• habit: Stretch in Gym · done stretch · skip stretch · done <task>",
+  "• sleep 7.5 → today's metric (with your metric names)",
+  "• balance pichincha 1234.50 → the real balance of an account",
+  "• 🎙 voice notes and 🧾 receipt photos (with Gemini)",
   "",
-  "✨ With Gemini connected: write it any way you like (\"ayer pagué 32 del internet con la Pichincha\"), send a voice note 🎙, or a photo of a receipt 🧾. /ai checks the connection.",
-  "✨ @gem (or /gem) + a question → Gemini reads your whole system and answers: \"@gem ¿en qué gasté más este mes?\", \"@gem ¿qué hábito estoy descuidando?\". It only reads; it never changes anything.",
+  "LOOK",
+  "/today /now /tomorrow /week /nextweek /day friday",
+  "/tasks /archived /payments /balance /budget /movements /unassigned",
+  "/search word /notes /habits /metrics /insights /settings /menu",
+  "",
+  "FIX",
+  "• Undo under everything saved · /undo = the last thing",
+  "• Reply to a “Saved ✓” message with an amount, an account, a date, a new name, @Block, done or delete",
+  "• Task buttons: ✓ done · ⏭ next time its block happens · ⋯ date, block, rename, archive",
+  "",
+  "✨ @gem + a question → Gemini reads your whole system and answers (it never changes anything). /ai checks it.",
 ].join("\n");
+
+/** The buttons that stay under the keyboard (each one sends its text). */
+export const MENU_KEYBOARD = {
+  keyboard: [
+    [{ text: "📅 Today" }, { text: "▶️ Now" }, { text: "🌙 Tomorrow" }],
+    [{ text: "📋 Tasks" }, { text: "💳 Payments" }, { text: "💰 Balance" }],
+    [{ text: "🔎 Search" }, { text: "⚙️ Settings" }, { text: "❓ Help" }],
+  ],
+  resize_keyboard: true,
+  is_persistent: true,
+  input_field_placeholder: "spent 12 lunch · task: … · /today",
+};
 
 /** UUID <-> 22-character base64url, so two ids fit in Telegram's 64-byte button data. */
 export function packId(uuid: string) {
