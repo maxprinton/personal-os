@@ -3,13 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { autosaveNote } from "@/app/note-actions";
 import { setLiveNote } from "@/lib/note-export/live";
-import dynamic from "next/dynamic";
+import RichEditor from "@/components/editor/LazyRichEditor"; // loads the editor only when a note is shown
 
-// The editor is loaded only when a note is shown (keeps every other page light)
-const RichEditor = dynamic(() => import("@/components/editor/RichEditor"), {
-  ssr: false,
-  loading: () => <div className="rich-prose min-h-24 text-faint">Loading…</div>,
-});
 
 type Status = "idle" | "saving" | "saved" | "error";
 

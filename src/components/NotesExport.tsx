@@ -106,8 +106,9 @@ function Popover({ open, onClose, children, className = "" }: { open: boolean; o
   );
 }
 
-const btn =
-  "inline-flex items-center gap-1.5 rounded-md border border-edge bg-surface px-3 py-1.5 text-sm font-medium transition-colors hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-50";
+const base = "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+const btn = `${base} border-edge bg-surface hover:bg-subtle`;
+const primary = `${base} border-accent bg-accent text-accent-fg hover:bg-accent-hover`;
 
 const CopyIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -230,7 +231,7 @@ export function ExportMenu({ getNotes, count, compact = false }: { getNotes: () 
             void loadLib().catch(() => {});
             setMenu(menu === "export" ? null : "export");
           }}
-          className={`${btn} border-accent bg-accent text-accent-fg hover:bg-accent-hover`}
+          className={primary}
         >
           <DownloadIcon />
           {compact ? <span className="sr-only">Export</span> : "Export"}
