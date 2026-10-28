@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { saveBlockNote } from "@/app/block-note-actions";
+import { setLiveNote } from "@/lib/note-export/live";
 import dynamic from "next/dynamic";
 
 // The editor is loaded only when a note is shown (keeps every other page light)
@@ -60,6 +61,9 @@ export default function BlockNoteEditor({
     }
   }, [name, content]);
 
+  // Copy / Export read what is on screen right now
+  useEffect(() => setLiveNote(`block:${name}`, { content: latest.current }), [name, content]);
+
   const flush = useCallback(async () => {
     if (timer.current) {
       clearTimeout(timer.current);
@@ -109,6 +113,7 @@ export default function BlockNoteEditor({
 
   function change(md: string) {
     latest.current = md;
+    setLiveNote(`block:${nameRef.current}`, { content: md });
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => void flush(), 1000);
   }

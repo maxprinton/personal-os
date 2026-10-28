@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { autosaveNote } from "@/app/note-actions";
+import { setLiveNote } from "@/lib/note-export/live";
 import dynamic from "next/dynamic";
 
 // The editor is loaded only when a note is shown (keeps every other page light)
@@ -52,7 +53,11 @@ export default function NoteEditor({ id, title, content }: { id: string; title: 
     }
   }
 
+  // Copy / Export read what is on screen right now
+  useEffect(() => setLiveNote(id, { title, content }), [id, title, content]);
+
   function schedule() {
+    setLiveNote(id, latest.current);
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => void flush(), 1000);
   }

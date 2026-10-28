@@ -11,6 +11,7 @@ import NoteEditor from "@/components/NoteEditor";
 import LinkForm from "@/components/LinkForm";
 import BlockNoteEditor from "@/components/BlockNoteEditor";
 import NoteTagsForm from "@/components/NoteTagsForm";
+import { NoteExportMenu } from "@/components/NotesExport";
 
 export const dynamic = "force-dynamic";
 
@@ -20,9 +21,9 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const supabase = await createClient();
   const read = (cols: string) => supabase.from("notes").select(cols).eq("id", id).is("deleted_at", null).maybeSingle();
-  let { data, error } = await read("id,title,content,block_name");
-  if (error) ({ data } = await read("id,title,content")); // migration 0017 not run yet
-  const note = data as unknown as { id: string; title: string; content: string; block_name?: string | null } | null;
+  let { data, error } = await read("id,title,content,updated_at,block_name");
+  if (error) ({ data } = await read("id,title,content,updated_at")); // migration 0017 not run yet
+  const note = data as unknown as { id: string; title: string; content: string; updated_at: string; block_name?: string | null } | null;
   if (!note) notFound();
 
   const { timezone } = await getSettings(supabase);
@@ -32,13 +33,30 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
     getLinksFrom(supabase, "note", id),
     getLinkOptions(supabase, zonedToUtc(today, "00:00", timezone).toISOString(), timezone),
   ]);
+  const tagNames = (tags.get(id) ?? []).map((t) => t.name);
+  const exportMenu = (
+    <NoteExportMenu
+      liveKey={note.block_name ? `block:${note.block_name}` : note.id}
+      note={{
+        id: note.id,
+        title: note.block_name || note.title,
+        content: note.content,
+        updatedAt: note.updated_at,
+        tags: tagNames,
+        kind: note.block_name ? "block" : "note",
+      }}
+    />
+  );
 
   return (
     <>
       <main className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 lg:py-8">
         {note.block_name ? (
           <>
-            <Link href="/notes?view=blocks" className="text-sm text-muted hover:text-fg">← Block notes</Link>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Link href="/notes?view=blocks" className="text-sm text-muted hover:text-fg">← Block notes</Link>
+              {exportMenu}
+            </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-muted">✏️ Block note</p>
               <h1 className="text-2xl font-semibold">{note.block_name}</h1>
@@ -47,13 +65,16 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
               </p>
             </div>
             <BlockNoteEditor name={note.block_name} content={note.content} minRows={14} />
-            <NoteTagsForm id={note.id} tags={(tags.get(id) ?? []).map((t) => t.name).join(", ")} />
+            <NoteTagsForm id={note.id} tags={tagNames.join(", ")} />
           </>
         ) : (
           <>
-            <Link href="/notes" className="text-sm text-muted hover:text-fg">← All notes</Link>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Link href="/notes" className="text-sm text-muted hover:text-fg">← All notes</Link>
+              {exportMenu}
+            </div>
             <NoteEditor id={note.id} title={note.title} content={note.content} />
-            <NoteTagsForm id={note.id} tags={(tags.get(id) ?? []).map((t) => t.name).join(", ")} />
+            <NoteTagsForm id={note.id} tags={tagNames.join(", ")} />
           </>
         )}
 

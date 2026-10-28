@@ -9,6 +9,8 @@ import { currentUserId, getBlockTypes, getSlots } from "@/lib/calendar/model";
 import { getBlockNotes, noteAsPlainText, noteKey } from "@/lib/block-notes";
 import { localNow } from "@/lib/time";
 import { openBlockNote } from "@/app/block-note-actions";
+import { NoteCheckbox, NoteSelection, NotesExportBar } from "@/components/NotesExport";
+import type { ExportNote } from "@/lib/note-export/model";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +34,7 @@ export default async function NotesPage({
       .select(withBlocks ? "id,title,content,updated_at,block_name" : "id,title,content,updated_at")
       .is("deleted_at", null)
       .order("updated_at", { ascending: false })
-      .limit(100);
+      .limit(200);
     if (search) query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
     // Block notes have their own tab (a search or a tag still finds them)
     else if (withBlocks && !tagIds) query = query.is("block_name", null);
@@ -43,6 +45,14 @@ export default async function NotesPage({
   if (error) ({ data } = await build(false)); // migration 0017 not run yet
   const notes = (data ?? []) as unknown as NoteRow[];
   const tags = await getTagsFor(supabase, "note", notes.map((n) => n.id));
+  const exportable: ExportNote[] = notes.map((n) => ({
+    id: n.id,
+    title: n.block_name || n.title,
+    content: n.content,
+    updatedAt: n.updated_at,
+    tags: (tags.get(n.id) ?? []).map((t) => t.name),
+    kind: n.block_name ? "block" : "note",
+  }));
 
   return (
     <>
@@ -72,9 +82,13 @@ export default async function NotesPage({
           {tag && <input type="hidden" name="tag" value={tag} />}
           <button className="rounded-md border border-edge transition-colors hover:bg-subtle px-3 py-2 text-sm">Search</button>
         </form>
+        <NoteSelection notes={exportable}>
+        <NotesExportBar />
         <ul className="space-y-2">
           {notes.map((n) => (
-            <li key={n.id} className="rounded-lg border border-line p-3 hover:border-line-strong">
+            <li key={n.id} className={`flex items-start gap-3 rounded-lg border border-line p-3 hover:border-line-strong ${SELECTED}`}>
+              <NoteCheckbox id={n.id} title={n.block_name || n.title} />
+              <div className="min-w-0 flex-1">
               <Link href={`/notes/${n.id}`} className="block">
                 <p className="font-medium">
                   {n.block_name && <span className="mr-1.5 rounded bg-subtle px-1.5 text-xs font-normal text-muted">✏️ Block</span>}
@@ -86,14 +100,19 @@ export default async function NotesPage({
                 <span>Edited {formatDateLong(utcToLocal(n.updated_at, timezone).date)}</span>
                 <TagChips tags={tags.get(n.id) ?? []} base="/notes" />
               </div>
+              </div>
             </li>
           ))}
           {notes.length === 0 && <p className="text-sm text-muted">No notes yet.</p>}
         </ul>
+        </NoteSelection>
       </main>
     </>
   );
 }
+
+/** A selected note's card is tinted (its checkbox is inside). */
+const SELECTED = "has-[input:checked]:border-accent/60 has-[input:checked]:bg-accent-soft/40";
 
 function Tabs({ current }: { current: "all" | "blocks" }) {
   const cls = (on: boolean) =>
@@ -137,6 +156,10 @@ async function BlockNotes({ timezone }: { timezone: string }) {
   const liveKeys = new Set(types.map((t) => noteKey(t.name)));
   const byKey = new Map(notes.map((n) => [noteKey(n.name), n]));
   const orphaned = notes.filter((n) => !activeKeys.has(noteKey(n.name))).sort((a, b) => a.name.localeCompare(b.name));
+  const exportable: ExportNote[] = notes
+    .filter((n) => n.content.trim())
+    .map((n) => ({ id: n.id, title: n.name, content: n.content, updatedAt: n.updated_at, kind: "block" as const }));
+  const canExport = new Set(exportable.map((n) => n.id));
   const preview = (md: string) => {
     const t = noteAsPlainText(md).replace(/\s+/g, " ");
     return t ? (t.length > 90 ? `${t.slice(0, 90)}…` : t) : "";
@@ -151,6 +174,8 @@ async function BlockNotes({ timezone }: { timezone: string }) {
         </p>
       </div>
       <Tabs current="blocks" />
+      <NoteSelection notes={exportable}>
+      <NotesExportBar />
 
       <section className="space-y-2">
         <h2 className="section-title">Active ({active.length})</h2>
@@ -170,7 +195,9 @@ async function BlockNotes({ timezone }: { timezone: string }) {
               </>
             );
             return (
-              <li key={t.id} className="rounded-lg border border-line p-3 hover:border-line-strong">
+              <li key={t.id} className={`flex items-start gap-3 rounded-lg border border-line p-3 hover:border-line-strong ${SELECTED}`}>
+                {n && canExport.has(n.id) ? <NoteCheckbox id={n.id} title={t.name} /> : <span className="w-4 shrink-0" aria-hidden />}
+                <div className="min-w-0 flex-1">
                 {n ? (
                   <Link href={`/notes/${n.id}`} className="block">{body}</Link>
                 ) : (
@@ -179,6 +206,7 @@ async function BlockNotes({ timezone }: { timezone: string }) {
                     <button className="block w-full text-left">{body}</button>
                   </form>
                 )}
+                </div>
               </li>
             );
           })}
@@ -193,8 +221,9 @@ async function BlockNotes({ timezone }: { timezone: string }) {
         {orphaned.length === 0 && <p className="text-sm text-muted">Your notes are clean.</p>}
         <ul className="space-y-2">
           {orphaned.map((n) => (
-            <li key={n.id} className="rounded-lg border border-dashed border-line p-3 hover:border-line-strong">
-              <Link href={`/notes/${n.id}`} className="block">
+            <li key={n.id} className={`flex items-start gap-3 rounded-lg border border-dashed border-line p-3 hover:border-line-strong ${SELECTED}`}>
+              {canExport.has(n.id) ? <NoteCheckbox id={n.id} title={n.name} /> : <span className="w-4 shrink-0" aria-hidden />}
+              <Link href={`/notes/${n.id}`} className="block min-w-0 flex-1">
                 <p className="font-medium">
                   {n.name}
                   <span className="ml-2 text-xs font-normal text-faint">
@@ -208,6 +237,7 @@ async function BlockNotes({ timezone }: { timezone: string }) {
           ))}
         </ul>
       </section>
+      </NoteSelection>
     </main>
   );
 }
