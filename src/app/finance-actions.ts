@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/agenda";
 import { localNow, zonedToUtc } from "@/lib/time";
 import type { ActionState } from "@/app/actions";
+import { setRealBalance } from "@/lib/balance-adjust";
 
 const ACCOUNT_KINDS = ["checking", "savings", "credit_card", "cash", "other"];
 
@@ -131,7 +132,12 @@ export async function updateBalance(form: FormData) {
   const amount = money(form.get("amount"));
   if (!accountId || amount === null) return;
   const supabase = await createClient();
-  await supabase.from("balance_snapshots").insert({ account_id: accountId, amount });
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  // The difference with the calculated balance becomes an "Adjustment" transaction (merma)
+  await setRealBalance(supabase, user.id, accountId, amount, "web");
   refresh();
 }
 

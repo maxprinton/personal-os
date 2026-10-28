@@ -7,6 +7,7 @@ import type { Ctx } from "@/lib/bot/core";
 import { fetchAll, usd } from "@/lib/bot/core";
 import { btn, logAction, pk, undoRow, type Btn, type Kb } from "@/lib/bot/tg";
 import { shortDay } from "@/lib/bot/text";
+import { ADJUSTMENT_CATEGORY, ADJUSTMENT_DESCRIPTION, calculatedBalance, setRealBalance } from "@/lib/balance-adjust";
 
 type Reply = { text: string; kb: Kb };
 type Account = { id: string; name: string };
@@ -72,21 +73,9 @@ export async function setTxnAccount(c: Ctx, txnId: string, accountId: string | n
 
 // ---- Real balance --------------------------------------------------------------------------
 
-async function balances(c: Ctx) {
-  const [snapRows, txRows, trRows] = await Promise.all([
-    fetchAll<Snapshot>((a, b) => c.admin.from("balance_snapshots").select("id,account_id,amount,recorded_at").eq("user_id", c.userId).is("deleted_at", null).range(a, b)),
-    fetchAll<TxnRow>((a, b) => c.admin.from("transactions").select("id,account_id,type,amount,occurred_at,category_id,description").eq("user_id", c.userId).is("deleted_at", null).range(a, b)),
-    fetchAll<{ id: string; from_account_id: string; to_account_id: string; amount: number; occurred_at: string }>((a, b) => c.admin.from("transfers").select("id,from_account_id,to_account_id,amount,occurred_at").eq("user_id", c.userId).is("deleted_at", null).range(a, b)),
-  ]);
-  const snaps = snapRows.map((s) => ({ ...s, amount: Number(s.amount) }));
-  const txns: Txn[] = txRows.map((t) => ({ ...t, amount: Number(t.amount), localDate: "" }));
-  const trs: Transfer[] = trRows.map((t) => ({ ...t, amount: Number(t.amount), note: null, localDate: "" }));
-  return (accountId: string) => accountBalance(accountId, snaps, txns, trs).balance;
-}
-
-/** "saldo pichincha 1234.50": shows the difference and asks before saving the real balance. */
+/** "saldo pichincha 1234.50": shows the difference (the merma) and asks before saving the real balance. */
 export async function askSetBalance(c: Ctx, raw: string, account: Account, amount: number): Promise<Reply> {
-  const current = (await balances(c))(account.id);
+  const { balance: current, hasSnapshot } = await calculatedBalance(c.admin, c.userId, account.id);
   const diff = Math.round((amount - current) * 100) / 100;
   const { data: bm } = await c.admin
     .from("bot_messages")
@@ -95,22 +84,29 @@ export async function askSetBalance(c: Ctx, raw: string, account: Account, amoun
     .single();
   if (!bm) return { text: "Sorry, I could not do that.", kb: [] };
   const k = pk(bm.id as string);
+  const effect = !hasSnapshot
+    ? "This is its first real balance: it becomes the starting point (no adjustment)."
+    : diff === 0
+      ? "It matches. ✓"
+      : diff < 0
+        ? `${usd(-diff)} missing → saved as an expense “${ADJUSTMENT_DESCRIPTION}” (category ${ADJUSTMENT_CATEGORY}, no budget).`
+        : `${usd(diff)} extra → saved as an income “${ADJUSTMENT_DESCRIPTION}” (category ${ADJUSTMENT_CATEGORY}).`;
   return {
-    text: `🏦 ${account.name}\nIn Personal OS: ${usd(current)}\nReal: ${usd(amount)}\nDifference: ${diff === 0 ? "none ✓" : `${diff > 0 ? "+" : "−"}${usd(Math.abs(diff))}`}\n\nSave ${usd(amount)} as the real balance from now on?`,
+    text: `🏦 ${account.name}\nIn Personal OS: ${usd(current)}\nReal: ${usd(amount)}\nDifference: ${diff === 0 ? "none" : `${diff > 0 ? "+" : "−"}${usd(Math.abs(diff))}`}\n${effect}\n\nSave ${usd(amount)} as the real balance?`,
     kb: [[btn("✓ Save", `bs:${k}:y`), btn("Cancel", `bs:${k}:n`)]],
   };
 }
 
 export async function saveBalance(c: Ctx, accountId: string, amount: number): Promise<Reply> {
-  const { data, error } = await c.admin
-    .from("balance_snapshots")
-    .insert({ user_id: c.userId, account_id: accountId, amount })
-    .select("id")
-    .single();
-  if (error || !data) return { text: `Could not save it (${error?.message ?? "unknown error"}).`, kb: [] };
-  const { data: acc } = await c.admin.from("accounts").select("name").eq("id", accountId).eq("user_id", c.userId).maybeSingle();
-  const logId = await logAction(c.admin, c.userId, "(real balance)", "snapshot", data.id as string);
-  return { text: `✓ ${acc?.name ?? "Account"}: real balance ${usd(amount)} saved.`, kb: undoRow(logId) };
+  try {
+    const r = await setRealBalance(c.admin, c.userId, accountId, amount, "telegram_bot");
+    const { data: acc } = await c.admin.from("accounts").select("name").eq("id", accountId).eq("user_id", c.userId).maybeSingle();
+    const logId = await logAction(c.admin, c.userId, "(real balance)", "snapshot", r.snapshotId, { adjustmentId: r.adjustmentId });
+    const adj = r.adjustmentId ? ` · ${r.diff < 0 ? `merma ${usd(-r.diff)} saved as an expense` : `+${usd(r.diff)} saved as an income`} (${ADJUSTMENT_CATEGORY})` : "";
+    return { text: `✓ ${acc?.name ?? "Account"}: real balance ${usd(amount)} saved${adj}.`, kb: undoRow(logId) };
+  } catch (e) {
+    return { text: `Could not save it (${e instanceof Error ? e.message : "unknown error"}).`, kb: [] };
+  }
 }
 
 // ---- Budgets ---------------------------------------------------------------------------------
@@ -150,7 +146,10 @@ const bar = (pct: number) => {
 /** /budget: each budget with what's spent, what's left and a bar. */
 export async function budgetView(c: Ctx): Promise<Reply> {
   const { budgets, names } = await budgetData(c);
-  if (!budgets.length) return { text: "No budgets yet. Set them in Personal OS → Finance.", kb: [] };
+  if (!budgets.length) {
+    const merma = await mermaThisMonth(c);
+    return { text: `No budgets yet. Set them in Personal OS → Finance.${merma ? `\n\n🫥 Merma this month: ${usd(merma)} (balance adjustments)` : ""}`, kb: [] };
+  }
   const txns = await periodTxns(c, budgets.map((b) => b.category_id));
   const lines = budgets
     .map((b) => ({ b, u: budgetUsage(b, txns, c.today) }))
@@ -159,7 +158,27 @@ export async function budgetView(c: Ctx): Promise<Reply> {
       const flag = u.pct >= 100 ? "🔴" : u.pct >= 80 ? "🟠" : "🟢";
       return `${flag} ${names.get(b.category_id) ?? "Category"} (${b.period})\n${bar(u.pct)} ${u.pct}% · ${usd(u.spent)} of ${usd(u.limit)} · ${u.left >= 0 ? `${usd(u.left)} left` : `${usd(-u.left)} over`}`;
     });
-  return { text: ["📊 Budgets", "", ...lines].join("\n"), kb: [] };
+  const merma = await mermaThisMonth(c);
+  return { text: ["📊 Budgets", "", ...lines, ...(merma ? ["", `🫥 Merma this month: ${usd(merma)} (balance adjustments, outside budgets)`] : [])].join("\n"), kb: [] };
+}
+
+/** Money that went missing this month: the "Adjustment" expenses created when a real balance was set. */
+async function mermaThisMonth(c: Ctx) {
+  const { data: cats } = await c.admin.from("categories").select("id,name").eq("user_id", c.userId).eq("kind", "expense");
+  const ids = ((cats ?? []) as { id: string; name: string }[]).filter((x) => x.name.toLowerCase() === ADJUSTMENT_CATEGORY.toLowerCase()).map((x) => x.id);
+  if (!ids.length) return 0;
+  const since = new Date(`${c.today.slice(0, 8)}01T00:00:00Z`);
+  since.setUTCDate(since.getUTCDate() - 1);
+  const { data } = await c.admin
+    .from("transactions")
+    .select("amount,occurred_at")
+    .eq("user_id", c.userId)
+    .is("deleted_at", null)
+    .eq("type", "expense")
+    .in("category_id", ids)
+    .gte("occurred_at", since.toISOString());
+  const month = c.today.slice(0, 7);
+  return Math.round(((data ?? []) as { amount: number; occurred_at: string }[]).filter((t) => utcToLocal(t.occurred_at, c.tz).date.startsWith(month)).reduce((s, t) => s + Number(t.amount), 0) * 100) / 100;
 }
 
 /** After an expense: a warning when its category's budget passes 80 % or 100 % (once per period). */

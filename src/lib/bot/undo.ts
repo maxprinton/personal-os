@@ -46,7 +46,8 @@ export async function undoLogged(c: Ctx, bm: LogRow): Promise<string | null> {
     }
     case "snapshot":
       await soft(c.admin, "balance_snapshots", id, c.userId);
-      text = "↩ Real balance removed.";
+      if (typeof p.adjustmentId === "string") await soft(c.admin, "transactions", p.adjustmentId, c.userId);
+      text = "↩ Real balance (and its adjustment) removed.";
       break;
     case "metric": {
       const prev = typeof p.prev === "number" ? p.prev : null;
