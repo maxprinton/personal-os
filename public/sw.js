@@ -1,6 +1,8 @@
 // Personal OS service worker: makes the app open offline.
 // Pages: network first, fall back to the last copy seen. Static assets: cache first.
-const CACHE = "personal-os-v2";
+// v3: only successful responses are cached (v2 could keep a failed download of an app file forever,
+// which broke the app in that browser until its data was cleared). Changing the name wipes old caches.
+const CACHE = "personal-os-v3";
 const PRECACHE = ["/capture", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -18,6 +20,16 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+function fetchAndKeep(req) {
+  return fetch(req).then((res) => {
+    if (res.ok) {
+      const copy = res.clone();
+      caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+    }
+    return res;
+  });
+}
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
@@ -27,15 +39,11 @@ self.addEventListener("fetch", (event) => {
 
   if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/")) {
     event.respondWith(
-      caches.match(req).then(
-        (hit) =>
-          hit ||
-          fetch(req).then((res) => {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
-            return res;
-          })
-      )
+      caches.match(req).then((hit) => {
+        if (hit && hit.ok) return hit;
+        if (hit) caches.open(CACHE).then((c) => c.delete(req)).catch(() => {}); // a bad copy: drop it
+        return fetchAndKeep(req);
+      })
     );
     return;
   }
@@ -46,7 +54,7 @@ self.addEventListener("fetch", (event) => {
         .then((res) => {
           if (res.ok && !res.redirected) {
             const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
+            caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
           }
           return res;
         })

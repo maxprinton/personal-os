@@ -6,19 +6,27 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { COPY_KINDS, FORMATS, type CopyKind, type ExportFormat } from "@/lib/note-export/formats";
 import { getLiveNote } from "@/lib/note-export/live";
 import type { ExportNote } from "@/lib/note-export/model";
+import { isStaleBuildError, reloadOnce } from "@/lib/recover";
 
 type Lib = typeof import("@/lib/note-export");
 let libPromise: Promise<Lib> | null = null;
-const loadLib = () => (libPromise ??= import("@/lib/note-export"));
+/** Loads the exporter once; if loading fails (e.g. the app was just updated) the next try starts over. */
+const loadLib = () =>
+  (libPromise ??= import("@/lib/note-export").catch((e) => {
+    libPromise = null;
+    throw e;
+  }));
 
 /** Loads the exporter as soon as the page shows, so Copy works on the very click. */
 function useLib() {
   const ref = useRef<Lib | null>(null);
   useEffect(() => {
     let alive = true;
-    void loadLib().then((l) => {
-      if (alive) ref.current = l;
-    });
+    loadLib()
+      .then((l) => {
+        if (alive) ref.current = l;
+      })
+      .catch(() => {}); // a click tries again (and an outdated tab reloads itself)
     return () => {
       alive = false;
     };
@@ -136,7 +144,14 @@ export function ExportMenu({ getNotes, count, compact = false }: { getNotes: () 
     setMenu(null);
     const notes = getNotes();
     if (!notes.length) return;
-    const l = lib.current ?? (await loadLib());
+    let l: Lib;
+    try {
+      l = lib.current ?? (await loadLib());
+    } catch (e) {
+      if (isStaleBuildError(e) && reloadOnce()) return;
+      flash("Couldn’t load the copy tool. Reload the page.", true);
+      return;
+    }
     const ok = await l.writeClipboard(l.buildCopy(notes, kind));
     if (ok) {
       setCopied(true);
@@ -157,6 +172,7 @@ export function ExportMenu({ getNotes, count, compact = false }: { getNotes: () 
       flash(`Downloaded ${file.name}`);
     } catch (e) {
       console.error(e);
+      if (isStaleBuildError(e) && reloadOnce()) return;
       flash("Could not export those notes", true);
     }
   }
@@ -171,7 +187,7 @@ export function ExportMenu({ getNotes, count, compact = false }: { getNotes: () 
           type="button"
           disabled={disabled}
           onClick={() => void copy("rich")}
-          onPointerEnter={() => void loadLib()}
+          onPointerEnter={() => void loadLib().catch(() => {})}
           title="Copy (keeps formatting in Word, Docs and email; Markdown in plain-text apps)"
           className={`${btn} rounded-r-none ${copied ? "text-success" : ""}`}
         >
@@ -211,7 +227,7 @@ export function ExportMenu({ getNotes, count, compact = false }: { getNotes: () 
           disabled={disabled}
           aria-expanded={menu === "export"}
           onClick={() => {
-            void loadLib();
+            void loadLib().catch(() => {});
             setMenu(menu === "export" ? null : "export");
           }}
           className={`${btn} border-accent bg-accent text-accent-fg hover:bg-accent-hover`}

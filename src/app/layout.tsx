@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import ServiceWorker from "@/components/ServiceWorker";
+import RecoverStale from "@/components/RecoverStale";
 import NowTint from "@/components/calendar/NowTint";
 import AppShell from "@/components/shell/AppShell";
 import { themeScript } from "@/components/ui/ThemeToggle";
@@ -34,6 +35,7 @@ export default function RootLayout({
         <AppShell>{children}</AppShell>
         <NowTint />
         <ServiceWorker />
+        <RecoverStale />
       </body>
     </html>
   );
