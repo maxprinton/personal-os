@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "test:bot": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-bot.ts",
-    "test:editor": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-editor-md.ts"
+    "test:editor": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-editor-md.ts",
+    "test:ai": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-ai-notes.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",

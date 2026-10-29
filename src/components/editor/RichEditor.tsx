@@ -43,6 +43,8 @@ import { PageIcon } from "@/components/editor/PagePicker";
 import { DatePopover, LinkPopover, MathPopover, PasteUrlMenu } from "@/components/editor/Popovers";
 import { MenuItem, MenuLabel, Popover, Swatch } from "@/components/editor/ui";
 import { uploadNoteFile } from "@/lib/note-files";
+import AiPanel, { AiMenu, type AiSession } from "@/components/editor/AiPanel";
+import { SELECTION_MODES, type AiMode } from "@/lib/ai-notes";
 
 const lowlight = createLowlight(common);
 
@@ -64,6 +66,8 @@ export type RichEditorProps = {
   moveBlockTo?: (noteId: string, markdown: string) => Promise<boolean>;
   navigate?: (href: string) => void;
   onReady?: (editor: Editor | null) => void;
+  /** Title of the page, so the ✨ AI knows what the note is about. */
+  pageTitle?: string;
 };
 
 type Rect = { left: number; top: number; bottom: number; right?: number };
@@ -91,6 +95,7 @@ export default function RichEditor({
   moveBlockTo,
   navigate,
   onReady,
+  pageTitle = "",
 }: RichEditorProps) {
   const lastMd = useRef(value);
   const onChangeRef = useRef(onChange);
@@ -111,6 +116,10 @@ export default function RichEditor({
   const [fmt, setFmt] = useState<{ which: "turn" | "color"; rect: Rect } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const [ai, setAi] = useState<AiSession | null>(null);
+  const [aiMenu, setAiMenu] = useState<{ rect: Rect; from: number; to: number } | null>(null);
+  const aiOpen = useRef(false);
+  aiOpen.current = !!ai || !!aiMenu;
 
   const showToast = useCallback((t: string) => {
     setToast(t);
@@ -237,6 +246,10 @@ export default function RichEditor({
   }, [editor, noteId, createSubpage, upload, moveBlockTo, navigate]);
 
   useEffect(() => {
+    if (editor) editor.storage.notion.title = pageTitle;
+  }, [editor, pageTitle]);
+
+  useEffect(() => {
     if (!editor || !pages) return;
     setPages(editor.storage.notion, pages);
     refreshPageTitles(editor);
@@ -299,11 +312,37 @@ export default function RichEditor({
         setBlockMenu({ pos: req.pos, rect: toRect(req.rect) });
         return;
       }
+      if (req.kind === "ai") {
+        startAi(req.mode, { prompt: req.prompt, at: req.at, rect: req.rect });
+        return;
+      }
       setUi(req);
     };
     el.addEventListener("n-ui", on);
     return () => el.removeEventListener("n-ui", on);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, showToast]);
+
+  /** Opens the ✨ AI panel: on the selection, at the cursor, or at the top / end of the page. */
+  function startAi(mode: AiMode, opts: { prompt?: string; at?: "cursor" | "top" | "end"; rect?: DOMRect | Rect; from?: number; to?: number } = {}) {
+    if (!editor || !editor.isEditable) return;
+    const sel = editor.state.selection;
+    const from = opts.from ?? sel.from;
+    const to = opts.to ?? sel.to;
+    const onSelection = (SELECTION_MODES.includes(mode) || mode === "action-items") && from < to && !opts.at;
+    const at: AiSession["at"] = onSelection ? "selection" : opts.at ?? (mode === "summarize" ? "top" : "cursor");
+    const size = editor.state.doc.content.size;
+    const point = at === "top" ? 0 : at === "end" ? size : to;
+    let rect: Rect;
+    try {
+      const c = editor.view.coordsAtPos(Math.max(0, Math.min(at === "top" ? 1 : at === "end" ? size - 1 : point, size)));
+      rect = opts.rect ? toRect(opts.rect) : { left: onSelection ? editor.view.coordsAtPos(from).left : c.left, top: c.top, bottom: c.bottom };
+    } catch {
+      rect = opts.rect ? toRect(opts.rect) : { left: 100, top: 100, bottom: 120 };
+    }
+    setAiMenu(null);
+    setAi({ mode, prompt: opts.prompt, from: onSelection ? from : point, to: onSelection ? to : point, at, rect, emptyLine: !opts.at && at === "top" ? sel.from : undefined });
+  }
 
   const fmtState = useEditorState({
     editor,
@@ -507,10 +546,22 @@ export default function RichEditor({
 
       <BubbleMenu
         editor={editor}
-        shouldShow={({ editor: e, from, to, state }) => from !== to && e.isEditable && !e.isActive("codeBlock") && !(state.selection instanceof NodeSelection)}
+        shouldShow={({ editor: e, from, to, state }) => from !== to && e.isEditable && !aiOpen.current && !e.isActive("codeBlock") && !(state.selection instanceof NodeSelection)}
         className="n-fmt"
         options={{ placement: "top-start", offset: 8 }}
       >
+        <button
+          type="button"
+          title="Ask AI to edit or explain the selection"
+          className="n-fmt-btn n-fmt-ai"
+          onClick={(e) => {
+            const { from, to } = editor.state.selection;
+            setAiMenu({ rect: fmtRect(e), from, to });
+          }}
+        >
+          ✨ Ask AI
+        </button>
+        <span className="n-fmt-sep" />
         <button type="button" className="n-fmt-btn n-fmt-turn" onClick={(e) => setFmt({ which: "turn", rect: fmtRect(e) })}>
           {fmtState?.block ?? "Text"} <span className="opacity-60">▾</span>
         </button>
@@ -659,10 +710,23 @@ export default function RichEditor({
       )}
       {ui?.kind === "pasteUrl" && <PasteUrlMenu editor={editor} url={ui.url} from={ui.from} to={ui.to} rect={toRect(ui.rect)} onClose={() => setUi(null)} />}
 
-      {editable && <MobileToolbar editor={editor} onBlockMenu={(pos, rect) => setBlockMenu({ pos, rect })} onColor={(rect) => {
+      {editable && <MobileToolbar editor={editor} onAi={(rect) => {
+        const { from, to } = editor.state.selection;
+        if (from < to) setAiMenu({ rect, from, to });
+        else startAi("write");
+      }} onBlockMenu={(pos, rect) => setBlockMenu({ pos, rect })} onColor={(rect) => {
         const b = currentBlock(editor);
         if (b) setUi({ kind: "color", rect: new DOMRect(rect.left, rect.top, 0, rect.bottom - rect.top), current: null, onPick: (c) => setBlockColor(editor, b.pos, c) });
       }} />}
+
+      {aiMenu && (
+        <AiMenu
+          rect={aiMenu.rect}
+          onClose={() => setAiMenu(null)}
+          onPick={(mode, prompt) => startAi(mode, { prompt, from: aiMenu.from, to: aiMenu.to })}
+        />
+      )}
+      {ai && <AiPanel key={`${ai.mode}-${ai.from}-${ai.to}`} editor={editor} session={ai} onClose={() => setAi(null)} />}
 
       {toast && <div className="n-toast" role="status">{toast}</div>}
     </div>
@@ -670,7 +734,7 @@ export default function RichEditor({
 }
 
 /** Phone: a bar above the keyboard with Notion's mobile tools (no hover, no "/" needed). */
-function MobileToolbar({ editor, onBlockMenu, onColor }: { editor: Editor; onBlockMenu: (pos: number, rect: Rect) => void; onColor: (rect: Rect) => void }) {
+function MobileToolbar({ editor, onBlockMenu, onColor, onAi }: { editor: Editor; onBlockMenu: (pos: number, rect: Rect) => void; onColor: (rect: Rect) => void; onAi: (rect: Rect) => void }) {
   const [focused, setFocused] = useState(false);
   const [coarse, setCoarse] = useState(false);
   const [bottom, setBottom] = useState(0);
@@ -699,6 +763,7 @@ function MobileToolbar({ editor, onBlockMenu, onColor }: { editor: Editor; onBlo
   return (
     <div className="n-mobile-bar" style={{ bottom }} onMouseDown={keep}>
       <button type="button" onClick={() => editor.chain().focus().insertContent("/").run()}>＋</button>
+      <button type="button" aria-label="Ask AI" onClick={(e) => onAi(rectOf(e))}>✨</button>
       <button
         type="button"
         onClick={(e) => {

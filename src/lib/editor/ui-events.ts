@@ -1,6 +1,7 @@
 // Node views (plain DOM inside ProseMirror) ask the React editor to open a menu or popover:
 // they fire a "n-ui" event that RichEditor listens to.
 import type { EditorView } from "@tiptap/pm/view";
+import type { AiMode } from "@/lib/ai-notes";
 
 export type UiRequest =
   | { kind: "emoji"; rect: DOMRect; onPick: (emoji: string | null) => void; allowRemove?: boolean }
@@ -17,6 +18,8 @@ export type UiRequest =
   | { kind: "link" }
   | { kind: "pasteUrl"; url: string; from: number; to: number; rect: DOMRect }
   | { kind: "toast"; text: string }
+  /** ✨ AI: at = where the result goes (default: the selection or the cursor). */
+  | { kind: "ai"; mode: AiMode; prompt?: string; at?: "cursor" | "top" | "end"; rect?: DOMRect }
   | { kind: "blockMenu"; pos: number; rect: DOMRect }
   | { kind: "media"; pos: number; rect: DOMRect; type: string; onDone: (src: { url: string; name?: string; size?: number } | null) => void };
 

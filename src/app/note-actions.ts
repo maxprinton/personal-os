@@ -96,6 +96,18 @@ export async function createSubpage(parentId: string, title: string): Promise<{ 
   return { id: data.id as string, title: data.title as string };
 }
 
+/** ✨ Summarize notes → "Save as new note": a new top-level note with that Markdown. */
+export async function createNoteFromMarkdown(title: string, content: string): Promise<{ id?: string; error?: string }> {
+  const t = String(title ?? "").trim().slice(0, 200) || "Summary";
+  const c = String(content ?? "");
+  if (c.length > 200_000) return { error: "That summary is too long." };
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("notes").insert({ title: t, content: c }).select("id").single();
+  if (error || !data) return { error: error?.message ?? "Couldn't create the note." };
+  revalidatePath("/notes");
+  return { id: data.id as string };
+}
+
 /** ⋮⋮ → Move to: adds the block (Markdown) at the end of another note. */
 export async function appendToNote(id: string, markdown: string): Promise<{ ok?: boolean; error?: string }> {
   const supabase = await createClient();

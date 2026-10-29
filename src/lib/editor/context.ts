@@ -6,6 +6,8 @@ export type PageRef = { id: string; title: string; icon?: string | null; parentI
 
 export type NotionStorage = {
   noteId: string | null;
+  /** Title of the page (context for the ✨ AI). */
+  title: string;
   pages: Map<string, PageRef>;
   /** Creates a sub-page of this note and returns it (null = not possible here). */
   createSubpage: ((title: string) => Promise<PageRef | null>) | null;
@@ -32,6 +34,7 @@ export const NotionContext = Extension.create<Record<string, never>, NotionStora
   addStorage() {
     return {
       noteId: null,
+      title: "",
       pages: new Map(),
       createSubpage: null,
       upload: null,

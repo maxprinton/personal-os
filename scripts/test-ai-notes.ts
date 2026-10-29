@@ -1,0 +1,44 @@
+// Checks what the ✨ AI in notes sends to Gemini and how it cleans the answer (no network).
+// Run: npm run test:ai
+import { buildAiPrompt, cleanAiMarkdown, AI_MODES, SELECTION_MODES } from "@/lib/ai-notes";
+
+let pass = 0;
+let fail = 0;
+function ok(name: string, cond: boolean) {
+  if (cond) pass++;
+  else {
+    fail++;
+    console.log(`❌ ${name}`);
+  }
+}
+const page = { title: "Viaje a Cuenca", content: '<callout icon="💡" color="gray_bg">\n\nLlevar **pasaporte**\n\n</callout>\n\n- comprar pasajes\n- reservar hotel' };
+
+for (const mode of AI_MODES) {
+  const r = buildAiPrompt({ mode, page, text: "hola mundo", prompt: "x", notes: [{ title: "A", content: "uno" }] });
+  ok(`${mode} builds`, !("error" in r));
+}
+const sum = buildAiPrompt({ mode: "summarize", page });
+ok("summary has the title", "user" in sum && sum.user.includes("Viaje a Cuenca"));
+ok("callout tags are simplified", "user" in sum && !sum.user.includes("<callout") && sum.user.includes("pasaporte"));
+for (const m of SELECTION_MODES) ok(`${m} needs a selection`, "error" in buildAiPrompt({ mode: m, page }));
+ok("write needs a request", "error" in buildAiPrompt({ mode: "write", page }));
+ok("write with a request", !("error" in buildAiPrompt({ mode: "write", page, prompt: "un plan de viaje" })));
+const tr = buildAiPrompt({ mode: "translate", page, text: "hola", prompt: "English" });
+ok("translate names the language", "user" in tr && tr.user.includes("English") && tr.temperature <= 0.3);
+const ref = buildAiPrompt({ mode: "write", page, prompt: "plan", previous: "Draft 1", refine: "more formal" });
+ok("refine sends the previous draft", "user" in ref && ref.user.includes("Draft 1") && ref.user.includes("more formal"));
+ok("empty notes refuse", "error" in buildAiPrompt({ mode: "summarize-notes", notes: [{ title: "", content: "  " }] }));
+const many = buildAiPrompt({ mode: "summarize-notes", notes: [{ title: "A", content: "uno" }, { title: "B", content: "dos" }] });
+ok("several notes are all sent", "user" in many && many.user.includes("NOTE 1: A") && many.user.includes("NOTE 2: B"));
+const big = buildAiPrompt({ mode: "summarize", page: { title: "t", content: "a".repeat(200_000) } });
+ok("huge pages are cut", "user" in big && big.user.length < 70_000);
+ok("bad mode", "error" in buildAiPrompt({ mode: "nope" as never }));
+
+ok("fence removed", cleanAiMarkdown("```markdown\n- a\n- b\n```") === "- a\n- b");
+ok("preface removed", cleanAiMarkdown("Here is the summary:\n\n- a") === "- a");
+ok("spanish preface removed", cleanAiMarkdown("Aquí tienes el resumen:\n- a") === "- a");
+ok("normal text kept", cleanAiMarkdown("  ## Title\n\ntext  ") === "## Title\n\ntext");
+ok("inner code kept", cleanAiMarkdown("Text\n\n```js\nx()\n```") === "Text\n\n```js\nx()\n```");
+
+console.log(`\n${fail ? "⚠️" : "✅"} ${pass} passed, ${fail} failed`);
+if (fail) process.exit(1);

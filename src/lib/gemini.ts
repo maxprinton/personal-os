@@ -1,5 +1,6 @@
 // Server-only: Google Gemini (free API key from Google AI Studio → GEMINI_API_KEY in Vercel).
-// Used only when the rules can't understand a message, for voice notes and for receipt photos.
+// Telegram: only when the rules can't understand a message, for voice notes and for receipt photos.
+// Web: the ✨ AI in notes (summaries, writing help) through /api/ai.
 // Note: on the free tier Google may use what is sent to improve its products.
 
 const API = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -98,4 +99,49 @@ export async function geminiCheck(): Promise<string> {
     }
   }
   return `✨ Gemini didn't answer with any model:\n${problems.map((p) => `• ${p}`).join("\n")}\nSet GEMINI_MODEL in Vercel to a current Flash model name from ai.google.dev/models.`;
+}
+
+/**
+ * For writing help in notes: like gemini() but with some creativity and a reason when it fails,
+ * so the note can say "out of free quota" instead of a silent nothing.
+ */
+export async function geminiWrite(
+  system: string,
+  parts: GeminiPart[],
+  opts: { temperature?: number; timeoutMs?: number } = {}
+): Promise<{ text: string } | { error: string }> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return { error: "Gemini is not connected: GEMINI_API_KEY is missing in Vercel." };
+  const body = JSON.stringify({
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: "user", parts }],
+    generationConfig: { temperature: opts.temperature ?? 0.7 },
+  });
+  let quota = false;
+  for (const model of models()) {
+    try {
+      const res = await fetch(`${API}/${encodeURIComponent(model)}:generateContent`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": key },
+        body,
+        signal: AbortSignal.timeout(opts.timeoutMs ?? 45000),
+      });
+      if (res.status === 429) {
+        quota = true;
+        continue;
+      }
+      if (res.status === 404 || res.status === 400) continue;
+      if (res.status === 401 || res.status === 403) return { error: "Gemini refused the key. Create a new one in Google AI Studio and paste it in Vercel." };
+      if (!res.ok) return { error: `Gemini had a problem (HTTP ${res.status}). Try again.` };
+      const json = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[] };
+      const c = json.candidates?.[0];
+      const text = (c?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
+      if (text) return { text };
+      if (c?.finishReason === "SAFETY") return { error: "Gemini declined to write that." };
+      return { error: "Gemini answered with nothing. Try again." };
+    } catch {
+      return { error: "Gemini took too long. Try again." };
+    }
+  }
+  return { error: quota ? "Gemini's free quota is used up for now. Try again in a minute (or tomorrow)." : "No Gemini model answered. Set GEMINI_MODEL in Vercel to a current Flash model." };
 }

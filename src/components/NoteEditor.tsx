@@ -16,6 +16,8 @@ import RichEditor from "@/components/editor/LazyRichEditor"; // loads the editor
 import EmojiPicker from "@/components/editor/EmojiPicker";
 import PagePicker, { PageIcon } from "@/components/editor/PagePicker";
 import { MenuItem, MenuLabel, Popover } from "@/components/editor/ui";
+import { requestUi } from "@/lib/editor/ui-events";
+import type { AiMode } from "@/lib/ai-notes";
 
 type Status = "idle" | "saving" | "saved" | "error";
 type Rect = { left: number; top: number; bottom: number; right?: number };
@@ -204,6 +206,13 @@ export default function NoteEditor({
   };
 
   const locked = !!page.locked;
+
+  /** ✨ from the top bar or the ⋯ menu: summary goes at the top, "Ask AI" writes at the end of the page. */
+  function openAi(mode: AiMode, rect?: Rect) {
+    setPop(null);
+    if (!editor || locked) return;
+    requestUi(editor.view, { kind: "ai", mode, at: mode === "summarize" ? "top" : "end", rect: rect ? new DOMRect(rect.left, rect.top, (rect.right ?? rect.left) - rect.left, rect.bottom - rect.top) : undefined });
+  }
   const font = page.font ?? "default";
   const words = editor?.storage.characterCount?.words?.() ?? 0;
 
@@ -247,6 +256,11 @@ export default function NoteEditor({
         {locked && (
           <button type="button" className="n-locked-badge" onClick={() => void setting({ locked: false })} title="Click to unlock">
             🔒 Locked
+          </button>
+        )}
+        {!locked && editor && (
+          <button type="button" className="n-ai-top" title="✨ Ask AI: summarize this page or write with Gemini" onClick={(e) => openAi("write", rectOf(e))}>
+            ✨ <span className="hidden sm:inline">AI</span>
           </button>
         )}
         {actions}
@@ -357,6 +371,7 @@ export default function NoteEditor({
             moveBlockTo={onMove}
             navigate={onNavigate}
             onReady={onReady}
+            pageTitle={t || "Untitled"}
           />
         </div>
       </div>
@@ -422,6 +437,14 @@ export default function NoteEditor({
             <Toggle label="Full width" on={!!page.full} onClick={() => void setting({ full: !page.full })} />
             <Toggle label="Table of contents" on={page.toc !== false} onClick={() => void setting({ toc: page.toc === false })} />
             <Toggle label="Lock page" on={locked} onClick={() => void setting({ locked: !locked })} />
+            {!locked && (
+              <>
+                <div className="my-1 border-t border-[var(--n-divider)]" />
+                <MenuItem icon="✨" label="Summarize page" onClick={() => openAi("summarize")} />
+                <MenuItem icon="☑" label="Find action items" onClick={() => openAi("action-items")} />
+                <MenuItem icon="✎" label="Ask AI to write…" onClick={() => openAi("write")} />
+              </>
+            )}
             <div className="my-1 border-t border-[var(--n-divider)]" />
             <MenuItem
               icon="🔗"

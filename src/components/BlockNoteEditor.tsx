@@ -122,6 +122,7 @@ export default function BlockNoteEditor({
         onBlur={() => void flush()}
         minHeight={minRows * 24}
         placeholder={`Write the note of every “${name}” block, or type “/” for blocks…`}
+        pageTitle={name}
       />
       <p className="h-4 px-1 text-xs text-faint" aria-live="polite">
         {status === "saving" ? "Saving…" : status === "saved" ? "Saved ✓" : status === "error" ? <span className="text-danger">{error}</span> : ""}

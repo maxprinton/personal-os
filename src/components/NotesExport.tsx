@@ -6,6 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { COPY_KINDS, FORMATS, type CopyKind, type ExportFormat } from "@/lib/note-export/formats";
 import { getLiveNote } from "@/lib/note-export/live";
 import type { ExportNote } from "@/lib/note-export/model";
+import SummarizeNotes from "@/components/SummarizeNotes";
 import { isStaleBuildError, reloadOnce } from "@/lib/recover";
 
 type Lib = typeof import("@/lib/note-export");
@@ -407,7 +408,8 @@ export function NotesExportBar() {
           Clear
         </button>
       )}
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-2">
+        <SummarizeNotes getNotes={getNotes} count={n} />
         <ExportMenu getNotes={getNotes} count={n} />
       </div>
     </div>

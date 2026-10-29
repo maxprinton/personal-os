@@ -8,7 +8,6 @@ import { describe } from "@/lib/parse";
 import { balanceText, isBalanceRequest } from "@/lib/bot-balance";
 import { isNowRequest, isTodayRequest, nowStatus, todayStatus } from "@/lib/bot-today";
 import { aheadRequest, aheadText, dayText } from "@/lib/bot-ahead";
-import { gemAnswer, gemQuestion } from "@/lib/bot-gem";
 import { parseHabitCommand } from "@/lib/bot-habits";
 import { makeCtx, type Ctx } from "@/lib/bot/core";
 import { btn, pk, remember, send, type Kb } from "@/lib/bot/tg";
@@ -147,17 +146,9 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage) {
     }
   }
 
-  // ---- @gem / /gem / gem: — ask Gemini about your own data (read only) ----------------------
-  const question = gemQuestion(text);
-  if (question !== null) {
-    if (!hasGemini()) return void (await sendMessage(chatId, "✨ @gem needs the free Gemini key (GEMINI_API_KEY in Vercel). Check with /ai."));
-    if (await overLimit(c)) return void (await sendMessage(chatId, `Daily limit of ${DAILY_LIMIT} messages reached. Try again tomorrow.`));
-    await tg("sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => null);
-    try {
-      for (const part of await gemAnswer(admin, c.userId, c.tz, question)) await sendMessage(chatId, part);
-    } catch {
-      await sendMessage(chatId, "✨ Sorry, I could not read your data this time. Try again in a minute.");
-    }
+  // ---- @gem was removed (Oct 2026): Gemini now works inside the notes on the web --------------
+  if (/^(?:\/gem(?:@\w+)?|@gem(?:ini)?)(?:\s|$)/i.test(text)) {
+    await sendMessage(chatId, "✨ @gem is off: the bot answers with /search, /notes, /budget, /movements and the other commands. Gemini now helps inside your notes on the web.");
     return;
   }
 

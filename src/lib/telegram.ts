@@ -59,7 +59,6 @@ export const HELP = [
   "• Reply to a “Saved ✓” message with an amount, an account, a date, a new name, @Block, done or delete",
   "• Task buttons: ✓ done · ⏭ next time its block happens · ⋯ date, block, rename, archive",
   "",
-  "✨ @gem + a question → Gemini reads your whole system and answers (it never changes anything). /ai checks it.",
 ].join("\n");
 
 /** The buttons that stay under the keyboard (each one sends its text). */

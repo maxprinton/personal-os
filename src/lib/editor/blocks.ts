@@ -7,8 +7,10 @@ import { COLOR_ALIASES, COLOR_LABEL, COLOR_NAMES, type ColorName } from "@/lib/e
 import { currentBlock, deleteBlock, duplicateBlock, setBlockColor, turnInto, type Kind } from "@/lib/editor/transform";
 import { openSelectedMath } from "@/lib/editor/nodes/math";
 import type { MediaType } from "@/lib/editor/nodes/media";
+import { requestUi } from "@/lib/editor/ui-events";
+import type { AiMode } from "@/lib/ai-notes";
 
-export type Group = "Suggested" | "Basic blocks" | "Media" | "Advanced" | "Inline" | "Text color" | "Background color" | "Actions";
+export type Group = "Suggested" | "AI" | "Basic blocks" | "Media" | "Advanced" | "Inline" | "Text color" | "Background color" | "Actions";
 
 export type BlockItem = {
   key: string;
@@ -175,6 +177,18 @@ const COLOR_ITEMS: BlockItem[] = COLOR_NAMES.flatMap((c) => {
   return [text, bg];
 });
 
+/** ✨ AI items ("/ai", "/summarize", "/continue"…). They open the AI panel at the cursor. */
+const ai = (mode: AiMode) => (editor: Editor, range?: Range) => {
+  if (range) editor.chain().focus().deleteRange(range).run();
+  requestUi(editor.view, { kind: "ai", mode });
+};
+const AI_ITEMS: BlockItem[] = [
+  { key: "ai-ask", label: "Ask AI", hint: "Ask Gemini to write anything. (Space on an empty line)", icon: "✨", group: "AI", keywords: ["ai", "ia", "gemini", "write", "escribir", "generate", "generar"], run: ai("write") },
+  { key: "ai-continue", label: "Continue writing", hint: "Gemini keeps writing from here.", icon: "✎", group: "AI", keywords: ["ai", "ia", "continue", "continuar", "seguir"], run: ai("continue") },
+  { key: "ai-summary", label: "Summarize page", hint: "A short summary of this page.", icon: "≡", group: "AI", keywords: ["ai", "ia", "summary", "summarize", "resumen", "resumir", "tldr"], run: ai("summarize") },
+  { key: "ai-todo", label: "Find action items", hint: "Gemini lists the to-dos in this page.", icon: "☑", group: "AI", keywords: ["ai", "ia", "action items", "todos", "pendientes", "tareas"], run: ai("action-items") },
+];
+
 export type ActionHooks = { openTurnInto?: () => void; openMoveTo?: () => void };
 
 function actionItems(hooks: ActionHooks): BlockItem[] {
@@ -222,7 +236,7 @@ function recentBlocks(): BlockItem[] {
 export function filterBlocks(query: string, hooks: ActionHooks = {}, opts: { canCreatePage?: boolean } = {}): BlockItem[] {
   const q = fold(query.trim());
   const blocks = BLOCK_ITEMS.filter((i) => i.key !== "page" || opts.canCreatePage);
-  if (!q) return [...recentBlocks(), ...blocks];
+  if (!q) return [...recentBlocks(), ...blocks, ...AI_ITEMS];
   const score = (i: BlockItem) => {
     const label = fold(i.label);
     if (label.startsWith(q)) return 0;
@@ -231,7 +245,7 @@ export function filterBlocks(query: string, hooks: ActionHooks = {}, opts: { can
     if (i.keywords.some((k) => fold(k).includes(q)) && q.length >= 3) return 3;
     return -1;
   };
-  const pool = [...blocks, ...COLOR_ITEMS, ...actionItems(hooks)];
+  const pool = [...blocks, ...AI_ITEMS, ...COLOR_ITEMS, ...actionItems(hooks)];
   return pool
     .map((i) => ({ i, s: score(i) }))
     .filter((x) => x.s >= 0)

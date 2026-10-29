@@ -68,6 +68,15 @@ export const NotionKeymap = Extension.create({
         if (!text) openSelectedMath(e);
         return true;
       },
+      // Space on an empty line opens ✨ Ask AI (Notion)
+      Space: () => {
+        const { selection } = e.state;
+        const { $from } = selection;
+        if (!selection.empty || !e.isEditable || e.storage.notion.menuOpen) return false;
+        if ($from.depth !== 1 || $from.parent.type.name !== "paragraph" || $from.parent.content.size !== 0) return false;
+        requestUi(e.view, { kind: "ai", mode: "write" });
+        return true;
+      },
       "Mod-k": () => {
         requestUi(e.view, { kind: "link" });
         return true;

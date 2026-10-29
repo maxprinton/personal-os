@@ -82,7 +82,6 @@ export async function connectBot(_prev: ActionState): Promise<ActionState> {
       { command: "settings", description: "Telegram reminders on/off and times" },
       { command: "undo", description: "Undo the last thing" },
       { command: "menu", description: "Show the buttons under the keyboard" },
-      { command: "gem", description: "Ask Gemini about your data: /gem question" },
       { command: "ai", description: "Check the Gemini connection" },
       { command: "help", description: "Everything the bot understands" },
     ],
