@@ -1,0 +1,153 @@
+/* Notes database: property values, property menus and the properties under a note's title.
+   Owned by the property editing UI (PropertyValue / PropertyMenu / NoteProperties). Prefix: np- */
+
+/* ---- Option pills (select / multi-select / status / tags), Notion's colors ---- */
+.np-pill {
+  --np-bg: rgba(227, 226, 224, 0.5);
+  --np-fg: rgb(50, 48, 44);
+  --np-dot: rgb(145, 145, 142);
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; height: 20px; padding: 0 6px;
+  border-radius: 3px; background: var(--np-bg); color: var(--np-fg); font-size: 14px; line-height: 20px;
+  white-space: nowrap; flex-shrink: 0;
+}
+.np-pill > .np-pill-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.np-pill.is-status { border-radius: 999px; padding: 0 8px 0 7px; }
+.np-pill.is-status::before { content: ""; width: 8px; height: 8px; border-radius: 999px; background: var(--np-dot); flex-shrink: 0; }
+.np-pill.is-small { font-size: 12px; height: 18px; line-height: 18px; }
+.np-pill-x { display: inline-grid; place-items: center; width: 14px; height: 14px; margin-right: -2px; border-radius: 3px; font-size: 12px; line-height: 1; opacity: 0.6; }
+.np-pill-x:hover { opacity: 1; background: rgba(0, 0, 0, 0.08); }
+.np-pill[data-c="gray"] { --np-bg: rgb(227, 226, 224); --np-fg: rgb(50, 48, 44); --np-dot: rgb(145, 145, 142); }
+.np-pill[data-c="brown"] { --np-bg: rgb(238, 224, 218); --np-fg: rgb(68, 42, 30); --np-dot: rgb(187, 132, 108); }
+.np-pill[data-c="orange"] { --np-bg: rgb(250, 222, 201); --np-fg: rgb(73, 41, 14); --np-dot: rgb(215, 129, 58); }
+.np-pill[data-c="yellow"] { --np-bg: rgb(253, 236, 200); --np-fg: rgb(64, 44, 27); --np-dot: rgb(203, 148, 52); }
+.np-pill[data-c="green"] { --np-bg: rgb(219, 237, 219); --np-fg: rgb(28, 56, 41); --np-dot: rgb(108, 155, 125); }
+.np-pill[data-c="blue"] { --np-bg: rgb(211, 229, 239); --np-fg: rgb(24, 51, 71); --np-dot: rgb(91, 151, 189); }
+.np-pill[data-c="purple"] { --np-bg: rgb(232, 222, 238); --np-fg: rgb(65, 36, 84); --np-dot: rgb(167, 130, 195); }
+.np-pill[data-c="pink"] { --np-bg: rgb(245, 224, 233); --np-fg: rgb(76, 35, 55); --np-dot: rgb(205, 116, 159); }
+.np-pill[data-c="red"] { --np-bg: rgb(255, 226, 221); --np-fg: rgb(93, 23, 21); --np-dot: rgb(225, 111, 100); }
+[data-theme="dark"] .np-pill { --np-bg: rgb(55, 55, 55); --np-fg: rgba(255, 255, 255, 0.81); --np-dot: rgb(127, 127, 127); }
+[data-theme="dark"] .np-pill-x:hover { background: rgba(255, 255, 255, 0.12); }
+[data-theme="dark"] .np-pill[data-c="gray"] { --np-bg: rgb(90, 90, 90); --np-dot: rgb(155, 155, 155); }
+[data-theme="dark"] .np-pill[data-c="brown"] { --np-bg: rgb(96, 59, 44); --np-dot: rgb(162, 119, 99); }
+[data-theme="dark"] .np-pill[data-c="orange"] { --np-bg: rgb(133, 76, 29); --np-dot: rgb(203, 123, 55); }
+[data-theme="dark"] .np-pill[data-c="yellow"] { --np-bg: rgb(137, 99, 42); --np-dot: rgb(193, 145, 56); }
+[data-theme="dark"] .np-pill[data-c="green"] { --np-bg: rgb(43, 89, 63); --np-dot: rgb(79, 151, 104); }
+[data-theme="dark"] .np-pill[data-c="blue"] { --np-bg: rgb(40, 69, 108); --np-dot: rgb(68, 122, 203); }
+[data-theme="dark"] .np-pill[data-c="purple"] { --np-bg: rgb(73, 47, 100); --np-dot: rgb(134, 93, 187); }
+[data-theme="dark"] .np-pill[data-c="pink"] { --np-bg: rgb(105, 49, 76); --np-dot: rgb(186, 74, 120); }
+[data-theme="dark"] .np-pill[data-c="red"] { --np-bg: rgb(110, 54, 48); --np-dot: rgb(190, 82, 75); }
+.np-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; border: 1px solid var(--n-divider); }
+
+/* ---- One value: page (under the title) · cell (table) · card (list / gallery / board) ---- */
+.np-val { min-width: 0; font-family: var(--n-font); color: var(--fg); }
+.np-val.is-page { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-height: 34px; padding: 6px 8px; border-radius: 4px; font-size: 14px; line-height: 1.5; word-break: break-word; }
+.np-val.is-page.is-editable { cursor: pointer; }
+.np-val.is-page.is-editable:hover { background: var(--n-hover); }
+.np-val.is-page.is-editing { background: transparent; cursor: text; padding: 3px 4px; }
+.np-val.is-cell { display: flex; align-items: center; gap: 4px; width: 100%; height: 100%; min-height: 33px; padding: 6px 8px; overflow: hidden; white-space: nowrap; font-size: 14px; line-height: 20px; }
+.np-val.is-cell.is-editable { cursor: pointer; }
+.np-val.is-cell > .np-text { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.np-val.is-card { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; line-height: 1.4; min-width: 0; color: var(--fg); }
+.np-val.is-card .np-pill { font-size: 12px; height: 18px; line-height: 18px; }
+.np-empty { color: var(--n-placeholder); }
+.np-text { white-space: pre-wrap; }
+.np-val.is-cell .np-text { white-space: nowrap; }
+.np-val.is-card .np-text { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; white-space: pre-wrap; }
+.np-faint { color: var(--n-muted); }
+.np-link { color: inherit; text-decoration: underline; text-decoration-color: var(--n-faint); text-underline-offset: 2px; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.np-link:hover { text-decoration-color: currentColor; }
+.np-edit-btn { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 4px; font-size: 12px; color: var(--n-muted); flex-shrink: 0; opacity: 0; background: var(--n-page); box-shadow: 0 0 0 1px var(--n-divider); }
+.np-val:hover .np-edit-btn, .np-edit-btn:focus-visible { opacity: 1; }
+@media (pointer: coarse) { .np-edit-btn { opacity: 0.8; } }
+.np-inline-input { width: 100%; min-width: 0; border: 0; outline: none; background: transparent; font: inherit; color: inherit; resize: none; padding: 3px 4px; border-radius: 4px; box-shadow: 0 0 0 1px rgba(35, 131, 226, 0.57), 0 0 0 3px rgba(35, 131, 226, 0.2); }
+.np-err { font-size: 12px; color: var(--n-red); }
+
+/* Checkbox */
+.np-check { width: 16px; height: 16px; border-radius: 3px; border: 1.5px solid var(--n-muted); display: inline-grid; place-items: center; flex-shrink: 0; background: transparent; cursor: pointer; }
+.np-check.is-on { background: var(--n-blue-accent); border-color: var(--n-blue-accent); }
+.np-check.is-on::after { content: ""; width: 10px; height: 10px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M5.5 12L14 3.5 12.5 2l-7 7-4-4.003L0 6.499z' fill='white'/%3E%3C/svg%3E") center / 10px no-repeat; }
+.np-check:disabled { cursor: default; opacity: 0.7; }
+@media (pointer: coarse) { .np-check { width: 20px; height: 20px; } }
+
+/* Number bar */
+.np-bar { display: inline-flex; align-items: center; gap: 8px; min-width: 80px; width: 100%; max-width: 220px; }
+.np-bar-track { flex: 1; height: 4px; border-radius: 4px; background: var(--n-divider); overflow: hidden; }
+.np-bar-fill { height: 100%; background: var(--n-blue-accent); border-radius: 4px; }
+.np-bar-num { font-size: 12px; color: var(--n-muted); flex-shrink: 0; }
+
+/* Relation / file chips */
+.np-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; color: inherit; text-decoration: none; border-radius: 3px; padding: 0 2px; flex-shrink: 0; }
+.np-chip:hover { background: var(--n-hover); }
+.np-chip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom: 1px solid var(--n-divider); line-height: 1.3; }
+.np-chip-icon { flex-shrink: 0; font-size: 0.95em; }
+.np-chip.is-done .np-chip-title { text-decoration: line-through; color: var(--n-muted); }
+
+/* ---- Popovers (editors and menus) ---- */
+.np-menu { padding: 6px; max-height: min(72vh, 560px); overflow-y: auto; overscroll-behavior: contain; }
+.np-menu .n-menu-item:hover { background: var(--n-hover); }
+.np-menu .n-menu-item.is-active { background: var(--n-hover); }
+.np-section { padding: 4px 0; }
+.np-section + .np-section { border-top: 1px solid var(--n-divider); }
+.np-input { width: 100%; }
+@media (pointer: coarse) { .np-input, .np-inline-input, .np-search input { font-size: 16px !important; } }
+.np-search { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 34px; padding: 4px 6px; margin: -6px -6px 6px; background: var(--n-input-bg); border-bottom: 1px solid var(--n-divider); border-radius: 10px 10px 0 0; }
+.np-search input { flex: 1; min-width: 80px; border: 0; outline: none; background: transparent; font-size: 14px; color: var(--fg); padding: 2px; }
+.np-hint { padding: 4px 8px 6px; font-size: 12px; color: var(--n-muted); }
+.np-row-btn { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 30px; padding: 4px 8px; border-radius: 6px; font-size: 14px; text-align: left; color: inherit; }
+.np-row-btn:hover, .np-row-btn.is-active { background: var(--n-hover); }
+.np-row-btn .np-right { margin-left: auto; color: var(--n-muted); font-size: 13px; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.np-row-btn.is-danger:hover { color: var(--n-red); }
+.np-icon { width: 20px; display: inline-grid; place-items: center; flex-shrink: 0; color: var(--n-muted); font-size: 14px; }
+.np-tiny-btn { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 4px; border-radius: 4px; color: var(--n-muted); font-size: 13px; flex-shrink: 0; }
+.np-tiny-btn:hover { background: var(--n-hover-strong); color: var(--fg); }
+.np-quick { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 2px; }
+.np-quick button { border: 1px solid var(--n-divider); border-radius: 6px; padding: 2px 8px; font-size: 13px; }
+.np-quick button:hover { background: var(--n-hover); }
+.np-field { display: flex; align-items: center; gap: 8px; padding: 4px 8px; font-size: 14px; }
+.np-field > label, .np-field > .np-label { width: 80px; flex-shrink: 0; color: var(--n-muted); font-size: 13px; }
+.np-field input[type="date"], .np-field input[type="time"] { flex: 1; min-width: 0; }
+
+/* Switch */
+.np-switch { position: relative; width: 28px; height: 16px; border-radius: 999px; background: var(--n-divider); flex-shrink: 0; transition: background 0.15s; }
+.np-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 999px; background: white; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); transition: transform 0.15s; }
+.np-switch.is-on { background: var(--n-blue-accent); }
+.np-switch.is-on::after { transform: translateX(12px); }
+
+/* Options editor (property menu) */
+.np-opt { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 2px 4px 2px 2px; border-radius: 6px; }
+.np-opt:hover { background: var(--n-hover); }
+.np-opt.is-drop-before { box-shadow: inset 0 2px 0 var(--n-blue-accent); }
+.np-opt.is-drop-after { box-shadow: inset 0 -2px 0 var(--n-blue-accent); }
+.np-opt .np-grip { cursor: grab; color: var(--n-faint); width: 16px; text-align: center; touch-action: none; user-select: none; font-size: 12px; }
+.np-opt-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; text-align: left; }
+.np-tag-default { font-size: 11px; color: var(--n-muted); border: 1px solid var(--n-divider); border-radius: 4px; padding: 0 4px; flex-shrink: 0; }
+.np-color-grid .n-menu-item { min-height: 28px; }
+
+/* ---- The properties under a note's title ---- */
+.np-props { margin: 6px 0 4px; padding-bottom: 8px; border-bottom: 1px solid var(--n-divider); font-family: var(--n-font); font-size: 14px; }
+.np-prop-row { position: relative; display: flex; align-items: flex-start; gap: 4px; min-width: 0; }
+.np-prop-row.is-drop-before::before, .np-prop-row.is-drop-after::after { content: ""; position: absolute; left: 0; right: 0; height: 2px; background: var(--n-blue-accent); border-radius: 2px; z-index: 2; }
+.np-prop-row.is-drop-before::before { top: -1px; }
+.np-prop-row.is-drop-after::after { bottom: -1px; }
+.np-prop-row.is-dragging { opacity: 0.4; }
+.np-prop-handle { position: absolute; left: -22px; top: 7px; width: 18px; height: 22px; display: grid; place-items: center; border-radius: 4px; color: var(--n-faint); font-size: 12px; cursor: grab; opacity: 0; touch-action: none; user-select: none; }
+.np-prop-row:hover .np-prop-handle { opacity: 1; }
+.np-prop-handle:hover { background: var(--n-hover); }
+.np-prop-name { display: flex; align-items: center; gap: 6px; width: 160px; flex-shrink: 0; min-height: 34px; padding: 6px; border-radius: 4px; color: var(--n-muted); text-align: left; font-size: 14px; line-height: 1.4; min-width: 0; }
+.np-prop-name.is-btn:hover { background: var(--n-hover); }
+.np-prop-name .np-icon { width: 16px; font-size: 13px; color: var(--n-muted); }
+.np-prop-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.np-prop-value { flex: 1; min-width: 0; }
+.np-props-foot { display: flex; flex-wrap: wrap; gap: 2px; margin-left: -2px; }
+.np-props-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 8px; border-radius: 4px; color: var(--n-faint); font-size: 14px; }
+.np-props-btn:hover { background: var(--n-hover); color: var(--n-muted); }
+@media (max-width: 640px) {
+  .np-prop-name { width: 118px; }
+}
+@media (pointer: coarse) {
+  .np-prop-handle { opacity: 0.55; left: -24px; width: 22px; }
+}
+
+/* Tiny error toast */
+.np-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 120; max-width: calc(100vw - 32px); padding: 8px 14px; border-radius: 8px; background: rgb(47, 47, 47); color: white; font-size: 13px; box-shadow: var(--n-shadow); font-family: var(--n-font); transition: opacity 0.2s; }
+.np-toast.is-error::before { content: "⚠ "; color: #ff8a80; }

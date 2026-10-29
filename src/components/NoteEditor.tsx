@@ -23,29 +23,8 @@ type Status = "idle" | "saving" | "saved" | "error";
 type Rect = { left: number; top: number; bottom: number; right?: number };
 
 /** Notion-like cover gallery (colors and gradients drawn by CSS, no downloads). */
-export const COVERS: { id: string; css: string; label: string }[] = [
-  { id: "gradient:1", label: "Sunset", css: "linear-gradient(120deg, #f6d365 0%, #fda085 100%)" },
-  { id: "gradient:2", label: "Ocean", css: "linear-gradient(120deg, #89f7fe 0%, #66a6ff 100%)" },
-  { id: "gradient:3", label: "Lavender", css: "linear-gradient(120deg, #e0c3fc 0%, #8ec5fc 100%)" },
-  { id: "gradient:4", label: "Mint", css: "linear-gradient(120deg, #d4fc79 0%, #96e6a1 100%)" },
-  { id: "gradient:5", label: "Peach", css: "linear-gradient(120deg, #ffecd2 0%, #fcb69f 100%)" },
-  { id: "gradient:6", label: "Night", css: "linear-gradient(120deg, #30cfd0 0%, #330867 100%)" },
-  { id: "gradient:7", label: "Rose", css: "linear-gradient(120deg, #ff9a9e 0%, #fecfef 100%)" },
-  { id: "gradient:8", label: "Dusk", css: "linear-gradient(120deg, #a18cd1 0%, #fbc2eb 100%)" },
-  { id: "color:red", label: "Red", css: "#e16259" },
-  { id: "color:yellow", label: "Yellow", css: "#dfab01" },
-  { id: "color:blue", label: "Blue", css: "#0f7b6c" },
-  { id: "color:navy", label: "Navy", css: "#2e3a59" },
-  { id: "color:beige", label: "Beige", css: "#e6d5c3" },
-  { id: "color:gray", label: "Gray", css: "#9b9a97" },
-];
-
-export function coverStyle(cover: string | null | undefined, y = 50): React.CSSProperties {
-  if (!cover) return {};
-  const g = COVERS.find((c) => c.id === cover);
-  if (g) return { background: g.css };
-  return { backgroundImage: `url("${cover.replace(/"/g, "%22")}")`, backgroundPosition: `center ${y}%` };
-}
+export { COVERS, coverStyle } from "@/lib/covers";
+import { COVERS, coverStyle } from "@/lib/covers";
 
 export default function NoteEditor({
   id,
@@ -57,6 +36,9 @@ export default function NoteEditor({
   pages,
   backlinks,
   actions,
+  belowTitle,
+  banner,
+  whenEmpty,
 }: {
   id: string;
   title: string;
@@ -68,6 +50,12 @@ export default function NoteEditor({
   backlinks?: PageRef[];
   /** Extra buttons for the top bar (Export…). */
   actions?: ReactNode;
+  /** Under the title: the note's properties (notes database). */
+  belowTitle?: ReactNode;
+  /** Above the title: "Editing template" bar, or ← previous · next → of a series. */
+  banner?: ReactNode;
+  /** Shown while the note has no text yet (e.g. "Start with a template"). */
+  whenEmpty?: ReactNode;
 }) {
   const router = useRouter();
   const [t, setT] = useState(title === "Untitled" ? "" : title);
@@ -75,6 +63,7 @@ export default function NoteEditor({
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [empty, setEmpty] = useState(!content.trim());
   const [pop, setPop] = useState<null | { kind: "icon" | "cover" | "menu" | "backlinks" | "move"; rect: Rect }>(null);
   const [repositioning, setRepositioning] = useState(false);
   const [coverY, setCoverY] = useState(page.coverY ?? 50);
@@ -301,6 +290,7 @@ export default function NoteEditor({
       )}
 
       <div className={`n-page ${page.full ? "is-full" : ""} ${font !== "default" ? `font-${font}` : ""} ${page.small ? "is-small" : ""}`}>
+        {banner}
         <div className={`n-head ${page.cover ? "n-has-cover" : ""} ${page.icon ? "n-has-icon" : ""}`}>
           {page.icon && (
             <button type="button" className="n-head-icon" disabled={locked} onClick={(e) => setPop({ kind: "icon", rect: rectOf(e) })} title="Change icon">
@@ -352,12 +342,15 @@ export default function NoteEditor({
               ↗ {backlinks.length} backlink{backlinks.length === 1 ? "" : "s"}
             </button>
           )}
+          {belowTitle}
         </div>
 
         <div className="pt-1 pb-24">
+          {empty && !locked && whenEmpty}
           <RichEditor
             value={content}
             onChange={(md) => {
+              setEmpty(!md.trim());
               latest.current = { ...latest.current, content: md };
               schedule();
             }}

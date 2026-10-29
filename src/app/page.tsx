@@ -27,6 +27,8 @@ import { budgetUsage, formatUSD, inRange, monthRange, totals } from "@/lib/money
 import { alpha } from "@/components/calendar/util";
 import Icon from "@/components/ui/Icon";
 import Section from "@/components/ui/Section";
+import ReviewToday from "@/components/notes-db/ReviewToday";
+import { notesToReview } from "@/lib/notes-db/review";
 
 export const dynamic = "force-dynamic";
 
@@ -90,9 +92,11 @@ export default async function CommandCenter() {
     .filter((t) => (t.occurrence_id && sameBlockIds.has(t.occurrence_id)) || (activeEvent && t.event_id === activeEvent.id))
     .map((t) => ({ id: t.id, title: t.title, status: t.status }));
   const contextTasks = [...placedNow, ...context.tasks.filter((t) => t.status === "pending" && !placedNow.some((p) => p.id === t.id))];
-  const [habits, { metrics, values }] = await Promise.all([
+  const [habits, { metrics, values }, toReview] = await Promise.all([
     userId ? getHabitSummaries(supabase, userId, now.date) : Promise.resolve([]),
     getMetrics(supabase, now.date, 1),
+    // Notes whose "Review on" date has come (empty if migration 0021 isn't run yet)
+    userId ? notesToReview(supabase, userId, now.date).catch(() => []) : Promise.resolve([]),
   ]);
   const habitsToday = habits
     .flatMap((h) => h.today.map((t) => ({ h, t })))
@@ -266,6 +270,8 @@ export default async function CommandCenter() {
                 </div>
               )}
             </Section>
+
+            {toReview.length > 0 && <ReviewToday notes={toReview} />}
 
             {habitsToday.length > 0 && (
               <Section title="Habits today" count={habitsToday.length} href="/habits" linkLabel="Streaks">

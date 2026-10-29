@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { botToken, tg } from "@/lib/telegram";
 import { runMaintenance } from "@/lib/calendar/maintenance";
+import { runTemplateSchedules } from "@/lib/notes-db/templates";
 import {
   beforeText,
   claim,
@@ -222,7 +223,14 @@ export async function POST(req: Request) {
       // one user's problem must not stop the others
     }
   }
-  if (!botToken()) return NextResponse.json({ ok: true, sent: 0 });
+  // Scheduled note templates (Diario every day at 21:00…), with their Telegram notice
+  let notesMade = 0;
+  try {
+    notesMade = await runTemplateSchedules(admin);
+  } catch (e) {
+    console.error("note templates", e);
+  }
+  if (!botToken()) return NextResponse.json({ ok: true, sent: 0, notesMade });
 
   const { data } = await admin.from("user_settings").select(REMINDER_COLUMNS).not("telegram_chat_id", "is", null);
   let sent = 0;
@@ -234,5 +242,5 @@ export async function POST(req: Request) {
       // one user's problem must not stop the others
     }
   }
-  return NextResponse.json({ ok: true, sent });
+  return NextResponse.json({ ok: true, sent, notesMade });
 }

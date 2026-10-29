@@ -10,6 +10,7 @@ import type { HabitState } from "@/lib/calendar/types";
 import { packId } from "@/lib/telegram";
 import { getDuePayments } from "@/lib/calendar/payments";
 import { taskRows } from "@/lib/bot/tasks";
+import { notesToReview, reviewLine } from "@/lib/notes-db/review";
 
 // Server-only: runs with the admin client, so EVERY query filters by user_id.
 
@@ -43,7 +44,7 @@ export type DayHabit = {
 /** Today's schedule, open tasks and habits for one user (calendar v2 model). */
 export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "user_id" | "timezone">, date: string) {
   const tz = s.timezone;
-  const [types, occurrences, events, habits, checks, t, free, due] = await Promise.all([
+  const [types, occurrences, events, habits, checks, t, free, due, review] = await Promise.all([
     getBlockTypes(admin, s.user_id, { includeDeleted: true }),
     getOccurrences(admin, s.user_id, date, date),
     getEvents(admin, s.user_id, date, date, tz),
@@ -59,6 +60,8 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
       .order("scheduled_for"),
     freeDatesBetween(admin, s.user_id, date, date),
     getDuePayments(admin, s.user_id, date),
+    // Notes whose "Review on" date has come ([] if migration 0021 isn't run yet; never throws)
+    notesToReview(admin, s.user_id, date).catch(() => []),
   ]);
   const typeName = new Map(types.map((x) => [x.id, x.name]));
 
@@ -109,6 +112,7 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
     tasks,
     unassigned: tasks.filter((x) => !x.occurrence_id && !x.event_id).length,
     habits: dayHabits,
+    review,
   };
 }
 
@@ -136,6 +140,7 @@ export function morningText(date: string, d: Day) {
     );
   }
   if (d.habits.length) parts.push(`\n🔁 Habits: ${d.habits.map((h) => h.title).join(", ")}`);
+  if (d.review?.length) parts.push(reviewLine(d.review));
   return parts.join("\n");
 }
 

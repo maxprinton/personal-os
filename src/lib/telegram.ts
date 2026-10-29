@@ -57,6 +57,7 @@ export const HELP = [
   "ASK YOUR NOTES",
   "• @os what did I write about the trip? (also /os …, or by voice: “OS, …”)",
   "• It finds the notes, reads them and answers. Reply to the answer to ask more.",
+  "• @os NOTE-12 → a short summary of that note · @os NOTE-12 when is the trip? → asks only that note",
   "",
   "FIX",
   "• Undo under everything saved · /undo = the last thing",

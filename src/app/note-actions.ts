@@ -90,7 +90,15 @@ export async function savePageSettings(id: string, patch: PageSettings): Promise
 export async function createSubpage(parentId: string, title: string): Promise<{ id?: string; title?: string; error?: string }> {
   const supabase = await createClient();
   const t = String(title ?? "").trim().slice(0, 200);
-  const { data, error } = await supabase.from("notes").insert({ title: t || "Untitled", parent_id: parentId || null }).select("id,title").single();
+  // A page inside a template (or inside one of its sub-pages) is part of the template, not a note of its own
+  let inTemplate = false;
+  if (parentId) {
+    const { data: parent, error: pErr } = await supabase.from("notes").select("is_template").eq("id", parentId).maybeSingle();
+    if (!pErr) inTemplate = !!(parent as { is_template?: boolean } | null)?.is_template; // error = migration 0021 not run yet
+  }
+  const row: Record<string, unknown> = { title: t || "Untitled", parent_id: parentId || null };
+  if (inTemplate) Object.assign(row, { is_template: true, template: { child: true } });
+  const { data, error } = await supabase.from("notes").insert(row).select("id,title").single();
   if (error || !data) return { error: error?.message ?? "Couldn't create the page." };
   revalidatePath("/notes");
   return { id: data.id as string, title: data.title as string };

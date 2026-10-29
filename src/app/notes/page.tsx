@@ -11,6 +11,9 @@ import { localNow } from "@/lib/time";
 import { openBlockNote } from "@/app/block-note-actions";
 import { NoteCheckbox, NoteSelection, NotesExportBar } from "@/components/NotesExport";
 import type { ExportNote } from "@/lib/note-export/model";
+import { getNotesDatabase } from "@/lib/notes-db/server";
+import Database from "@/components/notes-db/Database";
+import type { DbData } from "@/lib/notes-db/types";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +53,26 @@ export default async function NotesPage({
   const supabase = await createClient();
   const { timezone } = await getSettings(supabase);
   if (view === "blocks") return <BlockNotes timezone={timezone} />;
+
+  // The notes database (migration 0021). Without it, the old list below still works.
+  let db: DbData | null = null;
+  let dbError: string | null = null;
+  try {
+    db = await getNotesDatabase(supabase);
+  } catch (e) {
+    dbError = e instanceof Error ? e.message : "The notes database couldn't load.";
+  }
+  if (db) {
+    return (
+      <main className="mx-auto w-full max-w-[1400px] space-y-4 px-4 py-6 sm:px-6 lg:py-8">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">Notes</h1>
+        </div>
+        <Tabs current="all" />
+        <Database data={db} />
+      </main>
+    );
+  }
 
   const search = (q ?? "").replace(/[%_,()]/g, " ").trim();
   const tagIds = tag ? await idsWithTag(supabase, "note", tag) : null;
@@ -98,6 +121,7 @@ export default async function NotesPage({
           </form>
         </div>
         <Tabs current="all" />
+        {dbError && <p className="rounded-md bg-warning-soft px-3 py-2 text-sm text-warning">{dbError}</p>}
         <form className="flex gap-2">
           <input
             name="q"

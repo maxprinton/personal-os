@@ -13,6 +13,11 @@ import LinkForm from "@/components/LinkForm";
 import BlockNoteEditor from "@/components/BlockNoteEditor";
 import NoteTagsForm from "@/components/NoteTagsForm";
 import { NoteExportMenu } from "@/components/NotesExport";
+import { getNoteRow } from "@/lib/notes-db/server";
+import NoteProperties from "@/components/notes-db/NoteProperties";
+import TemplateBar from "@/components/notes-db/TemplateBar";
+import SeriesNav from "@/components/notes-db/SeriesNav";
+import EmptyNoteTemplates from "@/components/notes-db/EmptyNoteTemplates";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +68,16 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
     getLinkOptions(supabase, zonedToUtc(today, "00:00", timezone).toISOString(), timezone),
   ]);
   const tagNames = (tags.get(id) ?? []).map((t) => t.name);
+  // The notes database (migration 0021): properties under the title, templates, series
+  let db: Awaited<ReturnType<typeof getNoteRow>> | null = null;
+  let dbError: string | null = null;
+  try {
+    db = await getNoteRow(supabase, id);
+  } catch (e) {
+    dbError = e instanceof Error ? e.message : "The notes database couldn't load.";
+  }
+  const dbNote = db?.note ?? null;
+  const isTemplate = !!db?.template;
   const exportMenu = (
     <NoteExportMenu
       liveKey={note.block_name ? `block:${note.block_name}` : note.id}
@@ -93,8 +108,9 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
                 Shared by every “{note.block_name}” block. Its title follows the block&apos;s name; it saves by itself.
               </p>
             </div>
+            {db && dbNote && <NoteProperties data={db} noteId={note.id} />}
             <BlockNoteEditor name={note.block_name} content={note.content} minRows={14} />
-            <NoteTagsForm id={note.id} tags={tagNames.join(", ")} />
+            {!dbNote && <NoteTagsForm id={note.id} tags={tagNames.join(", ")} />}
           </>
         ) : (
           <>
@@ -108,12 +124,16 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
               pages={pages}
               backlinks={backlinks}
               actions={exportMenu}
+              belowTitle={db && dbNote ? <NoteProperties data={db} noteId={note.id} /> : dbError ? <p className="mt-2 text-xs text-warning">{dbError}</p> : null}
+              banner={db && db.template ? <TemplateBar template={db.template} data={db} /> : db && dbNote?.templateId ? <SeriesNav noteId={note.id} data={db} /> : null}
+              whenEmpty={db && !isTemplate && !db.templateNotes?.some((n) => n.id === note.id) && db.templates.length ? <EmptyNoteTemplates noteId={note.id} templates={db.templates} /> : null}
             />
           </>
         )}
 
         <div className={note.block_name ? "space-y-6" : "mx-auto w-full max-w-[708px] space-y-6 pt-6"}>
-        {!note.block_name && <NoteTagsForm id={note.id} tags={tagNames.join(", ")} />}
+        {!note.block_name && !dbNote && <NoteTagsForm id={note.id} tags={tagNames.join(", ")} />}
+        {!dbNote && (
         <section className="space-y-2 rounded-lg border border-line p-4 bg-surface shadow-card">
           <h2 className="text-sm font-medium">Linked to</h2>
           <p className="text-xs text-muted">
@@ -134,6 +154,7 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
           </ul>
           <LinkForm sourceType="note" sourceId={id} options={options} />
         </section>
+        )}
         <form action={note.block_name ? deleteNote : deletePage}>
           <input type="hidden" name="id" value={id} />
           <button className="text-sm text-muted hover:text-danger">Delete note</button>
