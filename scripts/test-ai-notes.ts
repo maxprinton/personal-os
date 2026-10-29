@@ -3,14 +3,16 @@
 // Run: npm run test:ai
 import { buildAiPrompt, cleanAiMarkdown, AI_MODES, SELECTION_MODES } from "@/lib/ai-notes";
 import { aiChat, aiJson, modelsFor, transcribe } from "@/lib/ai";
+import { askNotes, askQuestion, forTelegram, keywords, score } from "@/lib/bot/ask";
+import type { Ctx } from "@/lib/bot/core";
 
 let pass = 0;
 let fail = 0;
-function ok(name: string, cond: boolean) {
+function ok(name: string, cond: boolean, extra = "") {
   if (cond) pass++;
   else {
     fail++;
-    console.log(`❌ ${name}`);
+    console.log(`❌ ${name}${extra ? `  [${extra}]` : ""}`);
   }
 }
 const page = { title: "Viaje a Cuenca", content: '<callout icon="💡" color="gray_bg">\n\nLlevar **pasaporte**\n\n</callout>\n\n- comprar pasajes\n- reservar hotel' };
@@ -131,6 +133,59 @@ const chatCalls = (c: Call[]) => c.filter((x) => x.url.endsWith("/chat/completio
   ok("long selection fits the free limit", "user" in sel && sel.user.length < 16_000);
   const cont = buildAiPrompt({ mode: "continue", text: "start " + "w".repeat(30_000) + " THE END", page: { title: "t" } });
   ok("continue keeps the end of the text", "user" in cont && cont.user.includes("THE END") && cont.user.length < 16_000);
+}
+
+// ---- Ask your notes (Telegram) ----
+ok("/ask question", askQuestion("/ask qué dice mi nota del viaje?") === "qué dice mi nota del viaje?");
+ok("@ai question", askQuestion("@ai what about the budget") === "what about the budget");
+ok("ai: question", askQuestion("ai: resumen de mis ideas") === "resumen de mis ideas");
+ok("voice: 'AI, …'", askQuestion("AI, qué escribí sobre el gimnasio") === "qué escribí sobre el gimnasio");
+ok("old @gem still works", askQuestion("@gem hola") === "hola");
+ok("/ai alone is the connection check", askQuestion("/ai") === null);
+ok("/ai + text asks", askQuestion("/ai qué dice la nota X") === "qué dice la nota X");
+ok("normal messages are not questions", askQuestion("gasté 5 en aire") === null && askQuestion("airport task tomorrow") === null);
+ok("keywords drop filler words", JSON.stringify(keywords("¿Qué escribí sobre el viaje a Cuenca?")) === JSON.stringify(["viaje", "cuenca"]), keywords("¿Qué escribí sobre el viaje a Cuenca?").join(","));
+ok("title matches count more", score({ title: "Viaje a Cuenca", content: "" }, ["viaje"]) > score({ title: "Otra", content: "viaje" }, ["viaje"]));
+ok("plurals match", score({ title: "", content: "anoté un gasto grande" }, ["gastos"]) === 0 || score({ title: "Gastos del mes", content: "" }, ["gastos"]) > 0);
+ok("telegram text has no markdown", forTelegram("## Hi\n**bold** and *it*\n- one\n- [ ] todo") === "Hi\nbold and it\n• one\n☐ todo", forTelegram("## Hi\n**bold** and *it*\n- one\n- [ ] todo"));
+
+function fakeDb(rows: Record<string, unknown>[]) {
+  const chain: Record<string, unknown> = {};
+  for (const k of ["select", "eq", "is", "order"]) chain[k] = () => chain;
+  chain.range = (a: number) => Promise.resolve({ data: a === 0 ? rows : [], error: null });
+  return { from: () => chain } as unknown as Ctx["admin"];
+}
+const NOTES = [
+  { id: "11111111-1111-1111-1111-111111111111", title: "Viaje a Cuenca", content: "Salimos el 5 de noviembre. Hotel: Casa Azul, $40 la noche.", block_name: null, updated_at: "2026-10-20T10:00:00Z" },
+  { id: "22222222-2222-2222-2222-222222222222", title: "Ideas de negocio", content: "Vender cursos de Excel.", block_name: null, updated_at: "2026-10-21T10:00:00Z" },
+  { id: "33333333-3333-3333-3333-333333333333", title: "Gym", content: "Lunes pecho, martes pierna.", block_name: "Gym", updated_at: "2026-10-22T10:00:00Z" },
+];
+const ctx = { admin: fakeDb(NOTES), userId: "u", chatId: 1, tz: "America/Guayaquil", today: "2026-10-29", nowMin: 600 } as Ctx;
+{
+  let r = null as Awaited<ReturnType<typeof askNotes>> | null;
+  const calls = await fake([JSON.stringify({ notes: [1] }), "El hotel es **Casa Azul**, a $40 la noche."], async () => void (r = await askNotes(ctx, "¿Cuál era el hotel del viaje a Cuenca?")));
+  const cc = chatCalls(calls);
+  const pickMsg = JSON.stringify(cc[0]?.body ?? {});
+  ok("ask: the matching note is offered first", pickMsg.includes("[1] Viaje a Cuenca"));
+  const answerMsg = JSON.stringify(cc[1]?.body ?? {});
+  ok("ask: the chosen note is read in full", answerMsg.includes("Casa Azul") && !answerMsg.includes("cursos de Excel"));
+  ok("ask: answer + source + button", !!r && r!.text.includes("Casa Azul, a $40") && r!.text.includes("📄 From: Viaje a Cuenca") && r!.kb.length === 1 && r!.noteIds[0] === NOTES[0].id, r ? r!.text : "");
+}
+{
+  let r = null as Awaited<ReturnType<typeof askNotes>> | null;
+  const calls = await fake([JSON.stringify({ notes: [1, 2] }), "- Viaje: Casa Azul\n- Gym: lunes pecho"], async () => void (r = await askNotes(ctx, "resume el viaje y el gym")));
+  ok("ask: several notes at once", !!r && r!.noteIds.length === 2 && r!.text.includes("•"));
+  ok("ask: block notes show as ✏️", JSON.stringify(chatCalls(calls)[0]?.body ?? {}).includes("✏️ Gym"));
+}
+{
+  let r = null as Awaited<ReturnType<typeof askNotes>> | null;
+  await fake([JSON.stringify({ notes: [] })], async () => void (r = await askNotes(ctx, "¿qué dice sobre marte?")));
+  ok("ask: nothing found says so", !!r && r!.noteIds.length === 0 && /couldn't find/.test(r!.text));
+}
+{
+  let r = null as Awaited<ReturnType<typeof askNotes>> | null;
+  const calls = await fake([JSON.stringify({ notes: [] }), "Sí, $40."], async () => void (r = await askNotes(ctx, "¿y cuánto costaba?", { ids: [NOTES[0].id], q: "hotel del viaje", a: "Casa Azul" })));
+  ok("ask: follow-up keeps the same notes", !!r && r!.noteIds[0] === NOTES[0].id && JSON.stringify(chatCalls(calls)[1]?.body ?? {}).includes("EARLIER QUESTION"));
 }
 
 console.log(`\n${fail ? "⚠️" : "✅"} ${pass} passed, ${fail} failed`);

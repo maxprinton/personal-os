@@ -10,7 +10,7 @@ import { isNowRequest, isTodayRequest, nowStatus, todayStatus } from "@/lib/bot-
 import { aheadRequest, aheadText, dayText } from "@/lib/bot-ahead";
 import { parseHabitCommand } from "@/lib/bot-habits";
 import { makeCtx, type Ctx } from "@/lib/bot/core";
-import { btn, pk, remember, send, type Kb } from "@/lib/bot/tg";
+import { btn, pk, recall, remember, send, type Kb } from "@/lib/bot/tg";
 import { commandArg, isNoise, isOneOf, onlyDate } from "@/lib/bot/text";
 import { parseBlockNoteCmd, parseEventCmd, parseFreeDayCmd, parseMetricCmd, parsePaymentCmd, parseSetBalanceCmd } from "@/lib/bot/intents";
 import { archivedView, taskListView } from "@/lib/bot/tasks";
@@ -19,6 +19,7 @@ import { appendBlockNote, askFreeDay, createEvent, createPaymentTemplate, paymen
 import { accounts, askSetBalance, budgetAlert, budgetView, movementsView, setReceipt, unassignedView } from "@/lib/bot/finance";
 import { habitsView, insightsView, logMetric, metricDefs, metricsView, notesView, searchView, settingsView } from "@/lib/bot/queries";
 import { handleReply } from "@/lib/bot/replies";
+import { askNotes, askQuestion } from "@/lib/bot/ask";
 import { undoLast } from "@/lib/bot/undo";
 
 export const DAILY_LIMIT = 100;
@@ -136,6 +137,16 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage) {
     return;
   }
 
+  // ---- A reply to an answer about notes: a follow-up question about the same notes ---------------
+  if (msg.reply_to_message?.message_id && text) {
+    const th = await recall(admin, c.userId, chatId, msg.reply_to_message.message_id);
+    if (th?.kind === "ask") {
+      const p = th.payload as { ids?: string[]; q?: string; a?: string };
+      await answerNotes(c, askQuestion(text) ?? text, { ids: p.ids ?? [], q: p.q ?? "", a: p.a ?? "" });
+      return;
+    }
+  }
+
   // ---- A reply to one of the bot's messages (correct something, or answer its question) ---------
   if (msg.reply_to_message?.message_id && text) {
     const r = await handleReply(c, msg.reply_to_message.message_id, text);
@@ -146,9 +157,10 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage) {
     }
   }
 
-  // ---- @gem was removed (Oct 2026): the AI now works inside the notes on the web --------------
-  if (/^(?:\/gem(?:@\w+)?|@gem(?:ini)?)(?:\s|$)/i.test(text)) {
-    await sendMessage(chatId, "✨ @gem is off: the bot answers with /search, /notes, /budget, /movements and the other commands. The AI now helps inside your notes on the web.");
+  // ---- Ask your notes: /ask, @ai, "ai: …" (also the old @gem) ----------------------------------
+  const question = askQuestion(text);
+  if (question !== null) {
+    await answerNotes(c, question);
     return;
   }
 
@@ -350,6 +362,24 @@ async function replyCapture(c: Ctx, bmId: string | undefined, run: () => ReturnT
     const message = e instanceof Error ? e.message : "Unknown error";
     if (bmId) await admin.from("bot_messages").update({ status: "failed", error: message }).eq("id", bmId);
     await sendMessage(chatId, e instanceof CaptureError ? e.message : "Sorry, I could not save that. Try rephrasing, e.g. “spent 12 on lunch”.");
+  }
+}
+
+/** Finds the notes, reads them and answers; the answer remembers its notes for follow-ups. */
+async function answerNotes(c: Ctx, question: string, follow?: { ids: string[]; q: string; a: string }) {
+  if (question && (await overLimit(c))) {
+    await sendMessage(c.chatId, `Daily limit of ${DAILY_LIMIT} messages reached. Try again tomorrow.`);
+    return;
+  }
+  await c.admin.from("bot_messages").insert({ user_id: c.userId, raw_text: `[ask] ${question}`.slice(0, 4000) });
+  await tg("sendChatAction", { chat_id: c.chatId, action: "typing" }).catch(() => null);
+  try {
+    const r = await askNotes(c, question, follow);
+    const id = await send(c.chatId, r.text, r.kb);
+    if (r.noteIds.length) await remember(c.admin, c.userId, c.chatId, id, "ask", { ids: r.noteIds, q: question.slice(0, 500), a: r.text.slice(0, 1200) });
+  } catch (e) {
+    console.error("telegram ask", e);
+    await sendMessage(c.chatId, "✨ Sorry, I couldn't read your notes this time. Try again in a minute.");
   }
 }
 
