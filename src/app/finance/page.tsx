@@ -15,12 +15,12 @@ import {
   addStarterCategories,
   deleteAccount,
   deleteBudget,
-  deleteCategory,
-  deleteTransaction,
   deleteTransfer,
   updateBalance,
 } from "@/app/finance-actions";
 import TxnAccountSelect from "@/components/TxnAccountSelect";
+import TransactionList from "@/components/TransactionList";
+import CategoryChip from "@/components/CategoryChip";
 import { AccountForm, BudgetForm, CategoryForm, TransactionForm, TransferForm } from "@/components/FinanceForms";
 import { EditPaymentButton, PaymentDraft, PaymentForm, StopPaymentButton, PaymentRow, TemplateAccountSelect } from "@/components/PaymentForms";
 import { currentUserId } from "@/lib/calendar/model";
@@ -162,29 +162,22 @@ export default async function FinancePage() {
           </section>
 
           <section className="space-y-2">
-            <h2 className="section-title">Recent transactions</h2>
-            <ul className="card divide-y divide-line overflow-hidden">
-              {txns.slice(0, 40).map((t) => (
-                <li key={t.id} className="flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-subtle/60">
-                  <span className="w-12 shrink-0 tabular-nums text-muted">{t.localDate.slice(5)}</span>
-                  <span className="min-w-0 flex-1 truncate">
-                    {t.description || (t.category_id ? catName.get(t.category_id) : null) || (t.type === "income" ? "Income" : "Expense")}
-                    <span className="text-xs text-faint">
-                      {t.category_id && t.description ? ` · ${catName.get(t.category_id) ?? ""}` : ""}
-                    </span>
-                  </span>
-                  {accounts.length > 0 && <TxnAccountSelect id={t.id} accountId={t.account_id} accounts={accountOpts} />}
-                  <span className={`tabular-nums font-medium ${t.type === "income" ? "text-success" : ""}`}>
-                    {t.type === "income" ? "+" : "−"}{formatUSD(t.amount)}
-                  </span>
-                  <form action={deleteTransaction}>
-                    <input type="hidden" name="id" value={t.id} />
-                    <button className="text-xs text-faint hover:text-danger">×</button>
-                  </form>
-                </li>
-              ))}
-              {txns.length === 0 && <li className="p-4 text-sm text-faint">No transactions yet.</li>}
-            </ul>
+            <h2 className="section-title">Transactions</h2>
+            <p className="text-xs text-muted">Tap any transaction to change its amount, category, account, date or description.</p>
+            <TransactionList
+              txns={txns.map((t) => ({
+                id: t.id,
+                type: t.type,
+                amount: t.amount,
+                description: t.description,
+                category_id: t.category_id,
+                account_id: t.account_id,
+                localDate: t.localDate,
+              }))}
+              categories={categories.map((c) => ({ id: c.id, name: c.name, kind: c.kind }))}
+              accounts={accountOpts}
+              today={today}
+            />
           </section>
 
           {accounts.length >= 2 && (
@@ -406,16 +399,10 @@ export default async function FinancePage() {
 
           <section className="space-y-2">
             <h2 className="section-title">Categories</h2>
+            <p className="text-xs text-muted">Tap a name to rename it.</p>
             <ul className="flex flex-wrap gap-2">
               {categories.map((c) => (
-                <li key={c.id} className="flex items-center gap-1 rounded-full bg-subtle py-0.5 pl-3 pr-1 text-sm">
-                  {c.name}
-                  <span className="text-xs text-faint">{c.kind === "income" ? "income" : "expense"}</span>
-                  <form action={deleteCategory}>
-                    <input type="hidden" name="id" value={c.id} />
-                    <button aria-label={`Delete ${c.name}`} title="Delete category (past transactions become Uncategorized)" className="rounded-full px-1.5 text-faint hover:text-danger">×</button>
-                  </form>
-                </li>
+                <CategoryChip key={c.id} id={c.id} name={c.name} kind={c.kind} />
               ))}
               {categories.length === 0 && <li className="text-sm text-muted">None yet.</li>}
             </ul>

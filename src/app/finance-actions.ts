@@ -3,9 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/agenda";
-import { localNow, zonedToUtc } from "@/lib/time";
+import { localNow, utcToLocal, zonedToUtc } from "@/lib/time";
 import type { ActionState } from "@/app/actions";
-import { setRealBalance } from "@/lib/balance-adjust";
+import { ADJUSTMENT_CATEGORY, setRealBalance } from "@/lib/balance-adjust";
 
 const ACCOUNT_KINDS = ["checking", "savings", "credit_card", "cash", "other"];
 
@@ -57,6 +57,124 @@ export async function setTransactionAccount(id: string, accountId: string | null
     .select("id");
   if (error) return { error: error.message };
   if (!data?.length) return { error: "Could not save (transaction not found)." };
+  refresh();
+  return { ok: true };
+}
+
+/**
+ * Saves the moment of an edited transaction. Same local day as before → keeps the exact time (so it stays
+ * on the same side of the account's real balance); today → now; another day → noon of that day.
+ */
+function editedMoment(oldIso: string, date: string, today: string, tz: string) {
+  if (date === utcToLocal(oldIso, tz).date) return oldIso;
+  return date === today ? new Date().toISOString() : zonedToUtc(date, "12:00", tz).toISOString();
+}
+
+type CatRow = { id: string; name: string; kind: "income" | "expense" };
+
+async function categoryFor(supabase: Awaited<ReturnType<typeof createClient>>, id: string, type: "income" | "expense") {
+  if (!id) return { id: null as string | null };
+  const { data } = await supabase.from("categories").select("id,name,kind").eq("id", id).is("deleted_at", null).maybeSingle();
+  const c = data as CatRow | null;
+  if (!c) return { error: "That category no longer exists." };
+  if (c.kind !== type) return { error: `“${c.name}” is an ${c.kind} category. Pick one for ${type === "income" ? "income" : "expenses"}.` };
+  return { id: c.id };
+}
+
+/** Edits every field of a transaction: type, amount, category, account, date and description. */
+export async function updateTransaction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const id = String(form.get("id") ?? "");
+  if (!id) return { error: "Missing transaction." };
+  const type = String(form.get("type") ?? "expense") === "income" ? "income" : "expense";
+  const amount = money(form.get("amount"));
+  if (amount === null || amount <= 0) return { error: "Enter an amount greater than 0." };
+  const date = String(form.get("date") ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "Pick a date." };
+
+  const supabase = await createClient();
+  const { data: old } = await supabase.from("transactions").select("id,occurred_at").eq("id", id).is("deleted_at", null).maybeSingle();
+  if (!old) return { error: "That transaction no longer exists." };
+  const cat = await categoryFor(supabase, String(form.get("category_id") ?? ""), type);
+  if ("error" in cat) return { error: cat.error };
+
+  const { timezone } = await getSettings(supabase);
+  const today = localNow(timezone).date;
+  const { data, error } = await supabase
+    .from("transactions")
+    .update({
+      type,
+      amount,
+      category_id: cat.id,
+      account_id: String(form.get("account_id") ?? "") || null,
+      description: String(form.get("description") ?? "").trim() || null,
+      occurred_at: editedMoment(old.occurred_at as string, date, today, timezone),
+    })
+    .eq("id", id)
+    .select("id");
+  if (error) return { error: error.message };
+  if (!data?.length) return { error: "Could not save (transaction not found)." };
+  refresh();
+  return { ok: true, at: Date.now() };
+}
+
+/**
+ * "I remember part of this adjustment": takes that part out of a Balance adjustment and saves it as its own
+ * transaction (same account, same moment), so the real balance does not change. All of it → the adjustment goes away.
+ */
+export async function splitAdjustment(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const id = String(form.get("id") ?? "");
+  const amount = money(form.get("amount"));
+  if (!id) return { error: "Missing adjustment." };
+  if (amount === null || amount <= 0) return { error: "Enter an amount greater than 0." };
+
+  const supabase = await createClient();
+  const { data: adj } = await supabase
+    .from("transactions")
+    .select("id,type,amount,account_id,occurred_at")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!adj) return { error: "That adjustment no longer exists." };
+  const total = Number(adj.amount);
+  if (amount > total) return { error: `That is more than the adjustment (${total.toFixed(2)}). Edit the adjustment itself instead.` };
+  const type = adj.type as "income" | "expense";
+  const cat = await categoryFor(supabase, String(form.get("category_id") ?? ""), type);
+  if ("error" in cat) return { error: cat.error };
+
+  const { timezone } = await getSettings(supabase);
+  const today = localNow(timezone).date;
+  const date = String(form.get("date") ?? "") || utcToLocal(adj.occurred_at as string, timezone).date;
+  const { error } = await supabase.from("transactions").insert({
+    type,
+    amount,
+    category_id: cat.id,
+    account_id: adj.account_id,
+    description: String(form.get("description") ?? "").trim() || null,
+    occurred_at: editedMoment(adj.occurred_at as string, date, today, timezone),
+  });
+  if (error) return { error: error.message };
+  const left = Math.round((total - amount) * 100) / 100;
+  await supabase
+    .from("transactions")
+    .update(left > 0 ? { amount: left } : { deleted_at: new Date().toISOString() })
+    .eq("id", id);
+  refresh();
+  return { ok: true, at: Date.now() };
+}
+
+/** Renames a category; every transaction and budget in it follows. */
+export async function renameCategory(id: string, name: string): Promise<{ ok?: boolean; error?: string }> {
+  const clean = name.trim();
+  if (!id) return { error: "Missing category." };
+  if (!clean) return { error: "Name can't be empty." };
+  const supabase = await createClient();
+  const { data: cur } = await supabase.from("categories").select("name").eq("id", id).maybeSingle();
+  if (!cur) return { error: "That category no longer exists." };
+  const isAdj = (n: string) => n.toLowerCase() === ADJUSTMENT_CATEGORY.toLowerCase();
+  if (isAdj(String(cur.name))) return { error: `“${ADJUSTMENT_CATEGORY}” is used for balance updates and keeps its name.` };
+  if (isAdj(clean)) return { error: `“${ADJUSTMENT_CATEGORY}” is reserved for balance updates.` };
+  const { error } = await supabase.from("categories").update({ name: clean }).eq("id", id);
+  if (error) return { error: error.code === "23505" ? "A category with that name already exists." : error.message };
   refresh();
   return { ok: true };
 }
