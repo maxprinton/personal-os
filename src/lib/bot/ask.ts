@@ -1,4 +1,4 @@
-// "Ask your notes" from Telegram (server only): /ask, @ai or "ai: <question>".
+// "Ask your notes" from Telegram (server only): @os <question> (also /os, /ask, "os: …", by voice "OS, …").
 // 1) FIND: the notes that match the question's words get a score; the best ones (plus the latest, for
 //    synonyms) go to the AI with a short preview, and it picks the 1–4 that can answer.
 // 2) READ: those notes are read in full (as much as the free AI allows) and it answers from them only.
@@ -11,9 +11,9 @@ import { btn, pk, type Kb } from "@/lib/bot/tg";
 type Note = { id: string; title: string; content: string; block_name: string | null; updated_at: string };
 export type AskResult = { text: string; kb: Kb; noteIds: string[] };
 
-/** The question, or null when the message isn't one. "/ai" alone is still the connection check. */
+/** The question, or null when the message isn't one. */
 export function askQuestion(text: string): string | null {
-  const m = /^(?:\/ask(?:@\w+)?|\/ai(?:@\w+)?(?=\s+\S)|\/gem(?:@\w+)?|@ai|@ia|@gem(?:ini)?|(?:ai|ia|ask|pregunta)\s*[:,])\s*([\s\S]*)$/i.exec(text.trim());
+  const m = /^(?:@os\b|\/os(?:@\w+)?(?=\s|$)|\/ask(?:@\w+)?(?=\s|$)|o\.?\s?s\.?\s*[:,])\s*([\s\S]*)$/i.exec(text.trim());
   return m ? m[1].trim() : null;
 }
 
@@ -85,7 +85,7 @@ export function forTelegram(md: string) {
 const READ_LIMIT = 11_000; // characters of notes sent to the free AI (~3,000 tokens)
 
 export async function askNotes(c: Ctx, question: string, follow?: { ids: string[]; q: string; a: string }): Promise<AskResult> {
-  if (!question.trim()) return { text: "✨ Ask about your notes: “/ask what did I write about the trip?” (or “@ai …”).", kb: [], noteIds: [] };
+  if (!question.trim()) return { text: "✨ Ask about your notes: “@os what did I write about the trip?”", kb: [], noteIds: [] };
   if (!hasAi()) return { text: "✨ The AI is not connected (GROQ_API_KEY in Vercel).", kb: [], noteIds: [] };
 
   const rows = await fetchAll<Note>((a, b) =>

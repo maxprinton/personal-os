@@ -157,7 +157,7 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage) {
     }
   }
 
-  // ---- Ask your notes: /ask, @ai, "ai: …" (also the old @gem) ----------------------------------
+  // ---- Ask your notes: @os <question> (also /os, /ask, "os: …") --------------------------------
   const question = askQuestion(text);
   if (question !== null) {
     await answerNotes(c, question);

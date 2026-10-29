@@ -82,7 +82,7 @@ export async function connectBot(_prev: ActionState): Promise<ActionState> {
       { command: "settings", description: "Telegram reminders on/off and times" },
       { command: "undo", description: "Undo the last thing" },
       { command: "menu", description: "Show the buttons under the keyboard" },
-      { command: "ask", description: "Ask about your notes: /ask question" },
+      { command: "os", description: "Ask about your notes: /os question (or @os question)" },
       { command: "ai", description: "Check the AI connection" },
       { command: "help", description: "Everything the bot understands" },
     ],

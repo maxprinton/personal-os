@@ -136,14 +136,16 @@ const chatCalls = (c: Call[]) => c.filter((x) => x.url.endsWith("/chat/completio
 }
 
 // ---- Ask your notes (Telegram) ----
-ok("/ask question", askQuestion("/ask qué dice mi nota del viaje?") === "qué dice mi nota del viaje?");
-ok("@ai question", askQuestion("@ai what about the budget") === "what about the budget");
-ok("ai: question", askQuestion("ai: resumen de mis ideas") === "resumen de mis ideas");
-ok("voice: 'AI, …'", askQuestion("AI, qué escribí sobre el gimnasio") === "qué escribí sobre el gimnasio");
-ok("old @gem still works", askQuestion("@gem hola") === "hola");
+ok("@os question", askQuestion("@os qué dice mi nota del viaje?") === "qué dice mi nota del viaje?");
+ok("@OS works in capitals", askQuestion("@OS what about the budget") === "what about the budget");
+ok("/os question", askQuestion("/os resumen de mis ideas") === "resumen de mis ideas");
+ok("/os@bot question", askQuestion("/os@maxpersonalos_bot hola") === "hola");
+ok("os: question", askQuestion("os: qué escribí del gym") === "qué escribí del gym");
+ok("voice: 'OS, …'", askQuestion("OS, qué escribí sobre el gimnasio") === "qué escribí sobre el gimnasio");
+ok("voice: 'O.S., …'", askQuestion("O.S., qué dice la nota X") === "qué dice la nota X");
+ok("@gem is gone", askQuestion("@gem hola") === null && askQuestion("@ai hola") === null);
 ok("/ai alone is the connection check", askQuestion("/ai") === null);
-ok("/ai + text asks", askQuestion("/ai qué dice la nota X") === "qué dice la nota X");
-ok("normal messages are not questions", askQuestion("gasté 5 en aire") === null && askQuestion("airport task tomorrow") === null);
+ok("normal messages are not questions", askQuestion("gasté 5 en osos") === null && askQuestion("@osvaldo call him") === null && askQuestion("/oscar") === null && askQuestion("os voy a llamar mañana") === null);
 ok("keywords drop filler words", JSON.stringify(keywords("¿Qué escribí sobre el viaje a Cuenca?")) === JSON.stringify(["viaje", "cuenca"]), keywords("¿Qué escribí sobre el viaje a Cuenca?").join(","));
 ok("title matches count more", score({ title: "Viaje a Cuenca", content: "" }, ["viaje"]) > score({ title: "Otra", content: "viaje" }, ["viaje"]));
 ok("plurals match", score({ title: "", content: "anoté un gasto grande" }, ["gastos"]) === 0 || score({ title: "Gastos del mes", content: "" }, ["gastos"]) > 0);

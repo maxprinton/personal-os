@@ -55,7 +55,7 @@ export const HELP = [
   "/search word /notes /habits /metrics /insights /settings /menu",
   "",
   "ASK YOUR NOTES",
-  "• /ask what did I write about the trip? · @ai … · ai: … (also by voice: “AI, …”)",
+  "• @os what did I write about the trip? (also /os …, or by voice: “OS, …”)",
   "• It finds the notes, reads them and answers. Reply to the answer to ask more.",
   "",
   "FIX",
