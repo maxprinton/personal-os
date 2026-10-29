@@ -14,7 +14,32 @@ import type { ExportNote } from "@/lib/note-export/model";
 
 export const dynamic = "force-dynamic";
 
-type NoteRow = { id: string; title: string; content: string; updated_at: string; block_name?: string | null };
+type NoteRow = {
+  id: string;
+  title: string;
+  content: string;
+  updated_at: string;
+  block_name?: string | null;
+  page?: { icon?: string | null } | null;
+  parent_id?: string | null;
+};
+
+/** Sub-pages right under their page (like Notion's sidebar), each with its depth. */
+function asTree(notes: NoteRow[]): { n: NoteRow; depth: number }[] {
+  const ids = new Set(notes.map((n) => n.id));
+  const kids = new Map<string, NoteRow[]>();
+  for (const n of notes) if (n.parent_id && ids.has(n.parent_id)) kids.set(n.parent_id, [...(kids.get(n.parent_id) ?? []), n]);
+  const out: { n: NoteRow; depth: number }[] = [];
+  const seen = new Set<string>();
+  const walk = (n: NoteRow, depth: number) => {
+    if (seen.has(n.id)) return;
+    seen.add(n.id);
+    out.push({ n, depth });
+    for (const k of kids.get(n.id) ?? []) walk(k, Math.min(depth + 1, 4));
+  };
+  for (const n of notes) if (!n.parent_id || !ids.has(n.parent_id)) walk(n, 0);
+  return out;
+}
 
 export default async function NotesPage({
   searchParams,
@@ -28,10 +53,10 @@ export default async function NotesPage({
 
   const search = (q ?? "").replace(/[%_,()]/g, " ").trim();
   const tagIds = tag ? await idsWithTag(supabase, "note", tag) : null;
-  const build = (withBlocks: boolean) => {
+  const build = (withBlocks: boolean, withPages = withBlocks) => {
     let query = supabase
       .from("notes")
-      .select(withBlocks ? "id,title,content,updated_at,block_name" : "id,title,content,updated_at")
+      .select(withPages ? "id,title,content,updated_at,block_name,page,parent_id" : withBlocks ? "id,title,content,updated_at,block_name" : "id,title,content,updated_at")
       .is("deleted_at", null)
       .order("updated_at", { ascending: false })
       .limit(200);
@@ -42,6 +67,7 @@ export default async function NotesPage({
     return query;
   };
   let { data, error } = await build(true);
+  if (error) ({ data, error } = await build(true, false)); // migration 0020 not run yet
   if (error) ({ data } = await build(false)); // migration 0017 not run yet
   const notes = (data ?? []) as unknown as NoteRow[];
   const tags = await getTagsFor(supabase, "note", notes.map((n) => n.id));
@@ -85,16 +111,17 @@ export default async function NotesPage({
         <NoteSelection notes={exportable}>
         <NotesExportBar />
         <ul className="space-y-2">
-          {notes.map((n) => (
-            <li key={n.id} className={`flex items-start gap-3 rounded-lg border border-line p-3 hover:border-line-strong ${SELECTED}`}>
+          {(search || tagIds ? notes.map((n) => ({ n, depth: 0 })) : asTree(notes)).map(({ n, depth }) => (
+            <li key={n.id} style={depth ? { marginLeft: depth * 24 } : undefined} className={`flex items-start gap-3 rounded-lg border border-line p-3 hover:border-line-strong ${SELECTED}`}>
               <NoteCheckbox id={n.id} title={n.block_name || n.title} />
               <div className="min-w-0 flex-1">
               <Link href={`/notes/${n.id}`} className="block">
                 <p className="font-medium">
                   {n.block_name && <span className="mr-1.5 rounded bg-subtle px-1.5 text-xs font-normal text-muted">✏️ Block</span>}
+                  {!n.block_name && <span className="mr-1.5">{n.page?.icon && !/^(https?:|\/)/.test(n.page.icon) ? n.page.icon : "📄"}</span>}
                   {n.title || "Untitled"}
                 </p>
-                <p className="line-clamp-2 text-sm text-muted">{n.content.slice(0, 200) || "Empty note"}</p>
+                <p className="line-clamp-2 text-sm text-muted">{noteAsPlainText(n.content.slice(0, 600)).slice(0, 200) || "Empty note"}</p>
               </Link>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-faint">
                 <span>Edited {formatDateLong(utcToLocal(n.updated_at, timezone).date)}</span>

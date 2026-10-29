@@ -1,6 +1,7 @@
 // Notes as a small document model (headings, paragraphs, lists, tables, toggles…) read from their Markdown,
 // so every export format (text, HTML, PDF, Word, Mermaid) draws the same thing. Runs in the browser.
 import { Marked, type Token, type TokenizerAndRendererExtension } from "marked";
+import { simplifyNotionMarkdown } from "@/lib/notion-md";
 
 /** A note ready to export. */
 export type ExportNote = {
@@ -262,7 +263,7 @@ export function parseNote(src: string): Block[] {
 
 /** The note's blocks without a first heading that only repeats its title. */
 export function noteBlocks(n: ExportNote): Block[] {
-  const blocks = parseNote(n.content);
+  const blocks = parseNote(simplifyNotionMarkdown(n.content));
   const first = blocks[0];
   if (first?.t === "h" && runsText(first.runs).trim().toLowerCase() === (n.title || "").trim().toLowerCase()) return blocks.slice(1);
   return blocks;

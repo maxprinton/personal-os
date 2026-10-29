@@ -2,16 +2,11 @@
 
 import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { renderMarkdown } from "@/lib/markdown";
+import { simplifyNotionMarkdown } from "@/lib/notion-md";
 import { isStaleBuildError, reloadOnce, repairAndReload } from "@/lib/recover";
+import type { RichEditorProps } from "@/components/editor/RichEditor";
 
-type Props = {
-  value: string;
-  onChange: (markdown: string) => void;
-  onBlur?: () => void;
-  placeholder?: string;
-  minHeight?: number;
-  className?: string;
-};
+type Props = RichEditorProps;
 type Editor = ComponentType<Props>;
 
 let loading: Promise<Editor> | null = null;
@@ -56,7 +51,7 @@ export default function LazyRichEditor(props: Props) {
     };
   }, [attempt]);
 
-  const html = useMemo(() => (Comp ? "" : renderMarkdown(props.value || "")), [Comp, props.value]);
+  const html = useMemo(() => (Comp ? "" : renderMarkdown(simplifyNotionMarkdown(props.value || ""))), [Comp, props.value]);
   if (Comp) return <Comp {...props} />;
 
   return (

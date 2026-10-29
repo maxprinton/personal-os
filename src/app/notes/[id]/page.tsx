@@ -5,7 +5,8 @@ import { getSettings } from "@/lib/agenda";
 import { getLinkOptions, getLinksFrom } from "@/lib/links";
 import { getTagsFor } from "@/lib/tags";
 import { localNow, zonedToUtc } from "@/lib/time";
-import { deleteNote } from "@/app/note-actions";
+import { deleteNote, deletePage, type PageSettings } from "@/app/note-actions";
+import type { PageRef } from "@/lib/editor/context";
 import { removeLink } from "@/app/task-actions";
 import NoteEditor from "@/components/NoteEditor";
 import LinkForm from "@/components/LinkForm";
@@ -21,10 +22,38 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const supabase = await createClient();
   const read = (cols: string) => supabase.from("notes").select(cols).eq("id", id).is("deleted_at", null).maybeSingle();
-  let { data, error } = await read("id,title,content,updated_at,block_name");
+  let { data, error } = await read("id,title,content,updated_at,block_name,page,parent_id");
+  if (error) ({ data, error } = await read("id,title,content,updated_at,block_name")); // migration 0020 not run yet
   if (error) ({ data } = await read("id,title,content,updated_at")); // migration 0017 not run yet
-  const note = data as unknown as { id: string; title: string; content: string; updated_at: string; block_name?: string | null } | null;
+  const note = data as unknown as {
+    id: string;
+    title: string;
+    content: string;
+    updated_at: string;
+    block_name?: string | null;
+    page?: PageSettings | null;
+    parent_id?: string | null;
+  } | null;
   if (!note) notFound();
+
+  // Every note (for @ mentions, page links, breadcrumbs) and the notes that link here (backlinks)
+  const [allRes, backRes] = await Promise.all([
+    supabase.from("notes").select("id,title,page,parent_id").is("deleted_at", null).is("block_name", null).order("updated_at", { ascending: false }).limit(1000),
+    supabase.from("notes").select("id,title,page,parent_id").is("deleted_at", null).neq("id", id).ilike("content", `%/notes/${id}%`).limit(50),
+  ]);
+  const toRef = (r: { id: string; title: string; page?: PageSettings | null; parent_id?: string | null }): PageRef => ({
+    id: r.id,
+    title: r.title,
+    icon: r.page?.icon ?? null,
+    parentId: r.parent_id ?? null,
+  });
+  type Row = { id: string; title: string; page?: PageSettings | null; parent_id?: string | null };
+  let pages: PageRef[] = ((allRes.data ?? []) as Row[]).map(toRef);
+  if (allRes.error) {
+    const { data: plain } = await supabase.from("notes").select("id,title").is("deleted_at", null).order("updated_at", { ascending: false }).limit(1000);
+    pages = ((plain ?? []) as Row[]).map(toRef);
+  }
+  const backlinks = ((backRes.data ?? []) as Row[]).map(toRef);
 
   const { timezone } = await getSettings(supabase);
   const today = localNow(timezone).date;
@@ -50,7 +79,7 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
 
   return (
     <>
-      <main className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 lg:py-8">
+      <main className={note.block_name ? "mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 lg:py-8" : "w-full px-4 py-6 sm:px-6 lg:py-8"}>
         {note.block_name ? (
           <>
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -69,15 +98,22 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
           </>
         ) : (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Link href="/notes" className="text-sm text-muted hover:text-fg">← All notes</Link>
-              {exportMenu}
-            </div>
-            <NoteEditor id={note.id} title={note.title} content={note.content} />
-            <NoteTagsForm id={note.id} tags={tagNames.join(", ")} />
+            <NoteEditor
+              id={note.id}
+              title={note.title}
+              content={note.content}
+              page={note.page ?? {}}
+              parentId={note.parent_id ?? null}
+              updatedAt={note.updated_at}
+              pages={pages}
+              backlinks={backlinks}
+              actions={exportMenu}
+            />
           </>
         )}
 
+        <div className={note.block_name ? "space-y-6" : "mx-auto w-full max-w-[708px] space-y-6 pt-6"}>
+        {!note.block_name && <NoteTagsForm id={note.id} tags={tagNames.join(", ")} />}
         <section className="space-y-2 rounded-lg border border-line p-4 bg-surface shadow-card">
           <h2 className="text-sm font-medium">Linked to</h2>
           <p className="text-xs text-muted">
@@ -98,10 +134,11 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
           </ul>
           <LinkForm sourceType="note" sourceId={id} options={options} />
         </section>
-        <form action={deleteNote}>
+        <form action={note.block_name ? deleteNote : deletePage}>
           <input type="hidden" name="id" value={id} />
           <button className="text-sm text-muted hover:text-danger">Delete note</button>
         </form>
+        </div>
       </main>
     </>
   );

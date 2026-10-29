@@ -3,6 +3,7 @@
 // Works with the signed-in client and with the admin client (Telegram), so it filters by user_id.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeName } from "@/lib/calendar/edit";
+import { simplifyNotionMarkdown } from "@/lib/notion-md";
 
 export type BlockNote = { id: string; name: string; content: string; updated_at: string };
 
@@ -108,7 +109,7 @@ export async function copyBlockNote(sb: SupabaseClient, userId: string, fromName
 
 /** Plain text for Telegram: no Markdown marks, checkboxes as ☐ / ☑. */
 export function noteAsPlainText(md: string) {
-  return md
+  return simplifyNotionMarkdown(md)
     .replace(/\r\n?/g, "\n")
     // Toggles: "▸ Title" and their content below it
     .replace(/<summary>([\s\S]*?)<\/summary>/gi, "▸ $1")
