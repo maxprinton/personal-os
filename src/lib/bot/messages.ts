@@ -2,7 +2,7 @@
 // actions, and finally the capture (task, note, money). Order matters: the first match wins.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { downloadFile, HELP, MENU_KEYBOARD, sendMessage, tg } from "@/lib/telegram";
-import { geminiCheck, hasGemini, transcribe } from "@/lib/gemini";
+import { aiCheck, hasAi, transcribe } from "@/lib/ai";
 import { AccountChoiceNeeded, CaptureError, findAccount, processCapture, processImageCapture } from "@/lib/capture";
 import { describe } from "@/lib/parse";
 import { balanceText, isBalanceRequest } from "@/lib/bot-balance";
@@ -97,10 +97,10 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage) {
   }
   const c = makeCtx(admin, settings.user_id as string, chatId, settings.timezone as string | null);
 
-  // ---- Voice notes and photos: need Gemini, and count toward the daily limit ------------------
+  // ---- Voice notes and photos: need the AI (Groq), and count toward the daily limit -----------
   if (voice || photoId) {
-    if (!hasGemini()) {
-      await sendMessage(chatId, "Voice notes and photos need the free Gemini key (GEMINI_API_KEY in Vercel). For now, type it.");
+    if (!hasAi()) {
+      await sendMessage(chatId, "Voice notes and photos need the free AI key (GROQ_API_KEY in Vercel). For now, type it.");
       return;
     }
     if (await overLimit(c)) {
@@ -146,9 +146,9 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage) {
     }
   }
 
-  // ---- @gem was removed (Oct 2026): Gemini now works inside the notes on the web --------------
+  // ---- @gem was removed (Oct 2026): the AI now works inside the notes on the web --------------
   if (/^(?:\/gem(?:@\w+)?|@gem(?:ini)?)(?:\s|$)/i.test(text)) {
-    await sendMessage(chatId, "✨ @gem is off: the bot answers with /search, /notes, /budget, /movements and the other commands. Gemini now helps inside your notes on the web.");
+    await sendMessage(chatId, "✨ @gem is off: the bot answers with /search, /notes, /budget, /movements and the other commands. The AI now helps inside your notes on the web.");
     return;
   }
 
@@ -252,7 +252,7 @@ async function views(c: Ctx, text: string): Promise<boolean> {
     if (isOneOf(text, W.metrics)) return await hit(metricsView(c));
     if (isOneOf(text, W.settings)) return await hit(settingsView(c));
     if (isOneOf(text, W.ai)) {
-      await send(chatId, await geminiCheck());
+      await send(chatId, await aiCheck());
       return true;
     }
     const q = commandArg(text, ["/buscar", "/search", "/find", "buscar", "busca", "search", "find"]);

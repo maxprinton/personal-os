@@ -47,7 +47,7 @@ export const HELP = [
   "• habit: Stretch in Gym · done stretch · skip stretch · done <task>",
   "• sleep 7.5 → today's metric (with your metric names)",
   "• balance pichincha 1234.50 → the real balance of an account",
-  "• 🎙 voice notes and 🧾 receipt photos (with Gemini)",
+  "• 🎙 voice notes and 🧾 receipt photos (with the AI)",
   "",
   "LOOK",
   "/today /now /tomorrow /week /nextweek /day friday",

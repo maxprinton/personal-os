@@ -2,7 +2,7 @@
 // Markdown back to preview. Only for the signed-in user; nothing is saved here.
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { geminiWrite, hasGemini } from "@/lib/gemini";
+import { aiChat, hasAi } from "@/lib/ai";
 import { buildAiPrompt, cleanAiMarkdown, type AiRequest } from "@/lib/ai-notes";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Sign in again." }, { status: 401 });
-  if (!hasGemini()) return NextResponse.json({ error: "Gemini is not connected: GEMINI_API_KEY is missing in Vercel." }, { status: 503 });
+  if (!hasAi()) return NextResponse.json({ error: "The AI is not connected: GROQ_API_KEY is missing in Vercel (guide: ACTIVAR-GROQ.md)." }, { status: 503 });
 
   let body: AiRequest;
   try {
@@ -25,9 +25,9 @@ export async function POST(req: NextRequest) {
   const built = buildAiPrompt(body);
   if ("error" in built) return NextResponse.json({ error: built.error }, { status: 400 });
 
-  const out = await geminiWrite(built.system, [{ text: built.user }], { temperature: built.temperature, timeoutMs: 50_000 });
+  const out = await aiChat(built.system, [{ text: built.user }], { kind: "write", temperature: built.temperature, maxTokens: 2500, timeoutMs: 50_000 });
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: 502 });
   const text = cleanAiMarkdown(out.text);
-  if (!text) return NextResponse.json({ error: "Gemini answered with nothing. Try again." }, { status: 502 });
+  if (!text) return NextResponse.json({ error: "The AI answered with nothing. Try again." }, { status: 502 });
   return NextResponse.json({ text });
 }

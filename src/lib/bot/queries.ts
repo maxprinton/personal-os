@@ -1,4 +1,4 @@
-// Look things up from Telegram without Gemini (server only): /search, /notes, /habits, /insights,
+// Look things up from Telegram without the AI (server only): /search, /notes, /habits, /insights,
 // /metrics (+ "sleep 7.5"), /settings.
 import { addDays } from "@/lib/time";
 import { getHabitSummaries } from "@/lib/calendar/habits";

@@ -10,7 +10,7 @@ import { send } from "@/lib/bot/tg";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// Voice notes and photos wait for Gemini (a few seconds)
+// Voice notes and photos wait for the AI (a few seconds)
 export const maxDuration = 30;
 
 type TgUpdate = { message?: TgMessage; callback_query?: CallbackQuery };

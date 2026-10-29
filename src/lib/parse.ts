@@ -1,8 +1,8 @@
 // Turns a free-text message ("spent 12 on lunch", "task: call mom tomorrow") into a
 // structured item. Clear patterns are handled by the rules (instant, private). Anything else goes
-// to the AI when a key exists (Gemini: GEMINI_API_KEY; or Claude: ANTHROPIC_API_KEY), and the
+// to the AI when a key exists (Groq: GROQ_API_KEY; or Claude: ANTHROPIC_API_KEY), and the
 // rules' best guess is the fallback.
-import { geminiJson, hasGemini } from "@/lib/gemini";
+import { aiJson, hasAi } from "@/lib/ai";
 import { AMOUNT, findDate, fold, toAmount as amountOf, type DateMode } from "@/lib/bot/text";
 
 export type Parsed =
@@ -210,8 +210,8 @@ function aiSystem(today: string, categories: string[], accounts: string[]) {
 /** Ask the AI to classify the message. Returns null on any problem (caller falls back to rules). */
 export async function aiParse(text: string, today: string, categories: string[], accounts: string[] = []): Promise<Parsed | null> {
   const system = aiSystem(today, categories, accounts);
-  if (hasGemini()) {
-    const out = await geminiJson(system, [{ text: text.slice(0, 2000) }]);
+  if (hasAi()) {
+    const out = await aiJson(system, [{ text: text.slice(0, 2000) }]);
     const parsed = validateParsed(out);
     if (parsed) return parsed;
   }

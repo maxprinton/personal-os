@@ -1,4 +1,4 @@
-// What the ✨ AI in notes asks Gemini (pure: no network, no database; the route sends it).
+// What the ✨ AI in notes asks the AI (Groq) (pure: no network, no database; the route sends it).
 // Every mode returns Markdown that the editor turns into real blocks after you accept it.
 import { simplifyNotionMarkdown } from "@/lib/notion-md";
 
@@ -29,7 +29,7 @@ export type AiRequest = {
   page?: { title?: string; content?: string };
   /** The user's own words: the request, the tone, the language, the edit. */
   prompt?: string;
-  /** Asking for changes to a draft Gemini already wrote. */
+  /** Asking for changes to a draft the AI already wrote. */
   previous?: string;
   refine?: string;
   notes?: { title?: string; content?: string }[];
@@ -47,10 +47,17 @@ const BASE = [
   "Write in the same language as the user's text (they write in Spanish and in English) unless they ask for another one.",
 ].join("\n");
 
-const LIMIT = 60_000;
+// Groq's free plan reads ~8,000 tokens a minute (question + answer), so what is sent stays near
+// 14,000 characters (~4,000 tokens), leaving room for the answer.
+export const LIMIT = 14_000;
 const cut = (s: string | undefined, n = LIMIT) => {
   const t = (s ?? "").trim();
   return t.length > n ? `${t.slice(0, n)}\n…(cut)` : t;
+};
+/** The END of a text (for "continue writing": what is right before the cursor matters). */
+const tail = (s: string | undefined, n: number) => {
+  const t = (s ?? "").trim();
+  return t.length > n ? `(…)${t.slice(-n)}` : t;
 };
 const clean = (md: string | undefined) => simplifyNotionMarkdown(md ?? "");
 
@@ -85,13 +92,13 @@ export function buildAiPrompt(r: AiRequest): { system: string; user: string; tem
   const temperature = r.mode === "fix" || r.mode === "translate" ? 0.2 : r.mode.startsWith("summarize") || r.mode === "action-items" ? 0.3 : 0.7;
   const refine =
     r.previous && r.refine?.trim()
-      ? `\n\nYOUR PREVIOUS DRAFT:\n${cut(r.previous, 20_000)}\n\nTHE USER WANTS THIS CHANGED: ${r.refine.trim()}\nReturn the full new version of the draft (not only the changes).`
+      ? `\n\nYOUR PREVIOUS DRAFT:\n${cut(r.previous, 5_000)}\n\nTHE USER WANTS THIS CHANGED: ${r.refine.trim()}\nReturn the full new version of the draft (not only the changes).`
       : "";
 
   if (r.mode === "summarize-notes") {
     const notes = (r.notes ?? []).filter((n) => (n.content ?? "").trim() || (n.title ?? "").trim());
     if (!notes.length) return { error: "Those notes are empty." };
-    const per = Math.max(2_000, Math.floor(LIMIT / notes.length));
+    const per = Math.max(1_200, Math.floor((LIMIT - 1_000) / notes.length));
     const material = notes.map((n, i) => `### NOTE ${i + 1}: ${n.title?.trim() || "Untitled"}\n${cut(clean(n.content), per) || "(empty)"}`).join("\n\n");
     const task =
       notes.length === 1
@@ -104,10 +111,14 @@ export function buildAiPrompt(r: AiRequest): { system: string; user: string; tem
   if (needsText && !r.text?.trim()) return { error: "Select some text first." };
   if (r.mode === "write" && !r.prompt?.trim() && !refine) return { error: "Tell the AI what to write." };
   const parts = [TASK[r.mode](r) + refine];
-  if (r.mode === "continue") parts.push(`TEXT BEFORE CURSOR:\n${cut(clean(r.text), 12_000) || "(nothing yet)"}`);
-  else if (needsText || (r.mode === "action-items" && r.text)) parts.push(`SELECTED TEXT:\n${cut(r.text, 30_000)}`);
-  // The page as context (shorter when the selection is what matters)
-  parts.push(pageBlock(r.page, needsText ? 15_000 : LIMIT));
+  if (r.mode === "continue") {
+    parts.push(`TEXT BEFORE CURSOR:\n${tail(clean(r.text), 10_000) || "(nothing yet)"}`);
+    parts.push(`PAGE TITLE: ${r.page?.title?.trim() || "Untitled"}`);
+  } else if (needsText || (r.mode === "action-items" && r.text)) {
+    parts.push(`SELECTED TEXT:\n${cut(r.text, 8_000)}`);
+    // The page as context, shorter: the selection is what matters
+    parts.push(pageBlock(r.page, 4_000));
+  } else parts.push(pageBlock(r.page, LIMIT));
   return { system: BASE, user: parts.join("\n\n"), temperature };
 }
 

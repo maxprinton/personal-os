@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { aiParse, describe, ruleGuess, ruleParseStrict, ruleTransfer, validateParsed, type Parsed } from "@/lib/parse";
-import { geminiJson } from "@/lib/gemini";
+import { aiJson } from "@/lib/ai";
 import { localNow, zonedToUtc } from "@/lib/time";
 import { getBlockTypes } from "@/lib/calendar/model";
 import { autoPlaceTasks } from "@/lib/calendar/tasks";
@@ -325,7 +325,7 @@ export async function undoSaved(supabase: SupabaseClient, userId: string, entity
 }
 
 /**
- * A photo (receipt, invoice, bill) → an expense or income, read by Gemini. The caption can add or
+ * A photo (receipt, invoice, bill) → an expense or income, read by the AI's vision model. The caption can add or
  * correct details ("from Pichincha", "es de ayer"). Something that isn't a receipt becomes a note.
  */
 export async function processImageCapture(
@@ -347,10 +347,11 @@ export async function processImageCapture(
     `If it is anything else, return {"kind":"note","title":string,"content":string} describing it briefly.`,
     `The caption, if any, comes from the user and wins over what the photo shows (e.g. a different date or account).`,
   ].join("\n");
-  const out = await geminiJson(system, [
-    ...(caption ? [{ text: `Caption: ${caption.slice(0, 500)}` }] : []),
-    { inline_data: { mime_type: image.mimeType, data: image.base64 } },
-  ]);
+  const out = await aiJson(
+    system,
+    [...(caption ? [{ text: `Caption: ${caption.slice(0, 500)}` }] : []), { text: "The photo:" }, { image: { mime: image.mimeType, base64: image.base64 } }],
+    "vision"
+  );
   const parsed = validateParsed(out);
   if (!parsed) throw new CaptureError("I could not read that photo. Try a sharper photo of the receipt, or type it: \"spent 12 lunch\".");
   const paidWith = out && typeof out === "object" && typeof (out as { paidWith?: unknown }).paidWith === "string" ? (out as { paidWith: string }).paidWith : "";

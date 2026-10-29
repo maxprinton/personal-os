@@ -1,12 +1,13 @@
 "use client";
 
-// ✨ Summarize in the Notes bar: Gemini reads the selected notes and writes one summary. You see it first,
+// ✨ Summarize in the Notes bar: the AI reads the selected notes and writes one summary. You see it first,
 // then save it as a new note (or copy it, try again, or ask for changes).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Modal, { btnPrimary, btnSecondary } from "@/components/calendar/Modal";
 import { createNoteFromMarkdown } from "@/app/note-actions";
 import { askAi, previewHtml } from "@/lib/ai-client";
+import { LIMIT } from "@/lib/ai-notes";
 import type { ExportNote } from "@/lib/note-export/model";
 
 export default function SummarizeNotes({ getNotes, count }: { getNotes: () => ExportNote[]; count: number }) {
@@ -17,7 +18,7 @@ export default function SummarizeNotes({ getNotes, count }: { getNotes: () => Ex
         type="button"
         disabled={!count}
         onClick={() => setOpen(true)}
-        title={count ? "Gemini writes one summary of the selected notes" : "Select notes to summarize them"}
+        title={count ? "The AI writes one summary of the selected notes" : "Select notes to summarize them"}
         className="rounded-md border border-edge px-3 py-1.5 text-sm transition-colors hover:bg-subtle disabled:opacity-40"
       >
         ✨ Summarize
@@ -37,6 +38,7 @@ function SummaryWindow({ notes, onClose }: { notes: ExportNote[]; onClose: () =>
   const [copied, setCopied] = useState(false);
   const started = useRef(false);
   const names = notes.map((n) => n.title || "Untitled");
+  const long = notes.reduce((s, n) => s + (n.content?.length ?? 0), 0) > LIMIT;
   const title = notes.length === 1 ? `Summary of ${names[0]}` : `Summary: ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` +${names.length - 3}` : ""}`;
 
   const run = useCallback(
@@ -80,7 +82,7 @@ function SummaryWindow({ notes, onClose }: { notes: ExportNote[]; onClose: () =>
       {loading && (
         <div className="flex items-center gap-3 py-6 text-sm text-muted">
           <span className="n-ai-dots" aria-hidden><i /><i /><i /></span>
-          Gemini is reading your notes…
+          The AI is reading your notes…
         </div>
       )}
       {!loading && draft && (
@@ -105,7 +107,7 @@ function SummaryWindow({ notes, onClose }: { notes: ExportNote[]; onClose: () =>
         </form>
       )}
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <span className="mr-auto text-[11px] text-faint">Gemini can make mistakes.</span>
+        <span className="mr-auto text-[11px] text-faint">AI can make mistakes.{long ? " Long notes: it reads the first part of each." : ""}</span>
         <button type="button" onClick={onClose} className={btnSecondary}>Close</button>
         {!loading && (
           <button type="button" onClick={() => void run()} className={btnSecondary}>↻ Try again</button>

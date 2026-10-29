@@ -20,10 +20,10 @@ export async function askAi(req: AiRequest, signal?: AbortSignal, timeoutMs = 70
     if (j?.text) return { text: j.text };
     if (j?.error) return { error: j.error };
     if (res.status === 401) return { error: "Sign in again." };
-    if (res.status === 504) return { error: "Gemini took too long. Try again." };
+    if (res.status === 504) return { error: "The AI took too long. Try again." };
     return { error: `The AI couldn't answer (HTTP ${res.status}). Try again.` };
   } catch {
-    if (timedOut) return { error: "Gemini took too long. Try again." };
+    if (timedOut) return { error: "The AI took too long. Try again." };
     if (ctrl.signal.aborted) return { error: "Stopped." };
     return { error: "No connection. Try again." };
   } finally {

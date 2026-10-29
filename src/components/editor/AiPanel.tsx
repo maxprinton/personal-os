@@ -1,6 +1,6 @@
 "use client";
 
-// ✨ AI in the editor, like Notion AI: a menu for selected text and a panel that shows Gemini's draft as a
+// ✨ AI in the editor, like Notion AI: a menu for selected text and a panel that shows the AI's draft as a
 // preview. Nothing changes in the note until you press Replace / Insert; you can also try again or ask for changes.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -410,7 +410,7 @@ export default function AiPanel({ editor, session, onClose }: { editor: Editor; 
               </form>
             </>
           )}
-          <p className="n-ai-foot">Gemini can make mistakes. Nothing changes until you insert it.</p>
+          <p className="n-ai-foot">AI can make mistakes. Nothing changes until you insert it.</p>
         </>
       )}
     </div>,

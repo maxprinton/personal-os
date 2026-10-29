@@ -259,7 +259,7 @@ export default function NoteEditor({
           </button>
         )}
         {!locked && editor && (
-          <button type="button" className="n-ai-top" title="✨ Ask AI: summarize this page or write with Gemini" onClick={(e) => openAi("write", rectOf(e))}>
+          <button type="button" className="n-ai-top" title="✨ Ask AI: summarize this page or write with the AI" onClick={(e) => openAi("write", rectOf(e))}>
             ✨ <span className="hidden sm:inline">AI</span>
           </button>
         )}
