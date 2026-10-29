@@ -4,15 +4,31 @@ import type { AiRequest } from "@/lib/ai-notes";
 
 export type AiResult = { text: string } | { error: string };
 
-export async function askAi(req: AiRequest, signal?: AbortSignal): Promise<AiResult> {
+/** Asks the AI. Never waits longer than `timeoutMs`: then it gives up with a message instead of hanging. */
+export async function askAi(req: AiRequest, signal?: AbortSignal, timeoutMs = 70_000): Promise<AiResult> {
+  const ctrl = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    ctrl.abort();
+  }, timeoutMs);
+  const stop = () => ctrl.abort();
+  signal?.addEventListener("abort", stop);
   try {
-    const res = await fetch("/api/ai", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req), signal });
+    const res = await fetch("/api/ai", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req), signal: ctrl.signal });
     const j = (await res.json().catch(() => null)) as { text?: string; error?: string } | null;
     if (j?.text) return { text: j.text };
-    return { error: j?.error ?? (res.status === 401 ? "Sign in again." : `The AI couldn't answer (HTTP ${res.status}).`) };
-  } catch (e) {
-    if ((e as Error)?.name === "AbortError") return { error: "Stopped." };
+    if (j?.error) return { error: j.error };
+    if (res.status === 401) return { error: "Sign in again." };
+    if (res.status === 504) return { error: "Gemini took too long. Try again." };
+    return { error: `The AI couldn't answer (HTTP ${res.status}). Try again.` };
+  } catch {
+    if (timedOut) return { error: "Gemini took too long. Try again." };
+    if (ctrl.signal.aborted) return { error: "Stopped." };
     return { error: "No connection. Try again." };
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", stop);
   }
 }
 

@@ -102,8 +102,10 @@ export async function geminiCheck(): Promise<string> {
 }
 
 /**
- * For writing help in notes: like gemini() but with some creativity and a reason when it fails,
- * so the note can say "out of free quota" instead of a silent nothing.
+ * For writing help in notes: like gemini() but with some creativity and a reason when it fails.
+ * Gemini's free models are often busy (503) or briefly out of quota (429): each model gets a second
+ * try after a short pause, then the next model is tried, all inside one time limit so the note never
+ * waits forever.
  */
 export async function geminiWrite(
   system: string,
@@ -117,31 +119,46 @@ export async function geminiWrite(
     contents: [{ role: "user", parts }],
     generationConfig: { temperature: opts.temperature ?? 0.7 },
   });
+  const deadline = Date.now() + (opts.timeoutMs ?? 50000);
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  let busy = false;
   let quota = false;
+  let slow = false;
   for (const model of models()) {
-    try {
-      const res = await fetch(`${API}/${encodeURIComponent(model)}:generateContent`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-goog-api-key": key },
-        body,
-        signal: AbortSignal.timeout(opts.timeoutMs ?? 45000),
-      });
-      if (res.status === 429) {
-        quota = true;
-        continue;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const left = deadline - Date.now();
+      if (left < 3000) return { error: slow ? "Gemini took too long. Try again." : busy ? "Gemini is busy right now (too many people using it). Try again in a minute." : "Gemini took too long. Try again." };
+      try {
+        const res = await fetch(`${API}/${encodeURIComponent(model)}:generateContent`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-goog-api-key": key },
+          body,
+          signal: AbortSignal.timeout(Math.min(left, 30000)),
+        });
+        if (res.status === 404 || res.status === 400) break; // this model name doesn't exist: next model
+        if (res.status === 401 || res.status === 403) return { error: "Gemini refused the key. Create a new one in Google AI Studio and paste it in Vercel." };
+        if (res.status === 429 || res.status >= 500) {
+          // Busy / overloaded / out of quota for a moment: one more try, then the next model
+          if (res.status === 429) quota = true;
+          else busy = true;
+          if (attempt === 0) await wait(1200);
+          continue;
+        }
+        if (!res.ok) return { error: `Gemini had a problem (HTTP ${res.status}). Try again.` };
+        const json = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[] };
+        const c = json.candidates?.[0];
+        const text = (c?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
+        if (text) return { text };
+        if (c?.finishReason === "SAFETY") return { error: "Gemini declined to write that." };
+        break; // empty answer: try the next model
+      } catch {
+        slow = true; // timeout or network: try the next model while there is time
+        break;
       }
-      if (res.status === 404 || res.status === 400) continue;
-      if (res.status === 401 || res.status === 403) return { error: "Gemini refused the key. Create a new one in Google AI Studio and paste it in Vercel." };
-      if (!res.ok) return { error: `Gemini had a problem (HTTP ${res.status}). Try again.` };
-      const json = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[] };
-      const c = json.candidates?.[0];
-      const text = (c?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
-      if (text) return { text };
-      if (c?.finishReason === "SAFETY") return { error: "Gemini declined to write that." };
-      return { error: "Gemini answered with nothing. Try again." };
-    } catch {
-      return { error: "Gemini took too long. Try again." };
     }
   }
-  return { error: quota ? "Gemini's free quota is used up for now. Try again in a minute (or tomorrow)." : "No Gemini model answered. Set GEMINI_MODEL in Vercel to a current Flash model." };
+  if (busy) return { error: "Gemini is busy right now (too many people using it). Try again in a minute." };
+  if (quota) return { error: "Gemini's free quota is used up for now. Try again in a minute (or tomorrow)." };
+  if (slow) return { error: "Gemini took too long. Try again." };
+  return { error: "No Gemini model answered. Set GEMINI_MODEL in Vercel to a current Flash model." };
 }

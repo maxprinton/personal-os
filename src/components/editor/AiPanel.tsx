@@ -186,7 +186,7 @@ export default function AiPanel({ editor, session, onClose }: { editor: Editor; 
       const ctrl = new AbortController();
       abort.current = ctrl;
       const res = await askAi(req, ctrl.signal);
-      if (ctrl.signal.aborted && !("text" in res)) return;
+      if (abort.current !== ctrl) return; // a newer request (or Stop) replaced this one
       if ("text" in res) {
         setDraft(res.text);
         setPhase("done");
@@ -212,8 +212,25 @@ export default function AiPanel({ editor, session, onClose }: { editor: Editor; 
 
   const close = useCallback(() => {
     abort.current?.abort();
+    abort.current = null;
     onClose();
   }, [onClose]);
+
+  // A click outside closes the panel, except when a draft is ready (so it isn't lost by accident)
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
+  useEffect(() => {
+    const down = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (boxRef.current?.contains(t) || t.closest?.("[data-popover], .n-fmt")) return;
+      if (phaseRef.current !== "done") close();
+    };
+    const id = setTimeout(() => window.addEventListener("mousedown", down, true), 0);
+    return () => {
+      clearTimeout(id);
+      window.removeEventListener("mousedown", down, true);
+    };
+  }, [close]);
 
   // Esc discards (before the editor's own Esc)
   useEffect(() => {
@@ -346,7 +363,13 @@ export default function AiPanel({ editor, session, onClose }: { editor: Editor; 
             <div className="n-ai-loading">
               <span className="n-ai-dots" aria-hidden><i /><i /><i /></span>
               AI is writing…
-              <button type="button" onClick={() => (abort.current?.abort(), draft ? setPhase("done") : close())}>Stop</button>
+              <button type="button" onClick={() => {
+                const c = abort.current;
+                abort.current = null;
+                c?.abort();
+                if (draft) setPhase("done");
+                else close();
+              }}>Stop</button>
             </div>
           )}
           {phase === "error" && (

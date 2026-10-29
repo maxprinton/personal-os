@@ -20,6 +20,8 @@ export type UiRequest =
   | { kind: "toast"; text: string }
   /** ✨ AI: at = where the result goes (default: the selection or the cursor). */
   | { kind: "ai"; mode: AiMode; prompt?: string; at?: "cursor" | "top" | "end"; rect?: DOMRect }
+  /** The ✨ menu for the selected text. */
+  | { kind: "aiMenu" }
   | { kind: "blockMenu"; pos: number; rect: DOMRect }
   | { kind: "media"; pos: number; rect: DOMRect; type: string; onDone: (src: { url: string; name?: string; size?: number } | null) => void };
 

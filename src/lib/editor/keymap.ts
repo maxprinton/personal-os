@@ -77,6 +77,13 @@ export const NotionKeymap = Extension.create({
         requestUi(e.view, { kind: "ai", mode: "write" });
         return true;
       },
+      // Ctrl+J: ✨ AI (Notion) — on the selection, or "Ask AI" at the cursor
+      "Mod-j": () => {
+        if (!e.isEditable) return false;
+        const { empty } = e.state.selection;
+        requestUi(e.view, empty ? { kind: "ai", mode: "write" } : { kind: "aiMenu" });
+        return true;
+      },
       "Mod-k": () => {
         requestUi(e.view, { kind: "link" });
         return true;

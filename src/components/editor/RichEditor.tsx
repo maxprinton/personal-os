@@ -119,7 +119,7 @@ export default function RichEditor({
   const [ai, setAi] = useState<AiSession | null>(null);
   const [aiMenu, setAiMenu] = useState<{ rect: Rect; from: number; to: number } | null>(null);
   const aiOpen = useRef(false);
-  aiOpen.current = !!ai || !!aiMenu;
+  aiOpen.current = !!aiMenu;
 
   const showToast = useCallback((t: string) => {
     setToast(t);
@@ -310,6 +310,12 @@ export default function RichEditor({
       }
       if (req.kind === "blockMenu") {
         setBlockMenu({ pos: req.pos, rect: toRect(req.rect) });
+        return;
+      }
+      if (req.kind === "aiMenu") {
+        const { from, to } = editor.state.selection;
+        const c = editor.view.coordsAtPos(from);
+        setAiMenu({ rect: { left: c.left, top: c.top, bottom: editor.view.coordsAtPos(to).bottom }, from, to });
         return;
       }
       if (req.kind === "ai") {
@@ -552,7 +558,7 @@ export default function RichEditor({
       >
         <button
           type="button"
-          title="Ask AI to edit or explain the selection"
+          title="Ask AI to edit or explain the selection (Ctrl+J)"
           className="n-fmt-btn n-fmt-ai"
           onClick={(e) => {
             const { from, to } = editor.state.selection;
