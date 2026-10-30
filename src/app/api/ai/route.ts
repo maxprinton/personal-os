@@ -4,6 +4,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { aiChat, hasAi } from "@/lib/ai";
 import { buildAiPrompt, cleanAiMarkdown, type AiRequest } from "@/lib/ai-notes";
+import { scopeUsageLine, withAiUsage } from "@/lib/ai-usage";
+import { getSettings } from "@/lib/agenda";
+import { localNow } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -25,9 +28,17 @@ export async function POST(req: NextRequest) {
   const built = buildAiPrompt(body);
   if ("error" in built) return NextResponse.json({ error: built.error }, { status: 400 });
 
-  const out = await aiChat(built.system, [{ text: built.user }], { kind: "write", temperature: built.temperature, maxTokens: 2500, timeoutMs: 50_000 });
-  if ("error" in out) return NextResponse.json({ error: out.error }, { status: 502 });
-  const text = cleanAiMarkdown(out.text);
-  if (!text) return NextResponse.json({ error: "The AI answered with nothing. Try again." }, { status: 502 });
-  return NextResponse.json({ text });
+  return withAiUsage(
+    "notes-ai",
+    async () => {
+      const out = await aiChat(built.system, [{ text: built.user }], { kind: "write", temperature: built.temperature, maxTokens: 2500, timeoutMs: 50_000 });
+      if ("error" in out) return NextResponse.json({ error: out.error }, { status: 502 });
+      const text = cleanAiMarkdown(out.text);
+      if (!text) return NextResponse.json({ error: "The AI answered with nothing. Try again." }, { status: 502 });
+      const { timezone } = await getSettings(supabase);
+      const usage = await scopeUsageLine(supabase, user.id, timezone, localNow(timezone).date).catch(() => null);
+      return NextResponse.json({ text, usage });
+    },
+    { sb: supabase, userId: user.id },
+  );
 }

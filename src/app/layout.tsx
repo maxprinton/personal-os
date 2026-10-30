@@ -5,6 +5,7 @@ import RecoverStale from "@/components/RecoverStale";
 import NowTint from "@/components/calendar/NowTint";
 import AppShell from "@/components/shell/AppShell";
 import { themeScript } from "@/components/ui/ThemeToggle";
+import AiUsageToast from "@/components/AiUsageToast";
 
 export const metadata: Metadata = {
   title: "Personal OS",
@@ -33,6 +34,7 @@ export default function RootLayout({
       </head>
       <body>
         <AppShell>{children}</AppShell>
+        <AiUsageToast />
         <NowTint />
         <ServiceWorker />
         <RecoverStale />

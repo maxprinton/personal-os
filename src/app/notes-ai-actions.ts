@@ -7,10 +7,13 @@ import { noteAsPlainText } from "@/lib/block-notes";
 import { getProperties } from "@/lib/notes-db/server";
 import { SUMMARY_SYSTEM, cleanSummary, summaryInput } from "@/lib/notes-db/ai-summary";
 import type { PropValue } from "@/lib/notes-db/types";
+import { scopeUsageLine, withAiUsage } from "@/lib/ai-usage";
+import { getSettings } from "@/lib/agenda";
+import { localNow } from "@/lib/time";
 
 const MIGRATION = "Run MIGRACION-0021-notas-base-de-datos.sql in Supabase first.";
 
-export async function summarizeNote(noteId: string): Promise<{ ok: true; text: string } | { ok?: false; error: string }> {
+export async function summarizeNote(noteId: string): Promise<{ ok: true; text: string; usage?: string | null } | { ok?: false; error: string }> {
   try {
     if (!noteId) return { error: "Missing note." };
     const sb = await createClient();
@@ -31,7 +34,17 @@ export async function summarizeNote(noteId: string): Promise<{ ok: true; text: s
     const input = summaryInput((note.block_name as string | null) || (note.title as string) || "", noteAsPlainText((note.content as string | null) ?? ""));
     if (!input) return { error: "Write something first." };
 
-    const out = await aiChat(SUMMARY_SYSTEM, [{ text: input }], { kind: "write", temperature: 0.3, maxTokens: 600, timeoutMs: 30000 });
+    let usage: string | null = null;
+    const out = await withAiUsage(
+      "notes-summary",
+      async () => {
+        const o = await aiChat(SUMMARY_SYSTEM, [{ text: input }], { kind: "write", temperature: 0.3, maxTokens: 600, timeoutMs: 30000 });
+        const { timezone } = await getSettings(sb);
+        usage = await scopeUsageLine(sb, user.id, timezone, localNow(timezone).date).catch(() => null);
+        return o;
+      },
+      { sb, userId: user.id },
+    );
     if (!("text" in out)) return { error: out.error };
     const text = cleanSummary(out.text);
     if (!text) return { error: "The AI didn't write a summary. Try again." };
@@ -45,7 +58,7 @@ export async function summarizeNote(noteId: string): Promise<{ ok: true; text: s
 
     revalidatePath("/notes");
     revalidatePath(`/notes/${noteId}`);
-    return { ok: true, text };
+    return { ok: true, text, usage };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Couldn't write the summary." };
   }

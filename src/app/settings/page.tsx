@@ -7,6 +7,7 @@ import { liveTagLinks } from "@/lib/tags";
 import ConnectBotButton from "@/components/ConnectBotButton";
 import ReminderSettings from "@/components/ReminderSettings";
 import WritingSettings from "@/components/WritingSettings";
+import AiUsageSection from "@/components/AiUsageSection";
 
 export const dynamic = "force-dynamic";
 
@@ -129,6 +130,14 @@ export default async function SettingsPage() {
             <p className="text-sm text-muted">Spelling in Spanish and English, next-word prediction and the AI that checks what the rules can&apos;t.</p>
           </div>
           <WritingSettings />
+        </section>
+
+        <section id="ai-usage" className="space-y-3 rounded-lg border border-line p-4 bg-surface shadow-card">
+          <div>
+            <h2 className="font-medium">AI usage</h2>
+            <p className="text-sm text-muted">Groq&apos;s free plan: about 1,000 requests and 200,000 tokens a day per model. Also in Telegram: /usage.</p>
+          </div>
+          <AiUsageSection />
         </section>
 
         <section className="space-y-3 rounded-lg border border-line p-4 bg-surface shadow-card">

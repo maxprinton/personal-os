@@ -16,6 +16,7 @@
     "test:templates": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-templates.ts",
     "test:extras": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-notes-extras.ts",
     "test:block-links": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-block-links.ts",
+    "test:ai-usage": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-ai-usage.ts",
     "test:writing": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-writing.ts && node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-writing-editor.ts && node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-predict.ts"
   },
   "dependencies": {

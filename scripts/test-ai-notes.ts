@@ -3,7 +3,7 @@
 // Run: npm run test:ai
 import { buildAiPrompt, cleanAiMarkdown, AI_MODES, SELECTION_MODES } from "@/lib/ai-notes";
 import { aiChat, aiJson, modelsFor, transcribe } from "@/lib/ai";
-import { askNotes, askQuestion, forTelegram, keywords, score } from "@/lib/bot/ask";
+import { excerpt, noteChunks, askNotes, askQuestion, forTelegram, keywords, score } from "@/lib/bot/ask";
 import type { Ctx } from "@/lib/bot/core";
 
 let pass = 0;
@@ -181,8 +181,22 @@ const ctx = { admin: fakeDb(NOTES), userId: "u", chatId: 1, tz: "America/Guayaqu
 }
 {
   let r = null as Awaited<ReturnType<typeof askNotes>> | null;
-  await fake([JSON.stringify({ notes: [] })], async () => void (r = await askNotes(ctx, "¿qué dice sobre marte?")));
-  ok("ask: nothing found says so", !!r && r!.noteIds.length === 0 && /couldn't find/.test(r!.text));
+  const calls = await fake([JSON.stringify({ notes: [] }), "(Not in your notes) Marte es el cuarto planeta."], async () => void (r = await askNotes(ctx, "¿qué dice sobre júpiter?")));
+  ok("ask: nothing found → general answer, said so", !!r && r!.noteIds.length === 0 && r!.text.includes("No note matched: general answer") && r!.text.includes("(Not in your notes)"), r?.text);
+  ok("ask: the AI may complete with general knowledge", JSON.stringify(chatCalls(calls).at(-1)?.body ?? {}).includes("(Not in your notes)"));
+}
+{
+  // a long study note: the part that answers is deep inside
+  const filler = Array.from({ length: 40 }, (_, i) => `Paragraph ${i} about planning, scope and stakeholders in general.`).join("\n\n");
+  const md = `# Course 1\n\n${filler}\n\n## Productivity tools\n\nThe project manager uses productivity tools to create schedules and processes for the team.\n\n${filler}`;
+  const plain = md.replace(/^#+\s*/gm, "");
+  const chunks = noteChunks(md);
+  ok("chunks follow headings", chunks.some((c) => c.head === "Productivity tools" && c.text.includes("productivity tools")), JSON.stringify(chunks.map((c) => c.head)));
+  ok("chunks stay small", chunks.every((c) => c.text.length <= 1000));
+  const ex = excerpt({ content: plain, md }, keywords("when does the project manager use productivity tools and processes"), 1500);
+  ok("excerpt finds the deep part", ex.includes("uses productivity tools to create schedules") && ex.length <= 1700, ex.slice(0, 200));
+  ok("excerpt keeps the start", ex.startsWith("[Course 1]"));
+  ok("short note goes whole", excerpt({ content: "corto", md: "corto" }, ["x"], 1500) === "corto");
 }
 {
   let r = null as Awaited<ReturnType<typeof askNotes>> | null;

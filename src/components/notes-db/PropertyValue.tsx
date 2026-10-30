@@ -23,6 +23,7 @@ import { DatePicker, FilesEditor, OptionPicker, RelationPicker, TagPicker, TextP
 import { OptionPill, anchorOf, errorText, okColor, relationHref, toast, usePropEnv, type Anchor } from "./prop-ui";
 import NoteLinkButton from "./NoteLinkMenu";
 import "./properties.css";
+import { showAiUsage } from "@/lib/ai-usage-client";
 
 export { OptionPill, PropEnvContext, type PropEnv } from "./prop-ui";
 
@@ -179,6 +180,7 @@ export default function PropertyValue({ note: noteIn, prop: propIn, properties, 
     try {
       const r = await summarizeNote(note.id);
       if (r.ok) {
+        showAiUsage(r.usage);
         const n = latest.current;
         apply({ ...n, values: { ...n.values, [prop.id]: { text: r.text, at: new Date().toISOString() } } });
       } else setAiErr(r.error || "Couldn't summarize.");

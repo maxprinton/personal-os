@@ -11,7 +11,9 @@ import { btn, pk, type Kb } from "@/lib/bot/tg";
 import { noteMetaMap } from "@/lib/notes-db/meta";
 
 /** meta = the note's properties as lines ("Type: Idea", "AI summary: …"); the AI reads them too. */
-type Note = { id: string; title: string; content: string; block_name: string | null; updated_at: string; meta?: string[] };
+type Note = { id: string; title: string; content: string; block_name: string | null; updated_at: string; meta?: string[]; md?: string; is_template?: boolean };
+/** Earlier questions in this chat (last 45 minutes) or the answer you replied to. */
+export type AskTurn = { ids: string[]; q: string; a: string };
 export type AskResult = { text: string; kb: Kb; noteIds: string[] };
 
 /** The question, or null when the message isn't one. */
@@ -66,6 +68,83 @@ function preview(text: string, words: string[], n = 180) {
   const at = words.map((w) => f.indexOf(w.slice(0, 5))).filter((i) => i >= 0).sort((a, b) => a - b)[0] ?? 0;
   const start = Math.max(0, at - 40);
   return `${start ? "…" : ""}${flat.slice(start, start + n)}${flat.length > start + n ? "…" : ""}`;
+}
+
+/** Pieces of a note: by headings, then about 900 characters, each with the heading it sits under. */
+export function noteChunks(md: string): { head: string; text: string }[] {
+  const out: { head: string; text: string }[] = [];
+  const sections: { head: string; lines: string[] }[] = [{ head: "", lines: [] }];
+  for (const line of String(md ?? "").replace(/\r\n?/g, "\n").split("\n")) {
+    const h = /^\s{0,3}#{1,6}\s+(.*)$/.exec(line) ?? /<summary>(.*?)<\/summary>/i.exec(line);
+    if (h) sections.push({ head: noteAsPlainText(h[1]).trim(), lines: [] });
+    else sections.at(-1)!.lines.push(line);
+  }
+  for (const sec of sections) {
+    const plain = noteAsPlainText(sec.lines.join("\n")).trim();
+    if (!plain && !sec.head) continue;
+    let buf = "";
+    const flush = () => {
+      if (buf.trim() || (!out.length && sec.head)) out.push({ head: sec.head, text: buf.trim() });
+      buf = "";
+    };
+    for (const para of plain.split(/\n{2,}/)) {
+      let p = para.trim();
+      while (p.length > 900) {
+        const cut = Math.max(p.lastIndexOf(". ", 900), p.lastIndexOf("\n", 900), 500);
+        if (buf) flush();
+        buf = p.slice(0, cut + 1);
+        flush();
+        p = p.slice(cut + 1).trim();
+      }
+      if (buf && buf.length + p.length > 900) flush();
+      buf = buf ? `${buf}\n\n${p}` : p;
+    }
+    if (buf || sec.head) flush();
+  }
+  return out.filter((c) => c.text || c.head);
+}
+
+/**
+ * What of a note is sent to the AI: all of it when it fits; otherwise its start plus the pieces that
+ * best match the question (long study notes: the answer is often deep inside), in the note's order.
+ */
+export function excerpt(n: Pick<Note, "content" | "md">, words: string[], budget: number): string {
+  if (n.content.length <= budget) return n.content;
+  const chunks = noteChunks(n.md ?? n.content);
+  if (!chunks.length) return n.content.slice(0, budget);
+  const text = (c: { head: string; text: string }) => (c.head ? `[${c.head}]\n${c.text}` : c.text);
+  const ranked = chunks.map((c, i) => ({ i, s: score({ title: c.head, content: c.text }, words), len: text(c).length + 2 })).sort((a, b) => b.s - a.s || a.i - b.i);
+  // the start of the note (what it is about), but never more than a quarter of the room
+  const startCap = Math.floor(budget / 4);
+  const startHits = score({ title: chunks[0].head, content: chunks[0].text }, words) > 0;
+  const start = text(chunks[0]).length > (startHits ? budget : startCap) ? `${text(chunks[0]).slice(0, startHits ? budget : startCap)}…` : text(chunks[0]);
+  const pick = new Set<number>([0]);
+  let used = start.length;
+  for (const r of ranked) {
+    if (r.s <= 0 || pick.has(r.i)) continue;
+    if (used + r.len > budget) continue;
+    pick.add(r.i);
+    used += r.len;
+  }
+  // room left: the pieces right after the best ones (an answer often continues)
+  for (const r of ranked.filter((x) => x.s > 0)) {
+    const next = r.i + 1;
+    if (next < chunks.length && !pick.has(next) && used + text(chunks[next]).length + 2 <= budget) {
+      pick.add(next);
+      used += text(chunks[next]).length + 2;
+    }
+  }
+  const order = [...pick].sort((a, b) => a - b);
+  let out = "";
+  let prev = -1;
+  for (const i of order) {
+    if (prev >= 0 && i !== prev + 1) out += "\n…\n";
+    else if (out) out += "\n\n";
+    out += i === 0 ? start : text(chunks[i]);
+    prev = i;
+  }
+  if (prev < chunks.length - 1) out += "\n…(more of this note not shown)";
+  return out.slice(0, budget + 200);
 }
 
 const label = (n: Note) => (n.block_name ? `✏️ ${n.block_name}` : n.title || "Untitled");
@@ -139,7 +218,7 @@ async function notesByRef(c: Ctx, question: string): Promise<{ notes: SeqNote[];
   const notes = refs.nums
     .map((n) => rows.find((r) => Number(r.seq) === n))
     .filter((n): n is SeqNote => Boolean(n))
-    .map((n) => ({ ...n, content: noteAsPlainText(n.content ?? "") }));
+    .map((n) => ({ ...n, md: n.content ?? "", content: noteAsPlainText(n.content ?? "") }));
   return { notes, missing: refs.nums.filter((n) => !notes.some((r) => Number(r.seq) === n)), summary: !refs.rest, prefix };
 }
 
@@ -149,14 +228,15 @@ const READ_LIMIT = 11_000; // characters of notes sent to the free AI (~3,000 to
 async function readAndAnswer(
   chosen: Note[],
   question: string,
-  follow: { ids: string[]; q: string; a: string } | undefined,
-  opts: { summary?: boolean; name?: (n: Note) => string; footnote?: string } = {},
+  follow: AskTurn | undefined,
+  opts: { summary?: boolean; name?: (n: Note) => string; footnote?: string; today?: string; history?: AskTurn[] } = {},
 ): Promise<AskResult> {
   const name = opts.name ?? label;
-  const per = Math.max(1_500, Math.floor(READ_LIMIT / chosen.length));
+  const per = Math.max(1_500, Math.floor(READ_LIMIT / Math.max(1, chosen.length)));
+  const words = keywords(`${question} ${follow?.q ?? ""}`);
   const material = chosen
     .map((n, i) => {
-      const body = n.content.length > per ? `${n.content.slice(0, per)}\n…(rest of the note not shown)` : n.content;
+      const body = opts.summary ? (n.content.length > per ? `${n.content.slice(0, per)}\n…(rest of the note not shown)` : n.content) : excerpt(n, words, per);
       const props = n.meta?.length ? `PROPERTIES:\n${n.meta.map((l) => `- ${l}`).join("\n")}\nTEXT:\n` : "";
       return `### NOTE ${i + 1}: ${name(n)} (edited ${n.updated_at.slice(0, 10)})\n${props}${body.trim() || "(empty note: only the title)"}`;
     })
@@ -170,17 +250,23 @@ async function readAndAnswer(
         "Plain text: you may use simple bullets (- ) but no tables, no headings, no bold. No preface.",
       ].join("\n")
     : [
-        "You answer questions about the user's own notes, in Telegram.",
-        "Use ONLY the NOTES below. If they don't contain the answer, say so plainly (and what they do say about the topic, if anything). Never invent.",
-        "Each NOTE may start with its PROPERTIES (Type, Status, Area, Tags, Favorite, Review on, ID, linked tasks / events / notes, Block, AI summary, created / edited dates…). They are part of the note: use them to answer.",
-        "Answer in the same language as the question. Be short and direct: a few sentences or short bullet points. When you use several notes, say which note each part comes from (by its title).",
+        "You are the user's study and life assistant in Telegram. You answer from the user's own NOTES first (course notes, plans, diary…).",
+        "1) Answer from the NOTES below and say which note each part comes from (by its title). Read them carefully: the answer may be in the middle of a note, worded differently from the question.",
+        "2) If the notes cover only part of the question, or none of it, complete it with your general knowledge, and start that part with \"(Not in your notes)\" so the user knows. Never say the notes say something they don't.",
+        "Each NOTE may start with its PROPERTIES (Type, Status, Area, Tags, Review on, ID, linked tasks / events, Block, AI summary, dates…): they are part of the note.",
+        "The question may come from voice and be long or messy: answer what the user means.",
+        opts.today ? `Today is ${opts.today}.` : "",
+        "Answer in the same language as the question. Clear and useful, not long: a few sentences or short bullet points.",
         "Plain text: you may use simple bullets (- ) but no tables, no headings, no bold.",
-      ].join("\n");
+      ].filter(Boolean).join("\n");
   const out = await aiChat(
     system,
     [
       ...(follow ? [{ text: `EARLIER QUESTION: ${follow.q.slice(0, 300)}\nYOUR EARLIER ANSWER: ${follow.a.slice(0, 800)}` }] : []),
-      { text: `NOTES:\n${material}` },
+      ...(!follow && opts.history?.length
+        ? [{ text: `RECENT CONVERSATION (for context; the new question may refer to it):\n${opts.history.map((h) => `Q: ${h.q.slice(0, 200)}\nA: ${h.a.slice(0, 400)}`).join("\n")}` }]
+        : []),
+      { text: `NOTES:\n${material || "(No note matched this question.)"}` },
       { text: opts.summary ? "Summarize the note(s) above." : `QUESTION: ${question.slice(0, 800)}` },
     ],
     { kind: "write", temperature: 0.3, maxTokens: 1500, timeoutMs: 40000 },
@@ -188,13 +274,13 @@ async function readAndAnswer(
   if (!("text" in out)) return { text: `✨ ${out.error}`, kb: [], noteIds: [] };
   const sources = chosen.map(name).join(" · ");
   return {
-    text: `${forTelegram(out.text)}\n\n📄 From: ${sources}${opts.footnote ? `\n${opts.footnote}` : ""}\n↩ Reply to this message to ask more about these notes.`,
+    text: `${forTelegram(out.text)}\n\n${sources ? `📄 From: ${sources}` : "📄 No note matched: general answer"}${opts.footnote ? `\n${opts.footnote}` : ""}\n↩ Reply to this message to ask more about ${sources ? "these notes" : "it"}.`,
     kb: chosen.map((n) => [btn(`📄 ${label(n).slice(0, 40)}`, `no:${pk(n.id)}`)]),
     noteIds: chosen.map((n) => n.id),
   };
 }
 
-export async function askNotes(c: Ctx, question: string, follow?: { ids: string[]; q: string; a: string }): Promise<AskResult> {
+export async function askNotes(c: Ctx, question: string, follow?: AskTurn, history: AskTurn[] = []): Promise<AskResult> {
   if (!question.trim()) return { text: "✨ Ask about your notes: “@os what did I write about the trip?”", kb: [], noteIds: [] };
   if (!hasAi()) return { text: "✨ The AI is not connected (GROQ_API_KEY in Vercel).", kb: [], noteIds: [] };
 
@@ -217,6 +303,8 @@ export async function askNotes(c: Ctx, question: string, follow?: { ids: string[
       };
     }
     return readAndAnswer(direct.notes, question, follow, {
+      today: c.today,
+      history,
       summary: direct.summary,
       name: (n) => `${tag(Number((n as SeqNote).seq))} ${label(n)}`,
       footnote: direct.missing.length ? `(${direct.missing.map(tag).join(", ")} not found)` : undefined,
@@ -224,9 +312,14 @@ export async function askNotes(c: Ctx, question: string, follow?: { ids: string[
   }
 
   const rows = await fetchAll<Note>((a, b) =>
-    c.admin.from("notes").select("id,title,content,block_name,updated_at").eq("user_id", c.userId).is("deleted_at", null).order("updated_at", { ascending: false }).range(a, b),
+    c.admin.from("notes").select("id,title,content,block_name,updated_at,is_template").eq("user_id", c.userId).is("deleted_at", null).order("updated_at", { ascending: false }).range(a, b),
+  ).catch(() =>
+    fetchAll<Note>((a, b) => c.admin.from("notes").select("id,title,content,block_name,updated_at").eq("user_id", c.userId).is("deleted_at", null).order("updated_at", { ascending: false }).range(a, b)),
   );
-  const notes = (await withMeta(rows.map((n) => ({ ...n, content: noteAsPlainText(n.content ?? "") })))).filter((n) => n.content.trim() || n.title.trim() || n.meta?.length);
+  // templates are not notes; md = the note as written (its headings help pick the right part of a long note)
+  const notes: Note[] = (await withMeta(rows.filter((n) => !n.is_template).map((n): Note => ({ ...n, md: n.content ?? "", content: noteAsPlainText(n.content ?? "") })))).filter(
+    (n) => n.content.trim() || n.title.trim() || n.meta?.length,
+  );
   if (!notes.length) return { text: "📝 You don't have notes yet.", kb: [], noteIds: [] };
 
   // ---- 1) Find
@@ -235,12 +328,17 @@ export async function askNotes(c: Ctx, question: string, follow?: { ids: string[
   const ranked = notes.map((n) => ({ n, s: score({ title: n.title, content: `${n.content}\n${(n.meta ?? []).join("\n")}` }, words) })).sort((a, b) => b.s - a.s);
   const matched = ranked.filter((r) => r.s > 0).slice(0, 20).map((r) => r.n);
   const pool = [...matched];
-  for (const n of follow ? notes.filter((x) => follow.ids.includes(x.id)) : []) if (!pool.includes(n)) pool.unshift(n);
+  const earlier = new Set([...(follow?.ids ?? []), ...history.flatMap((h) => h.ids)]);
+  for (const n of notes.filter((x) => earlier.has(x.id))) if (!pool.includes(n)) pool.unshift(n);
   for (const n of notes) {
     if (pool.length >= 30) break;
     if (!pool.includes(n)) pool.push(n); // the latest notes, in case the question uses other words
   }
-  const short = (n: Note) => (n.meta ?? []).filter((l) => !/^(Created|Last edited|Words|Open to-dos|Backlinks):/.test(l)).join("; ").slice(0, 220);
+  const short = (n: Note) => {
+    const meta = (n.meta ?? []).filter((l) => !/^(Created|Last edited|Words|Open to-dos|Backlinks):/.test(l));
+    const summary = meta.filter((l) => l.startsWith("AI summary:"));
+    return [...summary, ...meta.filter((l) => !l.startsWith("AI summary:"))].join("; ").slice(0, 300);
+  };
   const list = pool.map((n, i) => `[${i + 1}] ${label(n)} (edited ${n.updated_at.slice(0, 10)}): ${preview(n.content, words)}${short(n) ? ` {${short(n)}}` : ""}`).join("\n");
   const pick = await aiJson(
     [
@@ -255,16 +353,10 @@ export async function askNotes(c: Ctx, question: string, follow?: { ids: string[
   const nums = Array.isArray((pick as { notes?: unknown } | null)?.notes) ? ((pick as { notes: unknown[] }).notes as unknown[]) : null;
   let chosen = (nums ?? []).map((x) => pool[Number(x) - 1]).filter((n): n is Note => Boolean(n));
   if (!nums) chosen = matched.slice(0, 3); // the AI didn't answer: the best word matches
-  if (!chosen.length && follow) chosen = notes.filter((n) => follow.ids.includes(n.id));
+  if (!chosen.length) chosen = matched.slice(0, 2); // it said "none" but words match: read them anyway
+  if (!chosen.length && earlier.size) chosen = notes.filter((n) => earlier.has(n.id));
   chosen = [...new Set(chosen)].slice(0, 4);
-  if (!chosen.length) {
-    return {
-      text: `🔎 I couldn't find a note about that${words.length ? ` (looked for: ${words.slice(0, 5).join(", ")})` : ""}. Try other words, or “/search word”.`,
-      kb: [],
-      noteIds: [],
-    };
-  }
 
-  // ---- 2) Read and answer
-  return readAndAnswer(chosen, question, follow);
+  // ---- 2) Read and answer (no note at all: a general answer, said so)
+  return readAndAnswer(chosen, question, follow, { today: c.today, history });
 }

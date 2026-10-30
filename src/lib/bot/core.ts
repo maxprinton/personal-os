@@ -2,6 +2,7 @@
 // lib/bot filters by user_id explicitly.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { localNow } from "@/lib/time";
+import { bindAiUsage } from "@/lib/ai-usage";
 
 export type Ctx = {
   admin: SupabaseClient;
@@ -15,6 +16,7 @@ export type Ctx = {
 export function makeCtx(admin: SupabaseClient, userId: string, chatId: number, tz: string | null | undefined): Ctx {
   const timezone = tz || "America/Guayaquil";
   const now = localNow(timezone);
+  bindAiUsage(admin, userId, timezone); // AI calls of this message are counted for this user
   return { admin, userId, chatId, tz: timezone, today: now.date, nowMin: now.minutes };
 }
 

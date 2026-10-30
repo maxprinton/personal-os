@@ -10,6 +10,7 @@ import { noteAsPlainText } from "@/lib/block-notes";
 import { aiChat, hasAi } from "@/lib/ai";
 import { ngramRows, ngramsOf, type ModelRow } from "@/lib/writing/predict";
 import { cleanPatch, type WritingSettings } from "@/lib/writing/settings";
+import { withAiUsage } from "@/lib/ai-usage";
 
 type Fail = { ok?: false; error: string };
 const WORDS = /[\p{L}\p{M}]+(?:['’-][\p{L}\p{M}]+)*/gu;
@@ -216,7 +217,7 @@ export async function buildVoiceProfile(): Promise<{ ok: true; voice: string } |
   if (notes.length < 2) return { error: "Write a few longer notes first (at least 2 with a couple of paragraphs)." };
   const per = Math.floor(11_000 / notes.length);
   const material = notes.map((n, i) => `### NOTE ${i + 1}: ${n.title}\n${n.text.slice(0, per)}`).join("\n\n");
-  const out = await aiChat(
+  const out = await withAiUsage("voice", () => aiChat(
     [
       "You describe how a person writes, from their own notes, so a writing assistant can respect their style.",
       "Write 4 to 6 short lines (plain text, each starting with '- '): languages and how they mix them, tone, formality, sentence length, typical words or expressions, punctuation habits.",
@@ -224,7 +225,7 @@ export async function buildVoiceProfile(): Promise<{ ok: true; voice: string } |
     ].join("\n"),
     [{ text: material }],
     { kind: "write", temperature: 0.2, maxTokens: 400, timeoutMs: 40_000 },
-  );
+  ), { sb: c.sb, userId: c.userId });
   if (!("text" in out)) return { error: out.error };
   const voice = out.text
     .split("\n")

@@ -9,6 +9,7 @@ import { buildModel, emptyModel, learnInto, ngramRows, ngramsOf, predict, type M
 import { fixesToIssues, type AiFix } from "@/lib/ai-writing";
 import { AI_PER_MINUTE, langsOf, type WritingSettings } from "@/lib/writing/settings";
 import type { CheckResult, Issue, Lang } from "@/lib/writing/types";
+import { showAiUsage } from "@/lib/ai-usage-client";
 
 type Status = { es: boolean; en: boolean; loaded: boolean };
 let worker: Worker | null = null;
@@ -332,7 +333,8 @@ export async function aiCheck(text: string, lang: Lang, reason: "grave" | "nativ
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text, lang, reason, known: known.slice(0, 80) }),
     });
-    const j = (await res.json().catch(() => null)) as { fixes?: AiFix[]; capped?: boolean; off?: boolean; error?: string } | null;
+    const j = (await res.json().catch(() => null)) as { fixes?: AiFix[]; capped?: boolean; off?: boolean; error?: string; usage?: string | null } | null;
+    showAiUsage(j?.usage); // the user chose a small toast for these background checks too
     if (j?.capped) return { issues: [], limited: "day" };
     if (j?.off) return { issues: [], limited: "off" };
     if (!j?.fixes) return { issues: [], error: j?.error ?? `The AI couldn't answer (HTTP ${res.status}).` };

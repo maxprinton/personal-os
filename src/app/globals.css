@@ -686,3 +686,7 @@
 .wf-fix { border-radius: 6px; padding: 1px 8px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--fg); font-weight: 500; }
 .wf-link { color: var(--muted, inherit); text-decoration: underline; text-underline-offset: 2px; }
 .wf-faint { color: var(--faint, rgba(127,127,127,.7)); }
+
+/* AI usage line after each use (components/AiUsageToast.tsx) */
+.ai-usage-toast { position: fixed; right: 16px; bottom: 16px; z-index: 90; max-width: min(520px, calc(100vw - 32px)); padding: 8px 12px; border-radius: 10px; font-size: 12px; line-height: 1.4; color: var(--fg); background: var(--surface, #fff); border: 1px solid var(--line, rgba(127,127,127,.3)); box-shadow: 0 6px 24px rgba(0,0,0,.14); cursor: pointer; }
+@media (max-width: 640px) { .ai-usage-toast { bottom: 80px; right: 16px; left: 16px; } }

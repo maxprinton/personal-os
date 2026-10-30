@@ -21,6 +21,8 @@ import { habitsView, insightsView, logMetric, metricDefs, metricsView, notesView
 import { handleReply } from "@/lib/bot/replies";
 import { askNotes, askQuestion } from "@/lib/bot/ask";
 import { undoLast } from "@/lib/bot/undo";
+import { markUsageReported, scopeUsageLine, startOfDay, usageReport, usageSummary, withAiUsage } from "@/lib/ai-usage";
+import { addDays } from "@/lib/time";
 
 export const DAILY_LIMIT = 100;
 
@@ -52,6 +54,7 @@ const W = {
   metrics: ["/metricas", "metricas", "/metrics", "metrics"],
   settings: ["/ajustes", "ajustes", "/settings", "settings", "/config", "config", "configuracion"],
   ai: ["/ai"],
+  usage: ["/usage", "/uso", "usage", "uso"],
   undo: ["/undo", "/deshacer", "deshacer", "undo"],
 };
 
@@ -267,6 +270,11 @@ async function views(c: Ctx, text: string): Promise<boolean> {
       await send(chatId, await aiCheck());
       return true;
     }
+    if (isOneOf(text, W.usage)) {
+      const sum = await usageSummary(c.admin, { from: startOfDay(addDays(c.today, -1), c.tz), tz: c.tz, userId: c.userId });
+      await send(chatId, usageReport(sum, c.today) ?? "✨ Nothing used yet today.");
+      return true;
+    }
     const q = commandArg(text, ["/buscar", "/search", "/find", "buscar", "busca", "search", "find"]);
     if (q !== null) return await hit(searchView(c, q));
   } catch (e) {
@@ -367,6 +375,22 @@ async function replyCapture(c: Ctx, bmId: string | undefined, run: () => ReturnT
 
 /** Finds the notes, reads them and answers; the answer remembers its notes for follow-ups. */
 async function answerNotes(c: Ctx, question: string, follow?: { ids: string[]; q: string; a: string }) {
+  // Not a reply: the last questions of this chat (45 min) are the conversation's context
+  let history: { ids: string[]; q: string; a: string }[] = [];
+  if (!follow) {
+    const { data } = await c.admin
+      .from("bot_threads")
+      .select("payload,created_at")
+      .eq("user_id", c.userId)
+      .eq("chat_id", c.chatId)
+      .eq("kind", "ask")
+      .gte("created_at", new Date(Date.now() - 45 * 60 * 1000).toISOString())
+      .order("created_at", { ascending: false })
+      .limit(3);
+    history = ((data ?? []) as { payload: { ids?: string[]; q?: string; a?: string } }[])
+      .map((r) => ({ ids: r.payload.ids ?? [], q: r.payload.q ?? "", a: r.payload.a ?? "" }))
+      .reverse();
+  }
   if (question && (await overLimit(c))) {
     await sendMessage(c.chatId, `Daily limit of ${DAILY_LIMIT} messages reached. Try again tomorrow.`);
     return;
@@ -374,9 +398,12 @@ async function answerNotes(c: Ctx, question: string, follow?: { ids: string[]; q
   await c.admin.from("bot_messages").insert({ user_id: c.userId, raw_text: `[ask] ${question}`.slice(0, 4000) });
   await tg("sendChatAction", { chat_id: c.chatId, action: "typing" }).catch(() => null);
   try {
-    const r = await askNotes(c, question, follow);
-    const id = await send(c.chatId, r.text, r.kb);
-    if (r.noteIds.length) await remember(c.admin, c.userId, c.chatId, id, "ask", { ids: r.noteIds, q: question.slice(0, 500), a: r.text.slice(0, 1200) });
+    const r = await withAiUsage("bot-ask", () => askNotes(c, question, follow, history));
+    // what this answer cost and what's left today (always, the user's choice)
+    const line = await scopeUsageLine(c.admin, c.userId, c.tz, c.today).catch(() => null);
+    markUsageReported();
+    const id = await send(c.chatId, line ? `${r.text}\n${line}` : r.text, r.kb);
+    if (question.trim()) await remember(c.admin, c.userId, c.chatId, id, "ask", { ids: r.noteIds, q: question.slice(0, 500), a: r.text.slice(0, 1200) });
   } catch (e) {
     console.error("telegram ask", e);
     await sendMessage(c.chatId, "✨ Sorry, I couldn't read your notes this time. Try again in a minute.");

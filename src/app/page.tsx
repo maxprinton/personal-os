@@ -29,6 +29,7 @@ import Icon from "@/components/ui/Icon";
 import Section from "@/components/ui/Section";
 import ReviewToday from "@/components/notes-db/ReviewToday";
 import { notesToReview } from "@/lib/notes-db/review";
+import { AiUsageLine } from "@/components/AiUsageSection";
 
 export const dynamic = "force-dynamic";
 
@@ -272,6 +273,7 @@ export default async function CommandCenter() {
             </Section>
 
             {toReview.length > 0 && <ReviewToday notes={toReview} />}
+            <AiUsageLine />
 
             {habitsToday.length > 0 && (
               <Section title="Habits today" count={habitsToday.length} href="/habits" linkLabel="Streaks">

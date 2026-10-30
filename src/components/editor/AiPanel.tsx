@@ -125,6 +125,7 @@ export default function AiPanel({ editor, session, onClose }: { editor: Editor; 
   const [prompt, setPrompt] = useState(session.prompt ?? "");
   const [phase, setPhase] = useState<Phase>(session.mode === "write" && !session.prompt ? "ask" : "loading");
   const [draft, setDraft] = useState("");
+  const [usage, setUsage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [copied, setCopied] = useState(false);
@@ -189,6 +190,7 @@ export default function AiPanel({ editor, session, onClose }: { editor: Editor; 
       if (abort.current !== ctrl) return; // a newer request (or Stop) replaced this one
       if ("text" in res) {
         setDraft(res.text);
+        setUsage(res.usage ?? null);
         setPhase("done");
         setInput("");
       } else {
@@ -384,6 +386,7 @@ export default function AiPanel({ editor, session, onClose }: { editor: Editor; 
           {phase === "done" && (
             <>
               <div className="n-ai-draft rich-prose" dangerouslySetInnerHTML={{ __html: previewHtml(draft) }} />
+              {usage && <p className="px-1 pt-1 text-[11px] text-faint">{usage}</p>}
               {error && <p className="n-ai-note">{error}</p>}
               <div className="n-ai-actions">
                 {replacing && <button type="button" className="is-primary" onClick={replace}>Replace selection</button>}

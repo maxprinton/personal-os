@@ -5,7 +5,19 @@
 // Groq changes its free models now and then, so the models are picked from the list your key can use
 // (asked once and remembered for an hour); AI_MODEL / AI_VISION_MODEL in Vercel can force one.
 
+import { recordAiCall } from "@/lib/ai-usage";
+
 const API = "https://api.groq.com/openai/v1";
+
+/** What Groq says is left (rate-limit headers): requests are per day, tokens per minute. */
+function limitsOf(res: Response) {
+  const n = (h: string) => {
+    const v = res.headers?.get?.(h) ?? null;
+    const x = v === null ? NaN : Number(v);
+    return Number.isFinite(x) ? x : null;
+  };
+  return { remReq: n("x-ratelimit-remaining-requests"), limReq: n("x-ratelimit-limit-requests"), remTok: n("x-ratelimit-remaining-tokens"), limTok: n("x-ratelimit-limit-tokens") };
+}
 
 export type AiPart = { text: string } | { image: { mime: string; base64: string } };
 export type AiKind = "write" | "fast" | "vision";
@@ -132,7 +144,8 @@ export async function aiChat(
           if (/context|too long|maximum|tokens/i.test(why)) tooBig = true;
           break;
         }
-        const json = (await res.json()) as { choices?: { message?: { content?: string | null } }[] };
+        const json = (await res.json()) as { choices?: { message?: { content?: string | null } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } };
+        recordAiCall({ model, prompt: json.usage?.prompt_tokens ?? 0, completion: json.usage?.completion_tokens ?? 0, ...limitsOf(res) });
         const text = stripThinking(json.choices?.[0]?.message?.content ?? "");
         if (text) return { text, model };
         break;
@@ -183,6 +196,7 @@ export async function transcribe(audioBase64: string, mimeType: string): Promise
         signal: AbortSignal.timeout(25000),
       });
       if (!res.ok) continue;
+      recordAiCall({ model, prompt: 0, completion: 0, ...limitsOf(res) });
       const json = (await res.json()) as { text?: string };
       const text = json.text?.trim();
       if (text) return text;

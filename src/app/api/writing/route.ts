@@ -7,6 +7,7 @@ import { getSettings } from "@/lib/agenda";
 import { localNow } from "@/lib/time";
 import { AI_TEXT_LIMIT, parseFixes, writingSystemPrompt, type WritingAiRequest } from "@/lib/ai-writing";
 import { AI_DAILY_CAP, type WritingSettings } from "@/lib/writing/settings";
+import { scopeUsageLine, withAiUsage } from "@/lib/ai-usage";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -41,7 +42,15 @@ export async function POST(req: NextRequest) {
   }
 
   const known = (Array.isArray(body.known) ? body.known : []).filter((w) => typeof w === "string").slice(0, 80);
-  const raw = await aiJson(writingSystemPrompt({ text, lang, reason, known, voice: settings.voice ?? null }), [{ text: `PARAGRAPH (${lang === "es" ? "Spanish" : "English"}):\n${text}` }], "write");
-  if (raw === null) return NextResponse.json({ error: "The AI couldn't answer now." }, { status: 502 });
-  return NextResponse.json({ fixes: parseFixes(raw, text) });
+  return withAiUsage(
+    "writing",
+    async () => {
+      const raw = await aiJson(writingSystemPrompt({ text, lang, reason, known, voice: settings.voice ?? null }), [{ text: `PARAGRAPH (${lang === "es" ? "Spanish" : "English"}):\n${text}` }], "write");
+      if (raw === null) return NextResponse.json({ error: "The AI couldn't answer now." }, { status: 502 });
+      const { timezone } = await getSettings(sb);
+      const usage = await scopeUsageLine(sb, user.id, timezone, localNow(timezone).date).catch(() => null);
+      return NextResponse.json({ fixes: parseFixes(raw, text), usage });
+    },
+    { sb, userId: user.id },
+  );
 }

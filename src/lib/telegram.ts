@@ -53,6 +53,7 @@ export const HELP = [
   "/today /now /tomorrow /week /nextweek /day friday",
   "/tasks /archived /payments /balance /budget /movements /unassigned",
   "/search word /notes /habits /metrics /insights /settings /menu",
+  "/usage → how much of the free AI you used today and what's left",
   "",
   "ASK YOUR NOTES",
   "• @os what did I write about the trip? (also /os …, or by voice: “OS, …”)",

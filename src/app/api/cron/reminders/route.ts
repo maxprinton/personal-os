@@ -19,7 +19,7 @@ import {
   unassignedText,
   type ReminderSettings,
 } from "@/lib/reminders";
-import { formatMinutes, timeToMinutes } from "@/lib/time";
+import { addDays, formatMinutes, timeToMinutes } from "@/lib/time";
 import { habitRow } from "@/lib/bot/habits";
 import { blockDoneRow, payRow } from "@/lib/bot/calendar";
 import { makeCtx } from "@/lib/bot/core";
@@ -27,6 +27,7 @@ import { accountRows, budgetAlert, setReceipt } from "@/lib/bot/finance";
 import { pk, type Kb } from "@/lib/bot/tg";
 import { savePendingTransaction } from "@/lib/capture";
 import { describe, type Parsed } from "@/lib/parse";
+import { startOfDay, usageReport, usageSummary } from "@/lib/ai-usage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,7 +51,11 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings & { blockEn
     const at = timeToMinutes(s.reminder_morning_time);
     if (now.minutes >= at && now.minutes < at + WINDOW && (await claim(admin, s.user_id, "morning", date))) {
       const kb: Kb = [...taskButtons(day.tasks), ...day.payments.slice(0, 5).map((p) => payRow({ ...p, template: p.template ?? null }, date))];
-      await send(s.telegram_chat_id, morningText(date, day), kb.length ? kb : undefined);
+      // ✨ yesterday's AI usage at the end of the morning summary
+      const yesterday = addDays(date, -1);
+      const sum = await usageSummary(admin, { from: startOfDay(yesterday, s.timezone), tz: s.timezone, userId: s.user_id }).catch(() => null);
+      const ai = usageReport(sum, yesterday, { title: "yesterday", short: true });
+      await send(s.telegram_chat_id, `${morningText(date, day)}${ai ? `\n\n${ai}` : ""}`, kb.length ? kb : undefined);
       sent++;
     }
   }

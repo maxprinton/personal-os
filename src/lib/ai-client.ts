@@ -1,8 +1,9 @@
 // Browser side of the ✨ AI: asks /api/ai and draws the answer (Markdown) as a safe preview.
 import { Marked } from "marked";
 import type { AiRequest } from "@/lib/ai-notes";
+import { showAiUsage } from "@/lib/ai-usage-client";
 
-export type AiResult = { text: string } | { error: string };
+export type AiResult = { text: string; usage?: string | null } | { error: string };
 
 /** Asks the AI. Never waits longer than `timeoutMs`: then it gives up with a message instead of hanging. */
 export async function askAi(req: AiRequest, signal?: AbortSignal, timeoutMs = 70_000): Promise<AiResult> {
@@ -16,8 +17,11 @@ export async function askAi(req: AiRequest, signal?: AbortSignal, timeoutMs = 70
   signal?.addEventListener("abort", stop);
   try {
     const res = await fetch("/api/ai", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req), signal: ctrl.signal });
-    const j = (await res.json().catch(() => null)) as { text?: string; error?: string } | null;
-    if (j?.text) return { text: j.text };
+    const j = (await res.json().catch(() => null)) as { text?: string; error?: string; usage?: string | null } | null;
+    if (j?.text) {
+      showAiUsage(j.usage);
+      return { text: j.text, usage: j.usage ?? null };
+    }
     if (j?.error) return { error: j.error };
     if (res.status === 401) return { error: "Sign in again." };
     if (res.status === 504) return { error: "The AI took too long. Try again." };
