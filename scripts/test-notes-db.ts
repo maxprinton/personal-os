@@ -108,11 +108,23 @@ const quick = (...rules: FilterRule[]) => ids({ quick: rules }).sort();
 
 // ---- Default view and sorts ----------------------------------------------------------------------------
 test("default sort: last edited first", () => assert.deepEqual(ids({}), ["n2", "n1", "n3", "n4", "n5"]));
-test("default view shows the main built-ins and own properties, groups by Status", () => {
+test("default view shows every property, groups by Status", () => {
   const v = defaultView(props);
   assert.equal(v.groupBy, "pStatus");
-  assert.deepEqual(v.visible, ["pType", "pStatus", "pTags", "pFav", "pReview", "pEdited", "pScore", "pMulti", "pText"]);
+  assert.deepEqual(v.visible, [...props].sort((x, y) => x.position - y.position).map((p) => p.id));
+  assert.deepEqual(new Set(v.seen), new Set(props.map((p) => p.id)));
   assert.equal(v.layout, "table");
+});
+test("an old saved view (no seen) shows every property once; hiding then sticks", () => {
+  const all = [...props].sort((x, y) => x.position - y.position).map((p) => p.id);
+  const first = sanitizeView({ visible: ["pText"] }, props);
+  assert.equal(first.visible[0], "pText");
+  assert.deepEqual(new Set(first.visible), new Set(all));
+  const hidden = sanitizeView({ ...first, visible: ["pText", "pFav"] }, props);
+  assert.deepEqual(hidden.visible, ["pText", "pFav"]);
+  const fresh = { ...props[0], id: "pNew", key: "p_new", position: 99, builtin: false };
+  const withNew = sanitizeView(hidden, [...props, fresh]);
+  assert.deepEqual(withNew.visible, ["pText", "pFav", "pNew"]);
 });
 test("sort number asc, empties last", () => assert.deepEqual(ids({ sorts: [{ prop: "pScore", dir: "asc" }] }), ["n3", "n1", "n2", "n4", "n5"]));
 test("sort number desc, empties still last", () => assert.deepEqual(ids({ sorts: [{ prop: "pScore", dir: "desc" }] }), ["n2", "n1", "n3", "n4", "n5"]));
@@ -334,6 +346,7 @@ test("sanitizeView: deleted properties and bad ops are dropped", () => {
     groupBy: "pText",
     visible: ["pText", "gone", "pText", "pFav"],
     widths: { pText: 5000, gone: 100, title: 30, pFav: "wide" },
+    seen: props.map((p) => p.id),
   };
   const v = sanitizeView(raw, props);
   assert.equal(v.layout, "board");

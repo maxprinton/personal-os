@@ -8,8 +8,10 @@ import { aiChat, aiJson, hasAi } from "@/lib/ai";
 import { noteAsPlainText } from "@/lib/block-notes";
 import { fetchAll, type Ctx } from "@/lib/bot/core";
 import { btn, pk, type Kb } from "@/lib/bot/tg";
+import { noteMetaMap } from "@/lib/notes-db/meta";
 
-type Note = { id: string; title: string; content: string; block_name: string | null; updated_at: string };
+/** meta = the note's properties as lines ("Type: Idea", "AI summary: …"); the AI reads them too. */
+type Note = { id: string; title: string; content: string; block_name: string | null; updated_at: string; meta?: string[] };
 export type AskResult = { text: string; kb: Kb; noteIds: string[] };
 
 /** The question, or null when the message isn't one. */
@@ -155,7 +157,8 @@ async function readAndAnswer(
   const material = chosen
     .map((n, i) => {
       const body = n.content.length > per ? `${n.content.slice(0, per)}\n…(rest of the note not shown)` : n.content;
-      return `### NOTE ${i + 1}: ${name(n)} (edited ${n.updated_at.slice(0, 10)})\n${body.trim() || "(empty note: only the title)"}`;
+      const props = n.meta?.length ? `PROPERTIES:\n${n.meta.map((l) => `- ${l}`).join("\n")}\nTEXT:\n` : "";
+      return `### NOTE ${i + 1}: ${name(n)} (edited ${n.updated_at.slice(0, 10)})\n${props}${body.trim() || "(empty note: only the title)"}`;
     })
     .join("\n\n");
   const system = opts.summary
@@ -163,11 +166,13 @@ async function readAndAnswer(
         "You summarize the user's own notes, in Telegram.",
         "For each NOTE below, write a short summary: 2 to 5 sentences or short bullet points with the key points (dates, numbers, decisions, to-dos).",
         "Use ONLY the note; never invent. Write in the same language as the note. With several notes, start each summary with the note's title.",
+        "Each NOTE may start with its PROPERTIES (Type, Status, Area, Tags, dates, linked tasks, AI summary…): begin with one short line of the important ones.",
         "Plain text: you may use simple bullets (- ) but no tables, no headings, no bold. No preface.",
       ].join("\n")
     : [
         "You answer questions about the user's own notes, in Telegram.",
         "Use ONLY the NOTES below. If they don't contain the answer, say so plainly (and what they do say about the topic, if anything). Never invent.",
+        "Each NOTE may start with its PROPERTIES (Type, Status, Area, Tags, Favorite, Review on, ID, linked tasks / events / notes, Block, AI summary, created / edited dates…). They are part of the note: use them to answer.",
         "Answer in the same language as the question. Be short and direct: a few sentences or short bullet points. When you use several notes, say which note each part comes from (by its title).",
         "Plain text: you may use simple bullets (- ) but no tables, no headings, no bold.",
       ].join("\n");
@@ -193,9 +198,16 @@ export async function askNotes(c: Ctx, question: string, follow?: { ids: string[
   if (!question.trim()) return { text: "✨ Ask about your notes: “@os what did I write about the trip?”", kb: [], noteIds: [] };
   if (!hasAi()) return { text: "✨ The AI is not connected (GROQ_API_KEY in Vercel).", kb: [], noteIds: [] };
 
+  const metaP = noteMetaMap(c.admin, c.userId); // every note's properties (loads in parallel)
+  const withMeta = async <T extends Note>(list: T[]): Promise<T[]> => {
+    const meta = await metaP;
+    return list.map((n) => ({ ...n, meta: meta.get(n.id) ?? [] }));
+  };
+
   // ---- 0) "@os NOTE-12 …": straight to that note (no search)
   const direct = await notesByRef(c, question).catch(() => null);
   if (direct) {
+    direct.notes = await withMeta(direct.notes);
     const tag = (n: number) => `${direct.prefix}-${n}`;
     if (!direct.notes.length) {
       return {
@@ -214,12 +226,13 @@ export async function askNotes(c: Ctx, question: string, follow?: { ids: string[
   const rows = await fetchAll<Note>((a, b) =>
     c.admin.from("notes").select("id,title,content,block_name,updated_at").eq("user_id", c.userId).is("deleted_at", null).order("updated_at", { ascending: false }).range(a, b),
   );
-  const notes = rows.map((n) => ({ ...n, content: noteAsPlainText(n.content ?? "") })).filter((n) => n.content.trim() || n.title.trim());
+  const notes = (await withMeta(rows.map((n) => ({ ...n, content: noteAsPlainText(n.content ?? "") })))).filter((n) => n.content.trim() || n.title.trim() || n.meta?.length);
   if (!notes.length) return { text: "📝 You don't have notes yet.", kb: [], noteIds: [] };
 
   // ---- 1) Find
   const words = keywords(question);
-  const ranked = notes.map((n) => ({ n, s: score(n, words) })).sort((a, b) => b.s - a.s);
+  // Properties count for finding too ("notes with Status Lista", "tagged #trip", "AI summary says…")
+  const ranked = notes.map((n) => ({ n, s: score({ title: n.title, content: `${n.content}\n${(n.meta ?? []).join("\n")}` }, words) })).sort((a, b) => b.s - a.s);
   const matched = ranked.filter((r) => r.s > 0).slice(0, 20).map((r) => r.n);
   const pool = [...matched];
   for (const n of follow ? notes.filter((x) => follow.ids.includes(x.id)) : []) if (!pool.includes(n)) pool.unshift(n);
@@ -227,11 +240,12 @@ export async function askNotes(c: Ctx, question: string, follow?: { ids: string[
     if (pool.length >= 30) break;
     if (!pool.includes(n)) pool.push(n); // the latest notes, in case the question uses other words
   }
-  const list = pool.map((n, i) => `[${i + 1}] ${label(n)} (edited ${n.updated_at.slice(0, 10)}): ${preview(n.content, words)}`).join("\n");
+  const short = (n: Note) => (n.meta ?? []).filter((l) => !/^(Created|Last edited|Words|Open to-dos|Backlinks):/.test(l)).join("; ").slice(0, 220);
+  const list = pool.map((n, i) => `[${i + 1}] ${label(n)} (edited ${n.updated_at.slice(0, 10)}): ${preview(n.content, words)}${short(n) ? ` {${short(n)}}` : ""}`).join("\n");
   const pick = await aiJson(
     [
       "You help find notes in the user's personal notes app.",
-      "Given a QUESTION and a numbered list of notes (title + preview), choose the notes most likely to contain the answer.",
+      "Given a QUESTION and a numbered list of notes (title + preview + {its properties}), choose the notes most likely to contain the answer.",
       'Return {"notes":[numbers]} with 1 to 4 numbers, best first. If the question asks about several topics or notes, include each one. If none fits, return {"notes":[]}.',
       follow ? "This is a follow-up question; the previous notes are first in the list and usually still apply." : "",
     ].filter(Boolean).join("\n"),

@@ -6,6 +6,7 @@ import { formerTitleOn, releaseBlockNote, renameBlockNote, findBlockNote } from 
 import { rawValue, displayText, sortKey } from "@/lib/notes-db/values";
 import { BUILTINS } from "@/lib/notes-db/builtins";
 import { READONLY_TYPES, type DbNote, type NoteProperty } from "@/lib/notes-db/types";
+import { noteMetaLines } from "@/lib/notes-db/meta";
 
 let pass = 0;
 let fail = 0;
@@ -92,6 +93,46 @@ const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guayaquil", 
   ok("rename: note follows", notes[0].block_name === "Training" && notes[0].title === "Training");
   ok("rename: old note parked as Former", notes[1].block_name === null && notes[1].title === formerTitleOn("Training", today), String(notes[1].title));
   ok("rename: reports it", r.parked === "Training");
+}
+
+// ---- Every property as text, for Telegram / @os ----
+{
+  const P = (id: string, key: string, name: string, type: NoteProperty["type"], position: number, config: NoteProperty["config"] = {}): NoteProperty => ({ id, key, name, type, config, position, hidden: false, builtin: true });
+  const props: NoteProperty[] = [
+    P("t", "type", "Type", "select", 0, { options: [{ id: "idea", name: "Idea", color: "yellow" }] }),
+    P("g", "tags", "Tags", "tags", 1),
+    P("f", "favorite", "Favorite", "checkbox", 2),
+    P("i", "id", "ID", "unique_id", 3, { prefix: "NOTE" }),
+    P("r", "tasks", "Tasks", "relation", 4, { target: "tasks" }),
+    P("s", "ai_summary", "AI summary", "ai_summary", 5),
+    P("k", "kind", "Kind", "kind", 6),
+    P("b", "block", "Block", "block", 7),
+    P("w", "word_count", "Words", "word_count", 8),
+    P("x", "p_x", "Notes", "text", 9),
+  ];
+  const n: DbNote = {
+    ...base,
+    seq: 12,
+    blockName: "Gym",
+    kind: "block",
+    values: { t: "idea", f: true, s: { text: "Leg day plan for November.", at: "2026-10-30" } },
+    tags: [{ name: "fitness", color: null }],
+    relations: { r: [{ type: "task", id: "t1", title: "Buy shoes" }] },
+    wordCount: 0,
+  };
+  const lines = noteMetaLines(n, props, "UTC", "Health");
+  const has = (l: string) => lines.includes(l);
+  ok("meta: parent page", has("Inside page: Health"), lines.join(" | "));
+  ok("meta: select", has("Type: Idea"));
+  ok("meta: tags", has("Tags: #fitness"));
+  ok("meta: checkbox", has("Favorite: yes"));
+  ok("meta: ID", lines.some((l) => /^ID: NOTE-12$/.test(l)), lines.join(" | "));
+  ok("meta: relation titles", has("Tasks: Buy shoes"));
+  ok("meta: AI summary", has("AI summary: Leg day plan for November."));
+  ok("meta: kind and block", has("Kind: Block note") && has("Block: Gym"));
+  ok("meta: empty / zero left out", !lines.some((l) => l.startsWith("Words:") || l.startsWith("Notes:")));
+  const plain = noteMetaLines({ ...n, values: {}, tags: [], relations: {}, blockName: null, kind: "page" }, props);
+  ok("meta: unchecked checkbox left out", !plain.some((l) => l.startsWith("Favorite")));
 }
 
 console.log(`${fail ? "❌" : "✅"} block links: ${pass} passed, ${fail} failed`);

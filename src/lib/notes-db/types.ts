@@ -223,6 +223,8 @@ export type ViewState = {
   /** Property ids shown (table columns, list/gallery/board lines), in order. */
   visible: string[];
   widths: Record<string, number>;
+  /** Property ids this view already knows: a property not in it (new, or added before this list existed) shows as a column once. */
+  seen?: string[];
   showTemplates?: false;
 };
 

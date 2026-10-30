@@ -3,6 +3,7 @@
 import { addDays } from "@/lib/time";
 import { getHabitSummaries } from "@/lib/calendar/habits";
 import { noteAsPlainText } from "@/lib/block-notes";
+import { noteMetaMap } from "@/lib/notes-db/meta";
 import { dayData } from "@/lib/reminders";
 import type { Ctx } from "@/lib/bot/core";
 import { usd } from "@/lib/bot/core";
@@ -95,8 +96,11 @@ export async function noteView(c: Ctx, id: string): Promise<{ parts: string[]; k
   const body = noteAsPlainText((data.content as string) ?? "") || "(empty)";
   const head = data.block_name ? `📝 Block note: ${data.block_name}` : `📄 ${data.title || "Untitled"}`;
   const k = pk(data.id as string);
+  // Every property with a value (Type, Status, Tags, dates, links, AI summary…)
+  const meta = (await noteMetaMap(c.admin, c.userId)).get(data.id as string) ?? [];
+  const props = meta.length ? `\n${meta.map((l) => `• ${l}`).join("\n")}` : "";
   return {
-    parts: split(`${head}\n\n${body}`),
+    parts: split(`${head}${props}\n\n${body}`),
     kb: [[btn("✏️ Add text", `nA:${k}`), ...(data.block_name ? [] : [btn("🗑 Delete", `nd:${k}`)])]],
   };
 }

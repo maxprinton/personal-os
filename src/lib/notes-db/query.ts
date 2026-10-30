@@ -570,9 +570,6 @@ export const canGroupBy = (p: NoteProperty) => p.type === "select" || p.type ===
 // ---- Default view and cleaning a saved one ------------------------------------------------------
 
 const LAYOUTS: Layout[] = ["table", "list", "gallery", "board"];
-/** Built-in properties shown at first (the rest: Properties menu). Your own properties are always shown at first. */
-const DEFAULT_KEYS = ["type", "status", "area", "tags", "favorite", "review_on", "edited"];
-
 const byPosition = (properties: NoteProperty[]) => [...properties].sort((a, b) => a.position - b.position);
 
 export function defaultGroupBy(properties: NoteProperty[]): string | null {
@@ -580,14 +577,13 @@ export function defaultGroupBy(properties: NoteProperty[]): string | null {
   return (list.find((p) => p.builtin && p.key === "status" && p.type === "status") ?? list.find((p) => p.type === "status") ?? list.find((p) => p.type === "select"))?.id ?? null;
 }
 
+/** Every property is a column at first (hide them from "Properties"; the choice is remembered). */
 export function defaultVisible(properties: NoteProperty[]): string[] {
-  return byPosition(properties)
-    .filter((p) => (p.builtin ? DEFAULT_KEYS.includes(p.key) : true))
-    .map((p) => p.id);
+  return byPosition(properties).map((p) => p.id);
 }
 
 export function defaultView(properties: NoteProperty[]): ViewState {
-  return { layout: "table", search: "", quick: [], advanced: null, sorts: [], groupBy: defaultGroupBy(properties), visible: defaultVisible(properties), widths: {} };
+  return { layout: "table", search: "", quick: [], advanced: null, sorts: [], groupBy: defaultGroupBy(properties), visible: defaultVisible(properties), widths: {}, seen: properties.map((p) => p.id) };
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -649,10 +645,16 @@ export function sanitizeView(raw: unknown, properties: NoteProperty[]): ViewStat
   const gb = typeof raw.groupBy === "string" ? byId.get(raw.groupBy) : undefined;
   const groupBy = gb && canGroupBy(gb) ? gb.id : base.groupBy;
   const visible = Array.isArray(raw.visible) ? [...new Set(raw.visible.filter((id): id is string => typeof id === "string" && byId.has(id)))] : base.visible;
+  // Properties this view hasn't seen yet (new ones, or all of them in a view saved before "seen") become columns once;
+  // after that, hiding one from "Properties" sticks.
+  if (Array.isArray(raw.visible)) {
+    const seen = new Set(Array.isArray(raw.seen) ? raw.seen.filter((id): id is string => typeof id === "string") : []);
+    for (const p of byPosition(properties)) if (!seen.has(p.id) && !visible.includes(p.id)) visible.push(p.id);
+  }
   const widths: Record<string, number> = {};
   if (isObj(raw.widths))
     for (const [k, w] of Object.entries(raw.widths)) if ((k === "title" || byId.has(k)) && typeof w === "number" && Number.isFinite(w)) widths[k] = Math.round(Math.min(1000, Math.max(60, w)));
-  return { layout, search, quick, advanced, sorts, groupBy, visible, widths };
+  return { layout, search, quick, advanced, sorts, groupBy, visible, widths, seen: properties.map((p) => p.id) };
 }
 
 // ---- Small helpers for the screens ----------------------------------------------------------------
