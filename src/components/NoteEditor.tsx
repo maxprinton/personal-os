@@ -364,6 +364,8 @@ export default function NoteEditor({
             moveBlockTo={onMove}
             navigate={onNavigate}
             onReady={onReady}
+            spellIgnore={page.spellIgnore ?? undefined}
+            onSpellIgnore={(words) => void savePageSettings(id, { spellIgnore: words.slice(0, 500) })}
             pageTitle={t || "Untitled"}
           />
         </div>

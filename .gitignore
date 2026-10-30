@@ -6,3 +6,6 @@ out
 .vercel
 *.tsbuildinfo
 next-env.d.ts
+
+# copied from node_modules by scripts/copy-dictionaries.mjs
+/public/dict

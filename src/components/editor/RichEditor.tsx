@@ -45,6 +45,9 @@ import { MenuItem, MenuLabel, Popover, Swatch } from "@/components/editor/ui";
 import { uploadNoteFile } from "@/lib/note-files";
 import AiPanel, { AiMenu, type AiSession } from "@/components/editor/AiPanel";
 import { SELECTION_MODES, type AiMode } from "@/lib/ai-notes";
+import { WritingCheck, recheckAll, removeWritingMark, type WritingHit } from "@/lib/editor/writing";
+import { addGlossaryWord } from "@/app/writing-actions";
+import { addKnownWord, suggestWriting } from "@/lib/writing/client";
 
 const lowlight = createLowlight(common);
 
@@ -68,6 +71,11 @@ export type RichEditorProps = {
   onReady?: (editor: Editor | null) => void;
   /** Title of the page, so the ✨ AI knows what the note is about. */
   pageTitle?: string;
+  /** Spell check: words ignored in this note ("Ignore in this note") and where to save them. */
+  spellIgnore?: string[];
+  onSpellIgnore?: (words: string[]) => void;
+  /** false = no writing check (the browser's own spell check stays). */
+  writingCheck?: boolean;
 };
 
 type Rect = { left: number; top: number; bottom: number; right?: number };
@@ -96,6 +104,9 @@ export default function RichEditor({
   navigate,
   onReady,
   pageTitle = "",
+  spellIgnore,
+  onSpellIgnore,
+  writingCheck = true,
 }: RichEditorProps) {
   const lastMd = useRef(value);
   const onChangeRef = useRef(onChange);
@@ -120,6 +131,9 @@ export default function RichEditor({
   const [aiMenu, setAiMenu] = useState<{ rect: Rect; from: number; to: number } | null>(null);
   const aiOpen = useRef(false);
   aiOpen.current = !!aiMenu;
+  const [wc, setWc] = useState<{ hit: WritingHit; rect: Rect } | null>(null);
+  const onSpellIgnoreRef = useRef(onSpellIgnore);
+  onSpellIgnoreRef.current = onSpellIgnore;
 
   const showToast = useCallback((t: string) => {
     setToast(t);
@@ -167,6 +181,7 @@ export default function RichEditor({
       NotionButton,
       ...[ImageBlock, VideoBlock, AudioBlock, FileBlock, PdfBlock, EmbedBlock, BookmarkBlock].map((n) => n.extend({ addNodeView: () => ReactNodeViewRenderer(MediaView) })),
       CharacterCount,
+      WritingCheck,
       Placeholder.configure({
         includeChildren: true,
         placeholder: ({ node, editor: e, pos }) => {
@@ -248,6 +263,26 @@ export default function RichEditor({
   useEffect(() => {
     if (editor) editor.storage.notion.title = pageTitle;
   }, [editor, pageTitle]);
+
+  // Writing check: on / off, the note's ignored words, and the menu of an underlined word
+  useEffect(() => {
+    if (!editor) return;
+    const w = editor.storage.writing;
+    w.enabled = writingCheck && editable;
+    w.onOpen = (hit, rect) => setWc({ hit, rect: toRect(rect) });
+    recheckAll(editor.view);
+  }, [editor, writingCheck, editable]);
+  const ignoreKey = (spellIgnore ?? []).join("\n");
+  useEffect(() => {
+    if (!editor) return;
+    const w = editor.storage.writing;
+    const next = new Set((spellIgnore ?? []).map((x) => x.toLocaleLowerCase()));
+    const same = next.size === w.ignoreNote.size && [...next].every((x) => w.ignoreNote.has(x));
+    if (same) return;
+    w.ignoreNote = next;
+    recheckAll(editor.view);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, ignoreKey]);
 
   useEffect(() => {
     if (!editor || !pages) return;
@@ -634,6 +669,46 @@ export default function RichEditor({
         </Popover>
       )}
       {linkRect && <LinkPopover editor={editor} rect={linkRect} onClose={() => setLinkRect(null)} />}
+      {wc && editor && (
+        <WritingMenu
+          key={`${wc.hit.from}-${wc.hit.issue.word}`}
+          hit={wc.hit}
+          rect={wc.rect}
+          onClose={() => setWc(null)}
+          onReplace={(text) => {
+            const { from, to } = wc.hit;
+            const cur = editor.state.doc.textBetween(from, to, "\n", "\uFFFC");
+            setWc(null);
+            if (cur !== wc.hit.issue.word) return showToast("That text changed. Check it again.");
+            editor.chain().focus().command(({ tr }) => {
+              if (text) tr.insertText(text, from, to);
+              else tr.delete(from, to);
+              return true;
+            }).run();
+          }}
+          onIgnoreHere={() => {
+            editor.storage.writing.ignoreHere.add(wc.hit.ignoreKey);
+            removeWritingMark(editor.view, wc.hit.from, wc.hit.to);
+            setWc(null);
+          }}
+          onIgnoreNote={() => {
+            const w = editor.storage.writing;
+            w.ignoreNote.add(wc.hit.issue.word.toLocaleLowerCase());
+            onSpellIgnoreRef.current?.([...w.ignoreNote]);
+            recheckAll(editor.view);
+            setWc(null);
+          }}
+          onAddToDictionary={() => {
+            const word = wc.hit.issue.word;
+            setWc(null);
+            addKnownWord(word); // right away here; saved for every device below
+            void addGlossaryWord(word).then((r) => {
+              if (!r.ok) showToast(r.error);
+              else showToast(`“${word}” added to your dictionary`);
+            });
+          }}
+        />
+      )}
 
       {fmtState?.table && editable && editor.isFocused && tableBox() && (
         <div className="n-table-tools" contentEditable={false} style={{ position: "absolute", zIndex: 5, ...tableBox()! }}>
@@ -816,3 +891,56 @@ function MobileToolbar({ editor, onBlockMenu, onColor, onAi }: { editor: Editor;
 export type { Editor };
 // used by the page header
 export { createSubpageBlock };
+
+const KIND_LABEL: Record<string, string> = { spelling: "Spelling", repeat: "Repeated word", space: "Spacing", capital: "Capital letter", punct: "Punctuation" };
+
+/** The menu of an underlined word: suggestions, ignore here, ignore in this note, add to dictionary. */
+function WritingMenu({
+  hit,
+  rect,
+  onClose,
+  onReplace,
+  onIgnoreHere,
+  onIgnoreNote,
+  onAddToDictionary,
+}: {
+  hit: WritingHit;
+  rect: Rect;
+  onClose: () => void;
+  onReplace: (text: string) => void;
+  onIgnoreHere: () => void;
+  onIgnoreNote: () => void;
+  onAddToDictionary: () => void;
+}) {
+  const { issue } = hit;
+  const spelling = issue.kind === "spelling";
+  // Spelling suggestions are looked up when the menu opens (the dictionaries' slow part)
+  const [list, setList] = useState<string[] | null>(spelling && !issue.suggestions.length ? null : issue.suggestions);
+  useEffect(() => {
+    if (!spelling || issue.suggestions.length) return;
+    let live = true;
+    void suggestWriting(issue.word, issue.lang).then((l) => live && setList(l));
+    return () => {
+      live = false;
+    };
+  }, [spelling, issue]);
+  const label = (s: string) => (s === "" ? "Remove it" : s === " " ? "Use one space" : s);
+  return (
+    <Popover rect={rect} onClose={onClose} width={250} className="n-menu wc-menu">
+      <div className="p-1">
+        <MenuLabel>
+          {KIND_LABEL[issue.kind] ?? "Writing"} · {issue.message}
+        </MenuLabel>
+        {(list ?? []).slice(0, 4).map((s, i) => (
+          <MenuItem key={`${s}-${i}`} icon={i === 0 ? "✓" : ""} label={label(s)} onClick={() => onReplace(s)} />
+        ))}
+        {spelling && list === null && <p className="px-2 pb-1 text-xs text-faint">Looking for suggestions…</p>}
+        {spelling && list !== null && !list.length && <p className="px-2 pb-1 text-xs text-faint">No suggestions.</p>}
+        <div className="wc-sep" />
+        <MenuItem icon="◌" label="Ignore here" onClick={onIgnoreHere} />
+        {spelling && <MenuItem icon="⊘" label="Ignore in this note" onClick={onIgnoreNote} />}
+        {spelling && <MenuItem icon="＋" label={`Add “${issue.word}” to dictionary`} onClick={onAddToDictionary} />}
+      </div>
+    </Popover>
+  );
+}

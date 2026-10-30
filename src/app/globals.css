@@ -277,6 +277,11 @@
 .rich-prose { color: var(--fg); font-family: var(--n-font); font-size: 16px; line-height: 1.5; caret-color: var(--fg); padding: 0 2px 30px 0; word-break: break-word; }
 .rich-prose ::selection { background: rgba(35, 131, 226, 0.28); }
 .rich-prose p { padding: 3px 2px; margin: 1px 0; min-height: 1.5em; }
+/* Writing check (src/lib/editor/writing.ts): red = spelling, blue = the rules */
+.rich-prose .wc { text-decoration-line: underline; text-decoration-style: wavy; text-decoration-thickness: 1.5px; text-underline-offset: 3px; text-decoration-skip-ink: none; text-decoration-color: var(--danger-solid); cursor: pointer; }
+.rich-prose .wc-repeat, .rich-prose .wc-capital, .rich-prose .wc-punct { text-decoration-color: var(--accent); }
+.rich-prose .wc-space { text-decoration: none; background: color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 2px; }
+.wc-sep { height: 1px; margin: 4px 6px; background: var(--line, rgba(127, 127, 127, 0.25)); }
 .rich-prose h1, .rich-prose h2, .rich-prose h3, .rich-prose h4 { font-weight: 600; padding: 3px 2px; margin-bottom: 1px; }
 .rich-prose h1 { font-size: 1.875em; line-height: 1.3; margin-top: 1.4em; }
 .rich-prose h2 { font-size: 1.5em; line-height: 1.3; margin-top: 1.1em; }

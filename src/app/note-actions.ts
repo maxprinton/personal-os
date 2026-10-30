@@ -68,9 +68,11 @@ export type PageSettings = {
   full?: boolean;
   locked?: boolean;
   toc?: boolean;
+  /** Spell check: words "Ignore in this note". */
+  spellIgnore?: string[] | null;
 };
 
-const SETTING_KEYS: (keyof PageSettings)[] = ["icon", "cover", "coverY", "font", "small", "full", "locked", "toc"];
+const SETTING_KEYS: (keyof PageSettings)[] = ["icon", "cover", "coverY", "font", "small", "full", "locked", "toc", "spellIgnore"];
 
 /** Changes the page's icon, cover, font, width… (only the keys sent). */
 export async function savePageSettings(id: string, patch: PageSettings): Promise<{ ok?: boolean; error?: string; page?: PageSettings }> {
