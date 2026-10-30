@@ -3,12 +3,18 @@
 import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/agenda";
 import { addDays, localNow } from "@/lib/time";
-import { DAY_REQUESTS, DAY_TOKENS, featureName, fmtK, startOfDay, usageSummary, type UsageSummary } from "@/lib/ai-usage";
+import { DAY_REQUESTS, DAY_TOKENS, featureName, fmtK, refreshFromGroq, startOfDay, usageSummary, type UsageSummary } from "@/lib/ai-usage";
 
-async function load(days: number) {
+async function load(days: number, ask = false) {
   const sb = await createClient();
   const { timezone } = await getSettings(sb);
   const today = localNow(timezone).date;
+  if (ask) {
+    const {
+      data: { user },
+    } = await sb.auth.getUser();
+    if (user) await refreshFromGroq(sb, user.id, timezone).catch(() => false);
+  }
   const sum = await usageSummary(sb, { from: startOfDay(addDays(today, -(days - 1)), timezone), tz: timezone }).catch(() => null);
   return { sum, today };
 }
@@ -45,7 +51,7 @@ export async function AiUsageLine() {
 
 /** Settings → AI usage: today by model and feature, and the last 7 days. */
 export default async function AiUsageSection() {
-  const { sum, today } = await load(7);
+  const { sum, today } = await load(7, true);
   if (!sum) return <p className="text-sm text-muted">Run MIGRACION-0025-uso-de-ia.sql in Supabase to see your AI usage.</p>;
   const models = todayModels(sum, today);
   const features = new Map<string, { calls: number; tokens: number }>();
@@ -132,7 +138,12 @@ export default async function AiUsageSection() {
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-faint">Requests left come straight from Groq. Tokens are counted by Personal OS (only what it sends); Groq&apos;s own page has the official numbers.</p>
+      {sum.since && sum.since.slice(0, 10) >= today && (
+        <p className="text-xs text-muted">
+          Tokens are counted since {new Date(sum.since).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} today, when counting started: what you used before isn&apos;t in them.
+        </p>
+      )}
+      <p className="text-xs text-faint">Requests left come straight from Groq (exact, they include everything, also what you used before counting started). Tokens used are counted by Personal OS: Groq doesn&apos;t report its daily token count.</p>
     </div>
   );
 }

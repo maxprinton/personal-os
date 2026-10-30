@@ -21,7 +21,7 @@ import { habitsView, insightsView, logMetric, metricDefs, metricsView, notesView
 import { handleReply } from "@/lib/bot/replies";
 import { askNotes, askQuestion } from "@/lib/bot/ask";
 import { undoLast } from "@/lib/bot/undo";
-import { markUsageReported, scopeUsageLine, startOfDay, usageReport, usageSummary, withAiUsage } from "@/lib/ai-usage";
+import { markUsageReported, refreshFromGroq, scopeUsageLine, startOfDay, usageReport, usageSummary, withAiUsage } from "@/lib/ai-usage";
 import { addDays } from "@/lib/time";
 
 export const DAILY_LIMIT = 100;
@@ -271,6 +271,8 @@ async function views(c: Ctx, text: string): Promise<boolean> {
       return true;
     }
     if (isOneOf(text, W.usage)) {
+      await refreshFromGroq(c.admin, c.userId, c.tz);
+      markUsageReported();
       const sum = await usageSummary(c.admin, { from: startOfDay(addDays(c.today, -1), c.tz), tz: c.tz, userId: c.userId });
       await send(chatId, usageReport(sum, c.today) ?? "✨ Nothing used yet today.");
       return true;

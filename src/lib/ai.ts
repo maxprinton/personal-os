@@ -162,6 +162,35 @@ export async function aiChat(
   return { error: "No AI model answered. Check GROQ_API_KEY in Vercel, or ask the bot /ai." };
 }
 
+/**
+ * Asks Groq what is left without doing real work: the smallest possible request (1 token out) on the
+ * main model. Its headers carry the exact requests left today (they include everything used earlier,
+ * also before Personal OS started counting). Costs 1 request and ~20 tokens. Returns the model or null.
+ */
+export async function aiProbe(): Promise<string | null> {
+  const key = process.env.GROQ_API_KEY;
+  if (!key) return null;
+  const model = (await modelsFor("write"))[0];
+  if (!model) return null;
+  try {
+    const body: Record<string, unknown> = { model, messages: [{ role: "user", content: "hi" }], max_completion_tokens: 1, temperature: 0 };
+    if (model.startsWith("openai/gpt-oss")) body.reasoning_effort = "low";
+    const res = await fetch(`${API}/chat/completions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const json = (await res.json().catch(() => null)) as { usage?: { prompt_tokens?: number; completion_tokens?: number } } | null;
+    const limits = limitsOf(res);
+    if (limits.remReq === null) return null;
+    recordAiCall({ model, prompt: json?.usage?.prompt_tokens ?? 0, completion: json?.usage?.completion_tokens ?? 0, ...limits });
+    return model;
+  } catch {
+    return null;
+  }
+}
+
 /** Same, expecting one JSON object back (null on any problem: callers fall back to the rules). */
 export async function aiJson(system: string, parts: AiPart[], kind: AiKind = "fast"): Promise<unknown | null> {
   const out = await aiChat(`${system}\nReply with ONE JSON object only.`, parts, { kind, json: true, temperature: 0, maxTokens: 800, timeoutMs: 20000 });

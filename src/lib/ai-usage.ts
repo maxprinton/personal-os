@@ -96,13 +96,35 @@ export async function flushAiUsage() {
 
 export type UsageRow = { day: string; model: string; feature: string; calls: number; tokens: number };
 export type UsageLatest = { model: string; at: string; remaining_requests: number | null; limit_requests: number | null; remaining_tokens: number | null; limit_tokens: number | null };
-export type UsageSummary = { rows: UsageRow[]; latest: UsageLatest[] };
+export type UsageSummary = { rows: UsageRow[]; latest: UsageLatest[]; since?: string | null };
 
 export async function usageSummary(sb: SupabaseClient, opts: { from: string; tz: string; userId?: string }): Promise<UsageSummary | null> {
   const { data, error } = await sb.rpc("ai_usage_summary", { p_from: opts.from, p_tz: opts.tz, p_user: opts.userId ?? null });
   if (error || !data) return null;
   const d = data as { rows?: UsageRow[]; latest?: UsageLatest[] };
-  return { rows: (d.rows ?? []).map((r) => ({ ...r, calls: Number(r.calls), tokens: Number(r.tokens) })), latest: d.latest ?? [] };
+  // when counting started (the first saved call ever): tokens used before it can't be known
+  const first = await sb.from("ai_usage").select("at").eq("user_id", opts.userId ?? (await sb.auth.getUser()).data.user?.id ?? "").order("at").limit(1).maybeSingle();
+  return { rows: (d.rows ?? []).map((r) => ({ ...r, calls: Number(r.calls), tokens: Number(r.tokens) })), latest: d.latest ?? [], since: (first.data as { at?: string } | null)?.at ?? null };
+}
+
+/**
+ * Exact "requests left today" straight from Groq: when no call told us in the last 10 minutes, one tiny
+ * request asks (1 request, ~20 tokens). Runs inside the caller's usage scope; saved right away.
+ */
+export async function refreshFromGroq(sb: SupabaseClient, userId: string, tz: string) {
+  const since = new Date(Date.now() - 10 * 60_000).toISOString();
+  const { data } = await sb.from("ai_usage").select("id").eq("user_id", userId).not("remaining_requests", "is", null).gte("at", since).limit(1);
+  if (data?.length) return false;
+  const { aiProbe } = await import("@/lib/ai");
+  return withAiUsage(
+    "usage-check",
+    async () => {
+      const model = await aiProbe();
+      await flushAiUsage();
+      return !!model;
+    },
+    { sb, userId },
+  ).catch(() => false);
 }
 
 export const fmtK = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}K` : n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n));
@@ -114,6 +136,7 @@ const FEATURE: Record<string, string> = {
   "notes-summary": "AI summary property",
   writing: "Writing checker",
   voice: "Writing voice profile",
+  "usage-check": "Usage checks (asking Groq what's left)",
   other: "Other",
 };
 export const featureName = (f: string) => FEATURE[f] ?? f;
@@ -195,7 +218,8 @@ export function usageReport(sum: UsageSummary | null, day: string, opts: { title
     lines.push("", "By feature:");
     for (const [f, v] of [...byFeature].sort((a, b) => b[1].tokens - a[1].tokens)) lines.push(`• ${featureName(f)}: ${v.calls} · ${fmtK(v.tokens)} tokens`);
   }
-  if (!calls) lines.push("", "Nothing used yet today.");
-  lines.push("", "Requests left come from Groq; tokens are counted by Personal OS (only what it sends).");
+  if (!calls) lines.push("", "Nothing counted yet today.");
+  if (sum.since && sum.since.slice(0, 10) >= day) lines.push("", `Tokens are counted since ${new Date(sum.since).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} today (when counting started); what you used before isn't in them.`);
+  lines.push("", "Requests left come straight from Groq (exact, they include everything). Tokens used are counted by Personal OS: Groq doesn't report its daily token count.");
   return lines.join("\n");
 }
