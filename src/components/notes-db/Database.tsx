@@ -7,10 +7,10 @@
 // loaded again when the window gets the focus back, after a note is created ("notes-db-changed") and
 // when the page's server data changes — never with a full page reload.
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { loadNotesDatabase } from "@/app/notes-db-actions";
+import { loadNotesDatabase, reorderProperties } from "@/app/notes-db-actions";
 import { NoteSelection, NotesExportBar } from "@/components/NotesExport";
 import NewNoteButton from "@/components/notes-db/NewNoteButton";
-import { PropEnvContext, type PropEnv } from "@/components/notes-db/prop-ui";
+import { PropEnvContext, errorText, toast, type PropEnv } from "@/components/notes-db/prop-ui";
 import { BoardView } from "@/components/notes-db/db-board";
 import { GalleryView } from "@/components/notes-db/db-gallery";
 import { ListView } from "@/components/notes-db/db-list";
@@ -109,6 +109,18 @@ export default function Database({ data }: { data: DbData }) {
   useEffect(() => {
     if (ready) setView((v) => sanitizeView(v, propsRef.current));
   }, [propsKey, ready]);
+
+  // The column order is saved in the database (each property's position), so it is the same after a
+  // reload and on every device. A view saved in this browser follows it.
+  const orderKey = useMemo(() => properties.map((p) => `${p.id}:${p.position}`).join(","), [properties]);
+  useEffect(() => {
+    if (!ready) return;
+    setView((v) => {
+      const pos = new Map(propsRef.current.map((p) => [p.id, p.position]));
+      const sorted = [...v.visible].sort((a, b) => (pos.get(a) ?? 0) - (pos.get(b) ?? 0));
+      return sorted.join() === v.visible.join() ? v : { ...v, visible: sorted };
+    });
+  }, [orderKey, ready]);
 
   // ---- Reloading ----
   const refresh = useCallback(async () => {
@@ -229,6 +241,49 @@ export default function Database({ data }: { data: DbData }) {
   }, []);
   const onSort = useCallback((prop: string, dir: "asc" | "desc") => setView((v) => ({ ...v, sorts: [{ prop, dir }, ...v.sorts.filter((s) => s.prop !== prop)] })), []);
   const onHide = useCallback((prop: string) => setView((v) => ({ ...v, visible: v.visible.filter((id) => id !== prop) })), []);
+  // Shows / hides / moves columns. `ids` = the visible columns in their new order. A pure move is saved
+  // in the database: the visible columns swap places among the slots they already had (hidden ones stay put).
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const setVisible = useCallback((ids: string[]) => {
+    const cur = viewRef.current.visible;
+    const pure = ids.length === cur.length && ids.every((id) => cur.includes(id));
+    if (!pure) {
+      const pos = new Map(propsRef.current.map((p) => [p.id, p.position]));
+      setView((v) => ({ ...v, visible: [...ids].sort((a, b) => (pos.get(a) ?? 0) - (pos.get(b) ?? 0)) }));
+      return;
+    }
+    if (ids.join() === cur.join()) return;
+    const prev = propsRef.current;
+    const sorted = [...prev].sort((a, b) => a.position - b.position);
+    const inSet = new Set(ids);
+    const queue = [...ids];
+    const full = sorted.map((p) => (inSet.has(p.id) ? (queue.shift() as string) : p.id));
+    const next = prev.map((p) => ({ ...p, position: full.indexOf(p.id) }));
+    lastLocal.current = Date.now();
+    propsRef.current = next;
+    setProperties(next);
+    setView((v) => ({ ...v, visible: ids }));
+    void reorderProperties(full)
+      .then((r) => {
+        if (!r.ok) throw r;
+      })
+      .catch((e) => {
+        propsRef.current = prev;
+        setProperties(prev);
+        toast(errorText(e, "Couldn't save the new order."));
+      });
+  }, []);
+  // A column dragged in the table: it goes before `beforeId` (null = last)
+  const onReorder = useCallback(
+    (id: string, beforeId: string | null) => {
+      const rest = viewRef.current.visible.filter((x) => x !== id);
+      const at = beforeId ? rest.indexOf(beforeId) : rest.length;
+      rest.splice(at < 0 ? rest.length : at, 0, id);
+      setVisible(rest);
+    },
+    [setVisible],
+  );
   const onWidth = useCallback((id: string, w: number) => setView((v) => ({ ...v, widths: { ...v.widths, [id]: w } })), []);
   const setCardSize = useCallback((cardSize: CardSize) => setExtras((x) => ({ ...x, cardSize })), []);
   const setHideEmpty = useCallback((hideEmpty: boolean) => setExtras((x) => ({ ...x, hideEmpty })), []);
@@ -267,7 +322,7 @@ export default function Database({ data }: { data: DbData }) {
       </div>
     );
   } else if (view.layout === "table") {
-    body = <TableView notes={shown} cols={cols} widths={view.widths} sorts={view.sorts} titles={titles} onWidth={onWidth} onSort={onSort} onFilter={onAddFilter} onHide={onHide} />;
+    body = <TableView notes={shown} cols={cols} widths={view.widths} sorts={view.sorts} titles={titles} onWidth={onWidth} onSort={onSort} onFilter={onAddFilter} onHide={onHide} onReorder={onReorder} />;
   } else if (view.layout === "list") {
     body = <ListView notes={shown} cols={cols} titles={titles} />;
   } else if (view.layout === "gallery") {
@@ -283,6 +338,7 @@ export default function Database({ data }: { data: DbData }) {
           <Toolbar
             view={view}
             setView={setView}
+            setVisible={setVisible}
             count={shown.length}
             total={notes.length}
             filtering={filtering}

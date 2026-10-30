@@ -68,6 +68,7 @@ export function TableView({
   onSort,
   onFilter,
   onHide,
+  onReorder,
 }: {
   notes: DbNote[];
   cols: NoteProperty[];
@@ -78,6 +79,8 @@ export function TableView({
   onSort: (prop: string, dir: "asc" | "desc") => void;
   onFilter: (prop: string) => void;
   onHide: (prop: string) => void;
+  /** Column dragged to a new place: `id` goes before `beforeId` (null = to the end). */
+  onReorder: (id: string, beforeId: string | null) => void;
 }) {
   const env = useDb();
   const wrap = useRef<HTMLDivElement>(null);
@@ -115,6 +118,53 @@ export function TableView({
     window.addEventListener("pointercancel", up);
   };
 
+  // ---- Drag a column header to move it (mouse / pen; on touch use Properties). Click still opens the menu.
+  const [drag, setDrag] = useState<{ id: string; before: string | null; x: number } | null>(null);
+  const justDragged = useRef(false);
+  const startDrag = (id: string) => (e: React.PointerEvent) => {
+    if (e.pointerType === "touch" || e.button !== 0) return;
+    const startX = e.clientX;
+    let active = false;
+    let before: string | null = id;
+    const heads = () => [...(wrap.current?.querySelectorAll<HTMLElement>("[data-col]") ?? [])].filter((h) => h.dataset.col !== id);
+    const move = (ev: PointerEvent) => {
+      if (!active) {
+        if (Math.abs(ev.clientX - startX) < 6) return;
+        active = true;
+        document.body.classList.add("db-moving-col");
+      }
+      let target: string | null = null;
+      let line = 0;
+      const list = heads();
+      for (const h of list) {
+        const r = h.getBoundingClientRect();
+        if (ev.clientX < r.left + r.width / 2) {
+          target = h.dataset.col ?? null;
+          line = r.left;
+          break;
+        }
+        line = r.right;
+      }
+      before = target;
+      setDrag({ id, before: target, x: line - (wrap.current?.getBoundingClientRect().left ?? 0) + (wrap.current?.scrollLeft ?? 0) });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      document.body.classList.remove("db-moving-col");
+      setDrag(null);
+      if (active) {
+        justDragged.current = true;
+        setTimeout(() => (justDragged.current = false), 0);
+        onReorder(id, before);
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
   const sortOf = (id: string) => sorts.find((s) => s.prop === id)?.dir;
   const arrow = (id: string) => {
     const d = sortOf(id);
@@ -134,6 +184,7 @@ export function TableView({
   const rows = notes.length > limit ? notes.slice(0, limit) : notes;
   return (
     <div ref={wrap} className="db-table-scroll" style={style}>
+      {drag && <div className="db-drop-line" style={{ left: drag.x }} aria-hidden />}
       <div className="db-table" role="table" aria-label="Notes" aria-rowcount={notes.length}>
         <div className="db-thead" role="row">
           <div className="db-th db-th-title" role="columnheader" style={{ width: `var(${widthVar("title")})` }}>
@@ -145,8 +196,17 @@ export function TableView({
             <span className="db-resizer" onPointerDown={startResize("title", widths.title ?? TITLE_W)} aria-hidden />
           </div>
           {cols.map((p) => (
-            <div key={p.id} className="db-th" role="columnheader" style={{ width: `var(${widthVar(p.id)})` }}>
-              <button type="button" className="db-th-btn" onClick={(e) => setMenu({ id: p.id, rect: rectOf(e.currentTarget) })} title={p.name}>
+            <div key={p.id} data-col={p.id} className={`db-th ${drag?.id === p.id ? "is-moving" : ""}`} role="columnheader" style={{ width: `var(${widthVar(p.id)})` }}>
+              <button
+                type="button"
+                className="db-th-btn"
+                onPointerDown={startDrag(p.id)}
+                onClick={(e) => {
+                  if (justDragged.current) return;
+                  setMenu({ id: p.id, rect: rectOf(e.currentTarget) });
+                }}
+                title={`${p.name} (drag to move)`}
+              >
                 <span className="db-th-icon">{TYPE_ICON[p.type] ?? "≡"}</span>
                 <span className="truncate">{p.name || "Untitled"}</span>
                 {arrow(p.id)}

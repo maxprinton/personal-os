@@ -23,6 +23,7 @@ const LAYOUTS: { id: Layout; label: string; icon: string }[] = [
 export function Toolbar({
   view,
   setView,
+  setVisible,
   count,
   total,
   filtering,
@@ -38,6 +39,8 @@ export function Toolbar({
 }: {
   view: ViewState;
   setView: Dispatch<SetStateAction<ViewState>>;
+  /** Show / hide / move columns (a move is saved in the database). */
+  setVisible: (ids: string[]) => void;
   count: number;
   total: number;
   filtering: boolean;
@@ -204,7 +207,7 @@ export function Toolbar({
       )}
       {menu?.kind === "advanced" && <AdvancedFilter rect={menu.rect} value={view.advanced} onChange={(g) => set({ advanced: g })} onClose={() => setMenu(null)} />}
       {menu?.kind === "sort" && <SortMenu rect={menu.rect} sorts={view.sorts} onChange={(s) => set({ sorts: s })} onClose={() => setMenu(null)} />}
-      {menu?.kind === "props" && <PropertiesMenu rect={menu.rect} visible={view.visible} onChange={(ids) => set({ visible: ids })} onClose={() => setMenu(null)} />}
+      {menu?.kind === "props" && <PropertiesMenu rect={menu.rect} visible={view.visible} onChange={setVisible} onClose={() => setMenu(null)} />}
     </div>
   );
 }

@@ -126,7 +126,7 @@
 .db-card-prop > * { min-width: 0; max-width: 100%; }
 
 /* ---------- Table ---------- */
-.db-table-scroll { overflow-x: auto; border-top: 1px solid var(--n-divider); -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+.db-table-scroll { position: relative; overflow-x: auto; border-top: 1px solid var(--n-divider); -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
 .db-table { display: flex; flex-direction: column; width: max-content; min-width: 100%; font-size: 14px; }
 .db-thead, .db-tr { display: flex; border-bottom: 1px solid var(--n-divider); }
 .db-th, .db-td { position: relative; flex: none; min-width: 0; border-right: 1px solid var(--n-divider); }
@@ -136,6 +136,10 @@
 .db-th-icon { flex-shrink: 0; width: 16px; font-size: 12px; text-align: center; opacity: 0.8; }
 .db-th-sort { margin-left: auto; flex-shrink: 0; font-size: 12px; color: var(--accent); }
 .db-th-add { width: 40px; }
+.db-th-btn { cursor: grab; }
+.db-th.is-moving { opacity: 0.45; }
+.db-drop-line { position: absolute; top: 0; z-index: 6; width: 2px; height: 34px; margin-left: -1px; border-radius: 1px; background: var(--n-blue-accent); pointer-events: none; }
+body.db-moving-col, body.db-moving-col * { cursor: grabbing !important; user-select: none; }
 .db-td-fill { flex: 1 1 0; min-width: 24px; border-right: 0; }
 .db-resizer { position: absolute; top: 0; right: -4px; z-index: 3; width: 8px; height: 100%; cursor: col-resize; touch-action: none; }
 .db-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; border-radius: 1px; background: transparent; }
