@@ -6,6 +6,7 @@ import { deleteTransaction, splitAdjustment, updateTransaction } from "@/app/fin
 import type { ActionState } from "@/app/actions";
 import Modal, { btnPrimary, btnSecondary, inputCls } from "@/components/calendar/Modal";
 
+import { WritingInput } from "@/components/WritingField";
 type Kind = "income" | "expense";
 export type ListTxn = {
   id: string;
@@ -274,7 +275,7 @@ function EditTransaction({
         </div>
         <label className="block text-sm">
           Description
-          <input name="description" defaultValue={txn.description ?? ""} placeholder="What was it?" className={`mt-1 ${inputCls}`} />
+          <WritingInput area="finance" name="description" defaultValue={txn.description ?? ""} placeholder="What was it?" className={`mt-1 ${inputCls}`} />
         </label>
         {state.error && <p className="text-sm text-danger">{state.error}</p>}
         <div className="flex items-center justify-end gap-2">
@@ -325,7 +326,7 @@ function SplitAdjustment({ txn, categories, onDone }: { txn: ListTxn; categories
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
-        <input name="description" placeholder="What was it? (e.g. water)" aria-label="Description" className={inputCls} />
+        <WritingInput area="finance" name="description" placeholder="What was it? (e.g. water)" aria-label="Description" className={inputCls} />
         <input type="date" name="date" defaultValue={txn.localDate} aria-label="Date" className={inputCls} />
       </div>
       {state.error && <p className="text-sm text-danger">{state.error}</p>}

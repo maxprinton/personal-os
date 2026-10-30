@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { addAccount, addCategory, addTransaction, addTransfer, setBudget } from "@/app/finance-actions";
 import type { ActionState } from "@/app/actions";
 
+import { WritingInput } from "@/components/WritingField";
 type Opt = { id: string; name: string };
 type CatOpt = Opt & { kind: "income" | "expense" };
 
@@ -65,7 +66,7 @@ export function TransactionForm({
           ))}
         </select>
         <input type="date" name="date" defaultValue={today} className={input} />
-        <input name="description" placeholder="Description (optional)" className={`${input} col-span-2 sm:col-span-3`} />
+        <WritingInput area="finance" name="description" placeholder="Description (optional)" className={`${input} col-span-2 sm:col-span-3`} />
         <button disabled={pending} className="rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-2 text-sm text-accent-fg disabled:opacity-50">
           {pending ? "Saving..." : "Add"}
         </button>
@@ -158,7 +159,7 @@ export function TransferForm({ today, accounts }: { today: string; accounts: Opt
       </select>
       <input name="amount" required inputMode="decimal" placeholder="Amount (USD)" className={input} />
       <input type="date" name="date" defaultValue={today} className={input} />
-      <input name="note" placeholder="Note (optional)" className={`${input} col-span-2 sm:col-span-3`} />
+      <WritingInput area="finance" name="note" placeholder="Note (optional)" className={`${input} col-span-2 sm:col-span-3`} />
       <button disabled={pending} className="rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-2 text-sm text-accent-fg disabled:opacity-50">
         {pending ? "Moving..." : "Transfer"}
       </button>

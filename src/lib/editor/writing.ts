@@ -7,12 +7,17 @@ import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { checkWriting, onWritingChange, writingStatus } from "@/lib/writing/client";
+import { aiCached, aiCheck, checkWriting, noteUnknown, onWritingChange, writingSettings, writingStatus, type AiOutcome } from "@/lib/writing/client";
+import { aiOn, spellOn, type WritingArea } from "@/lib/writing/settings";
 import type { Issue, Lang } from "@/lib/writing/types";
 
 export type WritingHit = { issue: Issue; from: number; to: number; ignoreKey: string };
 export type WritingStorage = {
   enabled: boolean;
+  /** Which area's settings apply (Settings → Writing). */
+  area: WritingArea;
+  /** "✨ Check this paragraph with AI" from the menu (set by the plugin). */
+  checkAi: ((pos: number) => Promise<AiOutcome & { none?: boolean }>) | null;
   /** "Ignore in this note" words (lower case). */
   ignoreNote: Set<string>;
   /** "Ignore here": word + paragraph text. */
@@ -22,7 +27,7 @@ export type WritingStorage = {
 
 type Range = { from: number; to: number };
 type State = { decos: DecorationSet; dirty: Range[]; all: boolean };
-type Meta = { type: "set"; from: number; to: number; decos: Decoration[] } | { type: "clearDirty" } | { type: "all" } | { type: "remove"; from: number; to: number } | { type: "off" };
+type Meta = { type: "set"; from: number; to: number; decos: Decoration[] } | { type: "add"; decos: Decoration[] } | { type: "clearDirty" } | { type: "all" } | { type: "remove"; from: number; to: number } | { type: "off" };
 
 declare module "@tiptap/core" {
   interface Storage {
@@ -36,6 +41,10 @@ const MAX_BLOCKS = 400;
 
 export { blockText, hereKey } from "@/lib/editor/writing-text";
 import { blockText, hereKey } from "@/lib/editor/writing-text";
+
+function toDeco(i: Issue, at: number[], text: string) {
+  return Decoration.inline(at[i.from], at[i.to - 1] + 1, { class: `wc wc-${i.kind}`, title: i.message }, { issue: i, key: hereKey(i.word, text) });
+}
 
 function blocksIn(doc: PMNode, ranges: Range[]) {
   const found = new Map<number, PMNode>();
@@ -58,11 +67,12 @@ export const WritingCheck = Extension.create<object, WritingStorage>({
   name: "writing",
 
   addStorage() {
-    return { enabled: true, ignoreNote: new Set<string>(), ignoreHere: new Set<string>(), onOpen: null };
+    return { enabled: true, area: "notes", checkAi: null, ignoreNote: new Set<string>(), ignoreHere: new Set<string>(), onOpen: null };
   },
 
   addProseMirrorPlugins() {
     const storage = this.storage;
+    const on = () => storage.enabled && spellOn(writingSettings(), storage.area);
     return [
       new Plugin<State>({
         key: writingKey,
@@ -85,7 +95,10 @@ export const WritingCheck = Extension.create<object, WritingStorage>({
             }
             const meta = tr.getMeta(writingKey) as Meta | undefined;
             if (meta?.type === "set") decos = decos.remove(decos.find(meta.from, meta.to)).add(tr.doc, meta.decos);
-            else if (meta?.type === "remove") decos = decos.remove(decos.find(meta.from, meta.to));
+            else if (meta?.type === "add") {
+              const fresh = meta.decos.filter((d) => !decos.find(d.from, d.to).length);
+              decos = decos.add(tr.doc, fresh);
+            } else if (meta?.type === "remove") decos = decos.remove(decos.find(meta.from, meta.to));
             else if (meta?.type === "clearDirty") {
               dirty = [];
               all = false;
@@ -101,7 +114,7 @@ export const WritingCheck = Extension.create<object, WritingStorage>({
         props: {
           decorations: (state) => writingKey.getState(state)?.decos ?? null,
           // no second underline from the browser while ours works
-          attributes: (): Record<string, string> => ({ spellcheck: storage.enabled && writingStatus().loaded && (writingStatus().es || writingStatus().en) ? "false" : "true" }),
+          attributes: (): Record<string, string> => ({ spellcheck: on() && writingStatus().loaded && (writingStatus().es || writingStatus().en) ? "false" : "true" }),
           handleClick(view, pos) {
             const st = writingKey.getState(view.state);
             const d = st?.decos.find(pos, pos).find((x) => x.from <= pos && pos <= x.to);
@@ -127,7 +140,7 @@ export const WritingCheck = Extension.create<object, WritingStorage>({
             if (running) return schedule();
             const st = writingKey.getState(view.state);
             if (!st) return;
-            if (!storage.enabled) {
+            if (!on()) {
               if (st.decos !== DecorationSet.empty) view.dispatch(view.state.tr.setMeta(writingKey, { type: "off" } satisfies Meta).setMeta("addToHistory", false));
               return;
             }
@@ -145,13 +158,17 @@ export const WritingCheck = Extension.create<object, WritingStorage>({
                   const res = await checkWriting(text, [...storage.ignoreNote], prevLang);
                   prevLang = res.lang;
                   if (gone) return;
-                  decos = res.issues
-                    .filter((i) => !storage.ignoreHere.has(hereKey(i.word, text)) && i.to > i.from)
-                    .map((i) => {
-                      const from = at[i.from];
-                      const to = at[i.to - 1] + 1;
-                      return Decoration.inline(from, to, { class: `wc wc-${i.kind}`, title: i.message }, { issue: i, key: hereKey(i.word, text) });
-                    });
+                    const local = res.issues.filter((i) => !storage.ignoreHere.has(hereKey(i.word, text)) && i.to > i.from);
+                  // AI fixes already known for this exact text come back at once (no request)
+                  const cached = (aiCached(text) ?? []).filter((a) => !storage.ignoreHere.has(hereKey(a.word, text)) && !local.some((l) => l.from < a.to && a.from < l.to));
+                  decos = [...local, ...cached].map((i) => toDeco(i, at, text));
+                  noteUnknown(local.filter((i) => i.kind === "spelling").map((i) => i.word));
+                  if (!cached.length && aiOn(writingSettings(), storage.area)) {
+                    const words = text.split(/\s+/).filter((w) => /\p{L}/u.test(w)).length;
+                    const grave = local.some((i) => i.kind === "spelling" || i.kind === "punct") && words >= 6;
+                    const native = res.lang === "en" && words >= 12;
+                    if (grave || native) aiQueue.set(pos, { node, text, lang: res.lang, reason: grave ? "grave" : "native" });
+                  }
                 }
                 // the paragraph changed (or moved) while it was being checked: the next round takes it
                 if (view.state.doc.nodeAt(pos) !== node) continue;
@@ -162,6 +179,59 @@ export const WritingCheck = Extension.create<object, WritingStorage>({
             }
             const after = writingKey.getState(view.state);
             if (after && (after.all || after.dirty.length)) schedule();
+            scheduleAi();
+          };
+
+          // ---- AI: a paragraph is sent once you are done with it (the cursor left it, or it ends a
+          // sentence and you paused 3 s), at most one every 20 s, plus the per-minute and daily caps.
+          const aiQueue = new Map<number, { node: PMNode; text: string; lang: Lang; reason: "grave" | "native" }>();
+          let aiTimer: ReturnType<typeof setTimeout> | null = null;
+          let lastAi = 0;
+          let lastEdit = Date.now();
+          const scheduleAi = (ms = 3000) => {
+            if (aiTimer) clearTimeout(aiTimer);
+            if (aiQueue.size) aiTimer = setTimeout(() => void runAi(), ms);
+          };
+          const addAi = (pos: number, node: PMNode, text: string, issues: Issue[]) => {
+            if (view.state.doc.nodeAt(pos) !== node) return 0;
+            const { pos: at } = blockText(node, pos + 1);
+            const decos = issues.filter((i) => !storage.ignoreHere.has(hereKey(i.word, text))).map((i) => toDeco(i, at, text));
+            if (decos.length) view.dispatch(view.state.tr.setMeta(writingKey, { type: "add", decos } satisfies Meta).setMeta("addToHistory", false));
+            return decos.length;
+          };
+          const runAi = async () => {
+            aiTimer = null;
+            if (gone || !aiQueue.size) return;
+            if (Date.now() - lastEdit < 2500 || Date.now() - lastAi < 20_000) return scheduleAi(Math.max(1000, 20_000 - (Date.now() - lastAi)));
+            const sel = view.state.selection.from;
+            const entry = [...aiQueue].find(([pos, j]) => {
+              const inside = sel > pos && sel < pos + j.node.nodeSize;
+              return !inside || /[.!?…]\s*$/.test(j.text);
+            });
+            if (!entry) return scheduleAi(5000);
+            const [pos, job] = entry;
+            aiQueue.delete(pos);
+            if (view.state.doc.nodeAt(pos) !== job.node || !aiOn(writingSettings(), storage.area)) return scheduleAi(500);
+            lastAi = Date.now();
+            const out = await aiCheck(job.text, job.lang, job.reason);
+            if (gone) return;
+            if (out.limited === "day" || out.limited === "off") aiQueue.clear();
+            else if (out.issues.length) addAi(pos, job.node, job.text, out.issues);
+            scheduleAi(500);
+          };
+          storage.checkAi = async (at: number) => {
+            const $at = view.state.doc.resolve(Math.min(at, view.state.doc.content.size));
+            let depth = $at.depth;
+            while (depth > 0 && !$at.node(depth).isTextblock) depth--;
+            const node = $at.node(depth);
+            if (!node?.isTextblock) return { issues: [], none: true };
+            const pos = depth > 0 ? $at.before(depth) : 0;
+            const { text } = blockText(node, pos + 1);
+            if (!text.trim()) return { issues: [], none: true };
+            const local = await checkWriting(text, [...storage.ignoreNote]);
+            const out = await aiCheck(text, local.lang, "manual");
+            if (out.issues.length) addAi(pos, node, text, out.issues);
+            return { ...out, none: !out.issues.length && !out.error };
           };
           // Dictionaries loaded / words added: check everything again
           const off = onWritingChange(() => {
@@ -172,12 +242,20 @@ export const WritingCheck = Extension.create<object, WritingStorage>({
           return {
             update(v, prev) {
               const s = writingKey.getState(v.state);
+              if (v.state.doc !== prev.doc) {
+                lastEdit = Date.now();
+                // positions in the AI queue moved: drop the ones whose paragraph changed
+                for (const [p, j] of aiQueue) if (v.state.doc.nodeAt(p) !== j.node) aiQueue.delete(p);
+              }
               if (v.state.doc !== prev.doc || s?.all) schedule();
+              else if (v.state.selection !== prev.selection && aiQueue.size && !aiTimer) scheduleAi(1500);
             },
             destroy() {
               gone = true;
               off();
               if (timer) clearTimeout(timer);
+              if (aiTimer) clearTimeout(aiTimer);
+              storage.checkAi = null;
             },
           };
         },

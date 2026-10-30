@@ -6,6 +6,7 @@ import type { CalResult, CalTask, TaskLog } from "@/lib/calendar/types";
 import { btnSecondary, inputCls } from "@/components/calendar/Modal";
 import TaskActions from "@/components/TaskActions";
 
+import { WritingInput } from "@/components/WritingField";
 /** Tasks inside a block appearance or an event: tick, take out, add, place an unassigned one. */
 export default function TaskList({
   tasks,
@@ -69,7 +70,7 @@ export default function TaskList({
           }}
           className="flex gap-2"
         >
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add a task here" autoComplete="off" className={inputCls} />
+          <WritingInput area="tasks" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add a task here" autoComplete="off" className={inputCls} />
           <button className={btnSecondary}>Add</button>
         </form>
       )}

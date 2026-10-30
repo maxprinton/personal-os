@@ -7,6 +7,7 @@ import Modal, { btnPrimary, btnSecondary, inputCls } from "@/components/calendar
 import { dayLabel } from "@/components/calendar/util";
 import { addDays } from "@/lib/time";
 
+import { WritingInput } from "@/components/WritingField";
 const POLICIES: { value: FreeDayPolicy; label: string; hint: string }[] = [
   { value: "move_next", label: "Move them to the day after", hint: "They go into their home block that day if it's there." },
   { value: "unassigned", label: "Leave them unassigned", hint: "They wait in the Unassigned tray the day after, for you to place." },
@@ -137,7 +138,7 @@ export default function FreeDayDialog({
             </button>
           )}
         </div>
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional): Trip to Cuenca" className={inputCls} />
+        <WritingInput area="calendar" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional): Trip to Cuenca" className={inputCls} />
         <fieldset className="space-y-1">
           <legend className="mb-1 text-xs text-muted">The tasks of those days (only those that move on; tasks of an event stay with it):</legend>
           {POLICIES.map((p) => (

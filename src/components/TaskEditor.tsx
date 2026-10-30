@@ -6,6 +6,7 @@ import type { ActionState } from "@/app/actions";
 import Modal, { btnPrimary, btnSecondary, inputCls } from "@/components/calendar/Modal";
 import { emitCalendarChanged } from "@/components/calendar/util";
 
+import { WritingInput } from "@/components/WritingField";
 type Option = { value: string; label: string };
 export type TaskEditOptions = { blocks: Option[]; events: Option[] };
 
@@ -64,7 +65,7 @@ function EditWindow({ task, options, onClose }: { task: EditableTask; options: T
         <input type="hidden" name="id" value={task.id} />
         <label className="block text-sm">
           Title
-          <input name="title" required defaultValue={task.title} autoFocus className={`mt-1 ${inputCls}`} />
+          <WritingInput area="tasks" name="title" required defaultValue={task.title} autoFocus className={`mt-1 ${inputCls}`} />
         </label>
 
         <div className="grid gap-3 sm:grid-cols-2">

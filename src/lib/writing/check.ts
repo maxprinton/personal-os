@@ -18,6 +18,8 @@ export type CheckOptions = {
   prevLang?: Lang;
   /** At most this many spelling suggestions are computed (they are the slow part). */
   maxSuggest?: number;
+  /** Languages whose sentences get spelling checked (both by default). Off = its sentences are left alone. */
+  only?: { es: boolean; en: boolean };
 };
 
 const LETTER = /[\p{L}\p{M}]/u;
@@ -140,7 +142,7 @@ export function checkText(text: string, o: CheckOptions = {}): CheckResult {
       const t = w.text;
       // ---- spelling
       const letters = LETTER.test(t);
-      const checkable = letters && !hasDigit(t) && !isUpperWord(t) && !(t !== lower(t) && !w.start) && t.length > 1 && !skip(t);
+      const checkable = (o.only ? o.only[lang] : true) && letters && !hasDigit(t) && !isUpperWord(t) && !(t !== lower(t) && !w.start) && t.length > 1 && !skip(t);
       if (checkable && (main || other)) {
         // a hyphenated word is fine when each part is
         const parts = t.split("-");

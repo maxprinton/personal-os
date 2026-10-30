@@ -95,6 +95,10 @@ ok("lines are sentences", sentences("uno\ndos").length === 2);
   ok("falls back to the other language", suggestWord("teh", "es", { es, en })[0] === "the");
 }
 
+// ---- A language turned off
+ok("English off: English typos left alone", run("The meting is tomorrow.", { only: { es: true, en: false } }).issues.length === 0);
+ok("English off: Spanish still checked", run("Mañana voy al gimansio.", { only: { es: true, en: false } }).issues.length === 1);
+
 // ---- Without dictionaries (not loaded yet): only the rules
 ok("rules without dictionaries", checkText("hola  amigo al al final.", {}).issues.length === 3, JSON.stringify(checkText("hola  amigo al al final.", {}).issues.map((i) => i.kind)));
 ok("suggestion budget", checkText("xqa xqb xqc", { es, en, maxSuggest: 1 }).issues.length === 3);

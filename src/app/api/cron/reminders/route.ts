@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { botToken, tg } from "@/lib/telegram";
 import { runMaintenance } from "@/lib/calendar/maintenance";
 import { runTemplateSchedules } from "@/lib/notes-db/templates";
+import { writingInsight } from "@/lib/writing/insight";
 import {
   beforeText,
   claim,
@@ -138,6 +139,9 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings & { blockEn
 
   // Money messages nobody picked an account for (10+ min): saved without one, so nothing is lost
   sent += await settlePendingAccounts(admin, s);
+
+  // ✍️ Your most repeated writing mistakes of last week (Mondays)
+  await writingInsight(admin, s.user_id, date, now.minutes).catch(() => false);
 
   if (s.reminder_insights) {
     const { data } = await admin

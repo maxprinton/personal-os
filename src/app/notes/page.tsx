@@ -15,6 +15,7 @@ import { getNotesDatabase } from "@/lib/notes-db/server";
 import Database from "@/components/notes-db/Database";
 import type { DbData } from "@/lib/notes-db/types";
 
+import { WritingInput } from "@/components/WritingField";
 export const dynamic = "force-dynamic";
 
 type NoteRow = {
@@ -116,7 +117,7 @@ export default async function NotesPage({
             )}
           </div>
           <form action={createNote} className="flex gap-2">
-            <input name="title" placeholder="New note title" className="rounded-md border border-line-strong px-3 py-2 text-sm" />
+            <WritingInput area="titles" name="title" placeholder="New note title" className="rounded-md border border-line-strong px-3 py-2 text-sm" />
             <button className="rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-2 text-sm text-accent-fg">New note</button>
           </form>
         </div>

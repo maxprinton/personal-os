@@ -5,6 +5,7 @@ import { createTask } from "@/app/task-actions";
 import type { ActionState } from "@/app/actions";
 import { emitCalendarChanged } from "@/components/calendar/util";
 
+import { WritingInput } from "@/components/WritingField";
 type Option = { value: string; label: string };
 
 /** New task. Its home block is where it goes each morning when that block is on the calendar. */
@@ -29,7 +30,7 @@ export default function TaskForm({
   return (
     <form ref={formRef} action={action} className="space-y-3 rounded-lg border border-line p-4 bg-surface shadow-card">
       <h2 className="font-medium">New task</h2>
-      <input name="title" required placeholder="What needs doing?" className="w-full rounded-md border border-line-strong px-3 py-2" />
+      <WritingInput area="tasks" name="title" required placeholder="What needs doing?" className="w-full rounded-md border border-line-strong px-3 py-2" />
       <div className="flex flex-wrap gap-3">
         <label className="flex-1 text-sm">Date
           <input type="date" name="scheduled_for" min={today} defaultValue={today} className="mt-1 w-full rounded-md border border-line-strong px-3 py-2" />

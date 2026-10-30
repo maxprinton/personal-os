@@ -9,6 +9,7 @@ import { emitCalendarChanged } from "@/components/calendar/util";
 import Modal from "@/components/calendar/Modal";
 import { getPaymentRecords, getSuggestedPaymentAccount, setPaymentTemplateAccount } from "@/app/payment-actions";
 
+import { WritingInput } from "@/components/WritingField";
 const input = "rounded-md border border-line-strong px-3 py-2 text-sm";
 
 function useRun(run?: (fn: () => Promise<CalResult>) => Promise<boolean>) {
@@ -103,7 +104,7 @@ export function PaymentForm({
     >
       {t && <p className="text-xs font-medium text-muted">Edit scheduled payment</p>}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Rent, Internet…" className={`${input} col-span-2`} />
+        <WritingInput area="finance" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Rent, Internet…" className={`${input} col-span-2`} />
         <select
           value={type}
           onChange={(e) => {
@@ -448,7 +449,7 @@ export function PaymentDraft({
             )}
             <label className="col-span-2 text-xs text-muted sm:col-span-4">
               Description
-              <input value={description} onChange={(e) => setDescription(e.target.value)} className={`${input} mt-0.5 w-full`} />
+              <WritingInput area="finance" value={description} onChange={(e) => setDescription(e.target.value)} className={`${input} mt-0.5 w-full`} />
             </label>
           </div>
 

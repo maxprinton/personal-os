@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { addToOutbox, flushOutbox, listOutbox } from "@/lib/outbox";
 
+import { WritingInput } from "@/components/WritingField";
 /**
  * One box for everything: "spent 12 on lunch", "task: call mom tomorrow", "note: idea…".
  * Works offline: items wait in the device and sync when the connection is back.
@@ -79,7 +80,7 @@ export default function QuickCapture({
   return (
     <form onSubmit={submit} className="space-y-2">
       <div className="flex flex-wrap gap-2 sm:flex-nowrap">
-        <input
+        <WritingInput area="titles"
           value={text}
           onChange={(e) => setText(e.target.value)}
           autoFocus={autoFocus}

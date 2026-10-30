@@ -26,6 +26,7 @@ type Rect = { left: number; top: number; bottom: number; right?: number };
 export { COVERS, coverStyle } from "@/lib/covers";
 import { COVERS, coverStyle } from "@/lib/covers";
 
+import { WritingTextarea } from "@/components/WritingField";
 export default function NoteEditor({
   id,
   title,
@@ -316,7 +317,7 @@ export default function NoteEditor({
               )}
             </div>
           )}
-          <textarea
+          <WritingTextarea area="titles"
             ref={titleRef}
             rows={1}
             value={t}

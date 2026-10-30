@@ -1,7 +1,7 @@
 // The writing checker (spelling + simple rules, Spanish and English). Pure types: browser, worker, tests.
 
 export type Lang = "es" | "en";
-export type IssueKind = "spelling" | "repeat" | "space" | "capital" | "punct";
+export type IssueKind = "spelling" | "repeat" | "space" | "capital" | "punct" | "ai";
 
 /** One problem in a text: [from, to) are character offsets in the text that was checked. */
 export type Issue = {

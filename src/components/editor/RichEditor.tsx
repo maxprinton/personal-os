@@ -47,7 +47,9 @@ import AiPanel, { AiMenu, type AiSession } from "@/components/editor/AiPanel";
 import { SELECTION_MODES, type AiMode } from "@/lib/ai-notes";
 import { WritingCheck, recheckAll, removeWritingMark, type WritingHit } from "@/lib/editor/writing";
 import { addGlossaryWord } from "@/app/writing-actions";
-import { addKnownWord, suggestWriting } from "@/lib/writing/client";
+import { addKnownWord, isFrequentUnknown, noteMistake, suggestWriting } from "@/lib/writing/client";
+import { WritingPredict } from "@/lib/editor/predict";
+import type { WritingArea } from "@/lib/writing/settings";
 
 const lowlight = createLowlight(common);
 
@@ -76,6 +78,8 @@ export type RichEditorProps = {
   onSpellIgnore?: (words: string[]) => void;
   /** false = no writing check (the browser's own spell check stays). */
   writingCheck?: boolean;
+  /** Which Settings → Writing area applies (default "notes"). */
+  writingArea?: WritingArea;
 };
 
 type Rect = { left: number; top: number; bottom: number; right?: number };
@@ -107,6 +111,7 @@ export default function RichEditor({
   spellIgnore,
   onSpellIgnore,
   writingCheck = true,
+  writingArea = "notes",
 }: RichEditorProps) {
   const lastMd = useRef(value);
   const onChangeRef = useRef(onChange);
@@ -182,6 +187,7 @@ export default function RichEditor({
       ...[ImageBlock, VideoBlock, AudioBlock, FileBlock, PdfBlock, EmbedBlock, BookmarkBlock].map((n) => n.extend({ addNodeView: () => ReactNodeViewRenderer(MediaView) })),
       CharacterCount,
       WritingCheck,
+      WritingPredict,
       Placeholder.configure({
         includeChildren: true,
         placeholder: ({ node, editor: e, pos }) => {
@@ -269,9 +275,12 @@ export default function RichEditor({
     if (!editor) return;
     const w = editor.storage.writing;
     w.enabled = writingCheck && editable;
+    w.area = writingArea;
     w.onOpen = (hit, rect) => setWc({ hit, rect: toRect(rect) });
+    editor.storage.predict.enabled = writingCheck && editable;
+    editor.storage.predict.area = writingArea;
     recheckAll(editor.view);
-  }, [editor, writingCheck, editable]);
+  }, [editor, writingCheck, editable, writingArea]);
   const ignoreKey = (spellIgnore ?? []).join("\n");
   useEffect(() => {
     if (!editor) return;
@@ -680,6 +689,7 @@ export default function RichEditor({
             const cur = editor.state.doc.textBetween(from, to, "\n", "\uFFFC");
             setWc(null);
             if (cur !== wc.hit.issue.word) return showToast("That text changed. Check it again.");
+            if (wc.hit.issue.kind === "spelling" || wc.hit.issue.kind === "ai") noteMistake(wc.hit.issue.word, text);
             editor.chain().focus().command(({ tr }) => {
               if (text) tr.insertText(text, from, to);
               else tr.delete(from, to);
@@ -697,6 +707,17 @@ export default function RichEditor({
             onSpellIgnoreRef.current?.([...w.ignoreNote]);
             recheckAll(editor.view);
             setWc(null);
+          }}
+          onCheckAi={() => {
+            const at = wc.hit.from;
+            setWc(null);
+            const run = editor.storage.writing.checkAi;
+            if (!run) return;
+            showToast("✨ Checking this paragraph…");
+            void run(at).then((r) => {
+              if (r.error) showToast(r.error);
+              else if (r.none) showToast("✨ The AI found nothing to fix here.");
+            });
           }}
           onAddToDictionary={() => {
             const word = wc.hit.issue.word;
@@ -892,7 +913,7 @@ export type { Editor };
 // used by the page header
 export { createSubpageBlock };
 
-const KIND_LABEL: Record<string, string> = { spelling: "Spelling", repeat: "Repeated word", space: "Spacing", capital: "Capital letter", punct: "Punctuation" };
+const KIND_LABEL: Record<string, string> = { spelling: "Spelling", repeat: "Repeated word", space: "Spacing", capital: "Capital letter", punct: "Punctuation", ai: "✨ AI suggestion" };
 
 /** The menu of an underlined word: suggestions, ignore here, ignore in this note, add to dictionary. */
 function WritingMenu({
@@ -903,6 +924,7 @@ function WritingMenu({
   onIgnoreHere,
   onIgnoreNote,
   onAddToDictionary,
+  onCheckAi,
 }: {
   hit: WritingHit;
   rect: Rect;
@@ -911,6 +933,7 @@ function WritingMenu({
   onIgnoreHere: () => void;
   onIgnoreNote: () => void;
   onAddToDictionary: () => void;
+  onCheckAi: () => void;
 }) {
   const { issue } = hit;
   const spelling = issue.kind === "spelling";
@@ -929,8 +952,14 @@ function WritingMenu({
     <Popover rect={rect} onClose={onClose} width={250} className="n-menu wc-menu">
       <div className="p-1">
         <MenuLabel>
-          {KIND_LABEL[issue.kind] ?? "Writing"} · {issue.message}
+          {KIND_LABEL[issue.kind] ?? "Writing"}
+          {issue.kind === "ai" ? "" : ` · ${issue.message}`}
         </MenuLabel>
+        {issue.kind === "ai" && <p className="px-2 pb-1 text-xs text-muted">{issue.message}</p>}
+        {spelling && isFrequentUnknown(issue.word) && (
+          <p className="px-2 pb-1 text-xs text-muted">You&apos;ve written this on 3 or more days. Add it to your dictionary?</p>
+        )}
+        {spelling && isFrequentUnknown(issue.word) && <MenuItem icon="＋" label={`Add “${issue.word}” to dictionary`} onClick={onAddToDictionary} />}
         {(list ?? []).slice(0, 4).map((s, i) => (
           <MenuItem key={`${s}-${i}`} icon={i === 0 ? "✓" : ""} label={label(s)} onClick={() => onReplace(s)} />
         ))}
@@ -939,7 +968,8 @@ function WritingMenu({
         <div className="wc-sep" />
         <MenuItem icon="◌" label="Ignore here" onClick={onIgnoreHere} />
         {spelling && <MenuItem icon="⊘" label="Ignore in this note" onClick={onIgnoreNote} />}
-        {spelling && <MenuItem icon="＋" label={`Add “${issue.word}” to dictionary`} onClick={onAddToDictionary} />}
+        {spelling && !isFrequentUnknown(issue.word) && <MenuItem icon="＋" label={`Add “${issue.word}” to dictionary`} onClick={onAddToDictionary} />}
+        <MenuItem icon="✨" label="Check this paragraph with AI" onClick={onCheckAi} />
       </div>
     </Popover>
   );

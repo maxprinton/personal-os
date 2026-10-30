@@ -6,6 +6,7 @@ import { createLinkCode, deleteTag, deleteUnusedTags, generateInsightsNow, unlin
 import { liveTagLinks } from "@/lib/tags";
 import ConnectBotButton from "@/components/ConnectBotButton";
 import ReminderSettings from "@/components/ReminderSettings";
+import WritingSettings from "@/components/WritingSettings";
 
 export const dynamic = "force-dynamic";
 
@@ -121,6 +122,14 @@ export default async function SettingsPage() {
             }}
           />
         )}
+
+        <section className="space-y-3 rounded-lg border border-line p-4 bg-surface shadow-card">
+          <div>
+            <h2 className="font-medium">Writing</h2>
+            <p className="text-sm text-muted">Spelling in Spanish and English, next-word prediction and the AI that checks what the rules can&apos;t.</p>
+          </div>
+          <WritingSettings />
+        </section>
 
         <section className="space-y-3 rounded-lg border border-line p-4 bg-surface shadow-card">
           <h2 className="font-medium">Weekly insights</h2>

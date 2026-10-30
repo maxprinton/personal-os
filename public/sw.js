@@ -2,7 +2,7 @@
 // Pages: network first, fall back to the last copy seen. Static assets: cache first.
 // v3: only successful responses are cached (v2 could keep a failed download of an app file forever,
 // which broke the app in that browser until its data was cleared). Changing the name wipes old caches.
-const CACHE = "personal-os-v3";
+const CACHE = "personal-os-v4"; // v4: the spelling dictionaries (/dict/) are kept for offline use
 const PRECACHE = ["/capture", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -37,7 +37,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/auth/")) return;
 
-  if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/")) {
+  if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/") || url.pathname.startsWith("/dict/")) {
     event.respondWith(
       caches.match(req).then((hit) => {
         if (hit && hit.ok) return hit;

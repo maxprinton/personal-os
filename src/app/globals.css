@@ -281,6 +281,8 @@
 .rich-prose .wc { text-decoration-line: underline; text-decoration-style: wavy; text-decoration-thickness: 1.5px; text-underline-offset: 3px; text-decoration-skip-ink: none; text-decoration-color: var(--danger-solid); cursor: pointer; }
 .rich-prose .wc-repeat, .rich-prose .wc-capital, .rich-prose .wc-punct { text-decoration-color: var(--accent); }
 .rich-prose .wc-space { text-decoration: none; background: color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 2px; }
+.rich-prose .wc-ai { text-decoration-color: #8b5cf6; text-decoration-style: solid; text-decoration-thickness: 2px; }
+.wc-ghost { color: var(--faint, rgba(127, 127, 127, 0.7)); opacity: 0.75; pointer-events: auto; cursor: pointer; user-select: none; }
 .wc-sep { height: 1px; margin: 4px 6px; background: var(--line, rgba(127, 127, 127, 0.25)); }
 .rich-prose h1, .rich-prose h2, .rich-prose h3, .rich-prose h4 { font-weight: 600; padding: 3px 2px; margin-bottom: 1px; }
 .rich-prose h1 { font-size: 1.875em; line-height: 1.3; margin-top: 1.4em; }
@@ -668,3 +670,19 @@
 .n-ai-error .n-ai-actions { padding: 8px 0; border-top: 0; }
 .n-ai-note { padding: 0 14px 6px; font-size: 12px; color: var(--n-red); }
 .n-ai-foot { padding: 4px 12px 8px; font-size: 11px; color: var(--n-faint); }
+
+/* Writing assistant in plain fields (src/components/WritingField.tsx) */
+.wf-bar { position: fixed; z-index: 80; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; font-size: 12px; pointer-events: auto; }
+.wf-pred, .wf-issues { border: 1px solid var(--line, rgba(127,127,127,.3)); background: var(--surface, #fff); color: var(--fg); border-radius: 999px; padding: 2px 9px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.wf-pred { color: var(--muted, inherit); }
+.wf-pred:hover, .wf-issues:hover { background: var(--subtle, rgba(127,127,127,.12)); }
+.wf-issues { color: var(--danger-solid); }
+.wf-list { flex-basis: 100%; max-width: 360px; border: 1px solid var(--line, rgba(127,127,127,.3)); background: var(--surface, #fff); border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.14); padding: 4px; }
+.wf-row { padding: 6px 8px; border-radius: 6px; }
+.wf-row + .wf-row { border-top: 1px solid var(--line, rgba(127,127,127,.2)); }
+.wf-msg { color: var(--muted, inherit); margin-bottom: 4px; }
+.wf-msg b { color: var(--fg); font-weight: 600; }
+.wf-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.wf-fix { border-radius: 6px; padding: 1px 8px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--fg); font-weight: 500; }
+.wf-link { color: var(--muted, inherit); text-decoration: underline; text-underline-offset: 2px; }
+.wf-faint { color: var(--faint, rgba(127,127,127,.7)); }
