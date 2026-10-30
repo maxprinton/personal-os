@@ -18,6 +18,7 @@ import HabitControls from "@/components/HabitControls";
 import TaskList from "@/components/calendar/TaskList";
 import { formatMinutes, timeToMinutes } from "@/lib/time";
 import BlockNoteEditor from "@/components/BlockNoteEditor";
+import { ChangeBlockNote } from "@/components/notes-db/NoteLinkMenu";
 import type { CalendarData, CalResult, EditScope, Occurrence } from "@/lib/calendar/types";
 import Modal, { btnSecondary, inputCls } from "@/components/calendar/Modal";
 import { forwardLabel, ScopeButtons } from "@/components/calendar/ScopeDialog";
@@ -138,7 +139,10 @@ export default function OccurrenceDialog({
         <section className="space-y-1 rounded-lg border border-line p-3">
           <h3 className="flex items-baseline justify-between gap-2 text-sm font-medium">
             <span>✏️ Note</span>
-            <span className="text-xs font-normal text-faint">shared by every “{type.name}”</span>
+            <span className="flex items-baseline gap-2 text-xs font-normal text-faint">
+              shared by every “{type.name}”
+              <ChangeBlockNote blockTypeId={type.id} blockName={type.name} className="text-accent hover:underline" />
+            </span>
           </h3>
           <BlockNoteEditor
             name={type.name}

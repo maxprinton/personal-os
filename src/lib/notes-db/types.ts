@@ -23,6 +23,7 @@ export type PropType =
   | "created_time"
   | "last_edited_time"
   | "kind"
+  | "block" // the block this note belongs to (block notes); changed from its menu, not typed
   | "word_count"
   | "open_todos"
   | "backlinks"
@@ -33,7 +34,7 @@ export type PropType =
 /** Types offered in "+ Add a property" (the rest are built-in only). */
 export const CREATABLE_TYPES: PropType[] = ["text", "number", "select", "multi_select", "status", "date", "checkbox", "files", "url", "email", "phone", "relation", "rollup", "unique_id"];
 /** Types whose value can't be edited by hand. */
-export const READONLY_TYPES: PropType[] = ["rollup", "unique_id", "created_time", "last_edited_time", "kind", "word_count", "open_todos", "backlinks"];
+export const READONLY_TYPES: PropType[] = ["rollup", "unique_id", "created_time", "last_edited_time", "kind", "block", "word_count", "open_todos", "backlinks"];
 
 export const TYPE_LABEL: Record<PropType, string> = {
   text: "Text",
@@ -53,6 +54,7 @@ export const TYPE_LABEL: Record<PropType, string> = {
   created_time: "Created time",
   last_edited_time: "Last edited time",
   kind: "Kind",
+  block: "Block",
   word_count: "Word count",
   open_todos: "Open to-dos",
   backlinks: "Backlinks",
@@ -78,6 +80,7 @@ export const TYPE_ICON: Record<PropType, string> = {
   created_time: "🕒",
   last_edited_time: "🕒",
   kind: "📄",
+  block: "🧱",
   word_count: "#",
   open_todos: "☐",
   backlinks: "↙",

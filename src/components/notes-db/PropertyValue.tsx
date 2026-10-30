@@ -21,6 +21,7 @@ import { displayText, formatDate, formatNumber, rawValue } from "@/lib/notes-db/
 import { READONLY_TYPES, optionById, type DateValue, type DbNote, type FileValue, type NoteProperty, type PropValue, type RelatedItem, type RelationTarget, type SelectOption } from "@/lib/notes-db/types";
 import { DatePicker, FilesEditor, OptionPicker, RelationPicker, TagPicker, TextPopover, TextEditor, relatedIcon } from "./prop-pickers";
 import { OptionPill, anchorOf, errorText, okColor, relationHref, toast, usePropEnv, type Anchor } from "./prop-ui";
+import NoteLinkButton from "./NoteLinkMenu";
 import "./properties.css";
 
 export { OptionPill, PropEnvContext, type PropEnv } from "./prop-ui";
@@ -446,6 +447,15 @@ export default function PropertyValue({ note: noteIn, prop: propIn, properties, 
     body = display();
   } catch {
     body = empty;
+  }
+  // Kind and Block open the menu that links the note to a block or moves it (not typed values)
+  if ((type === "kind" || type === "block") && !readOnly && !isCard) {
+    const shown = type === "block" && note.blockName ? <span className="np-text">🧱 {note.blockName}</span> : body;
+    return (
+      <div className={`np-val is-${variant} is-editable`}>
+        <NoteLinkButton noteId={note.id} kind={note.kind} blockName={note.blockName} label={shown} navigate={isPage} className="flex w-full min-w-0 items-center text-left" />
+      </div>
+    );
   }
   return (
     <>

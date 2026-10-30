@@ -4,7 +4,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { addDays, dateRange, daysBetween, formatDateLong, formatMinutes, isDate, isTime, isoWeekday, localNow, minutesToTime, timeToMinutes, zonedToUtc } from "@/lib/time";
-import { copyBlockNote, renameBlockNote } from "@/lib/block-notes";
+import { copyBlockNote, releaseBlockNote, renameBlockNote } from "@/lib/block-notes";
 import { ensureOccurrences, getOccurrence, getOccurrences, getSlots } from "@/lib/calendar/model";
 import {
   afterOccurrencesChanged,
@@ -562,7 +562,7 @@ export async function renameBlockType(input: { id: string; name: string }): Prom
     const { parked } = old ? await renameBlockNote(c.sb, c.userId, old.name, name) : { parked: null };
     return done(
       parked
-        ? `Renamed everywhere. An old note of a deleted “${parked}” block is kept in Notes as “${parked} (old block note)”.`
+        ? `Renamed everywhere. An old note of a deleted “${parked}” block is kept in Notes as “Former · ${parked} · …”.`
         : undefined
     );
   } catch (e) {
@@ -700,12 +700,16 @@ export async function removeBlockType(input: { id: string }): Promise<CalResult>
       await c.sb.from("block_occurrences").update({ status: "cancelled" }).in("id", ids).eq("user_id", c.userId);
       await afterOccurrencesChanged(c.sb, c.userId, ids);
     }
+    const { data: gone } = await c.sb.from("block_types").select("name").eq("id", input.id).eq("user_id", c.userId).maybeSingle();
     await c.sb
       .from("block_types")
       .update({ deleted_at: new Date().toISOString() })
       .eq("id", input.id)
       .eq("user_id", c.userId);
-    return done();
+    // Only deleting a block takes its note away: it stays in Notes as "Former · <block> · <date>"
+    const name = (gone as { name?: string } | null)?.name;
+    const released = name ? await releaseBlockNote(c.sb, c.userId, name).catch(() => null) : null;
+    return done(released ? `Its note is kept in Notes as “Former · ${name} · …”.` : undefined);
   } catch (e) {
     return fail(e);
   }

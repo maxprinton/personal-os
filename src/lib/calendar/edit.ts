@@ -40,6 +40,14 @@ export async function findOrCreateBlockType(sb: SupabaseClient, userId: string, 
     .select("id,name,color")
     .single();
   if (error || !data) throw new Error(error?.message ?? "Could not create the block.");
+  // A new block always starts with an empty note: an old note left by a deleted block with this
+  // name becomes "Former · <name> · <date>" (it can be linked again from its Kind menu).
+  try {
+    const { releaseBlockNote } = await import("@/lib/block-notes");
+    await releaseBlockNote(sb, userId, name);
+  } catch (e) {
+    console.error("release old block note", e);
+  }
   return { type: data as BlockType, created: true };
 }
 

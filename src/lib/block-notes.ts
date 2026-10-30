@@ -4,6 +4,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeName } from "@/lib/calendar/edit";
 import { simplifyNotionMarkdown } from "@/lib/notion-md";
+import { getSettings } from "@/lib/agenda";
+import { localNow } from "@/lib/time";
 
 export type BlockNote = { id: string; name: string; content: string; updated_at: string };
 
@@ -85,7 +87,7 @@ export async function renameBlockNote(sb: SupabaseClient, userId: string, oldNam
   if (theirs) {
     await sb
       .from("notes")
-      .update({ block_name: null, title: `${theirs.name} (old block note)` })
+      .update({ block_name: null, title: await formerTitle(sb, theirs.name) })
       .eq("id", theirs.id)
       .eq("user_id", userId);
     parked = theirs.name;
@@ -105,6 +107,39 @@ export async function copyBlockNote(sb: SupabaseClient, userId: string, fromName
   if (!source?.content.trim() || map.has(noteKey(toName))) return false; // a note with that name already exists: it wins
   await writeBlockNote(sb, userId, toName, source.content);
   return true;
+}
+
+// ---------- Former notes (Oct 2026): a note that stopped being the note of a block ----------
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "Former · Gym · Oct 29" (the date it stopped being the block's note, in the user's timezone). */
+export function formerTitleOn(name: string, ymd: string) {
+  const [, m, d] = ymd.split("-").map(Number);
+  return `Former · ${normalizeName(name)} · ${MONTHS[(m || 1) - 1]} ${d || 1}`;
+}
+
+/** Today's "Former · <block> · <date>" title. */
+export async function formerTitle(sb: SupabaseClient, name: string) {
+  const { timezone } = await getSettings(sb as never);
+  return formerTitleOn(name, localNow(timezone).date);
+}
+
+/**
+ * The block note of this name (if any) becomes a normal page called "Former · <block> · <date>".
+ * Used when a block is deleted, when a new block takes the name of an old note, and by "Detach".
+ * Returns the id of the note that was released, or null.
+ */
+export async function releaseBlockNote(sb: SupabaseClient, userId: string, name: string) {
+  const note = await findBlockNote(sb, userId, name);
+  if (!note) return null;
+  const { error } = await sb
+    .from("notes")
+    .update({ block_name: null, title: await formerTitle(sb, note.name) })
+    .eq("id", note.id)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+  return note.id;
 }
 
 /** Plain text for Telegram: no Markdown marks, checkboxes as ☐ / ☑. */

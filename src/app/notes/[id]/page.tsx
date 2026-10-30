@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/agenda";
 import { getLinkOptions, getLinksFrom } from "@/lib/links";
@@ -18,6 +18,7 @@ import NoteProperties from "@/components/notes-db/NoteProperties";
 import TemplateBar from "@/components/notes-db/TemplateBar";
 import SeriesNav from "@/components/notes-db/SeriesNav";
 import EmptyNoteTemplates from "@/components/notes-db/EmptyNoteTemplates";
+import NoteLinkButton from "@/components/notes-db/NoteLinkMenu";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,13 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
     page?: PageSettings | null;
     parent_id?: string | null;
   } | null;
-  if (!note) notFound();
+  if (!note) {
+    // Merged into another note (migration 0022): its old link opens the note it went into
+    const { data: gone } = await supabase.from("notes").select("merged_into").eq("id", id).not("merged_into", "is", null).maybeSingle();
+    const into = (gone as { merged_into?: string | null } | null)?.merged_into;
+    if (into && into !== id) redirect(`/notes/${into}`);
+    notFound();
+  }
 
   // Every note (for @ mentions, page links, breadcrumbs) and the notes that link here (backlinks)
   const [allRes, backRes] = await Promise.all([
@@ -102,7 +109,7 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
               {exportMenu}
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted">✏️ Block note</p>
+              <NoteLinkButton noteId={note.id} kind="block" blockName={note.block_name} label="✏️ Block note ▾" className="text-xs font-semibold uppercase tracking-wider text-muted hover:text-fg" />
               <h1 className="text-2xl font-semibold">{note.block_name}</h1>
               <p className="text-sm text-muted">
                 Shared by every “{note.block_name}” block. Its title follows the block&apos;s name; it saves by itself.

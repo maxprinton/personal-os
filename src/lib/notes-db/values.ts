@@ -22,6 +22,8 @@ export function rawValue(note: DbNote, prop: NoteProperty, properties: NotePrope
       return note.updatedAt;
     case "kind":
       return note.kind;
+    case "block":
+      return note.blockName || null;
     case "word_count":
       return note.wordCount;
     case "open_todos":
