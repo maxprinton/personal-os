@@ -583,3 +583,35 @@ export function TextPopover({ kind, initial, anchor, onDone }: { kind: TextKind;
     </Popover>
   );
 }
+
+// ---- AI summary (table cell): the summary so far + the ✨ button, in a floating panel ------------
+
+export function AiSummaryPopover({
+  text,
+  anchor,
+  busy,
+  error,
+  onRun,
+  onClose,
+}: {
+  text: string;
+  anchor: Anchor;
+  busy: boolean;
+  error: string | null;
+  onRun: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Popover rect={anchor} onClose={onClose} width={fitWidth(Math.max(anchor.width, 320))} className="np-menu">
+      <div style={{ padding: "6px 8px", display: "flex", flexDirection: "column", gap: 8 }}>
+        {text ? <div className="np-text" style={{ whiteSpace: "normal", lineHeight: 1.45 }}>{text}</div> : <div className="np-faint">No summary yet.</div>}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button type="button" className="np-props-btn" style={{ minHeight: 26, padding: "0 8px", marginLeft: -8 }} disabled={busy} title={text ? "Summarize again" : "Write a one-line summary with AI"} onClick={onRun}>
+            {busy ? "Summarizing…" : text ? "↻ Summarize again" : "✨ Summarize"}
+          </button>
+          {error && <span className="np-err">{error}</span>}
+        </div>
+      </div>
+    </Popover>
+  );
+}

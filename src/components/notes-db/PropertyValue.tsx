@@ -19,7 +19,7 @@ import { summarizeNote } from "@/app/notes-ai-actions";
 import { isBuiltinRelation } from "@/lib/notes-db/builtins";
 import { displayText, formatDate, formatNumber, rawValue } from "@/lib/notes-db/values";
 import { READONLY_TYPES, optionById, type DateValue, type DbNote, type FileValue, type NoteProperty, type PropValue, type RelatedItem, type RelationTarget, type SelectOption } from "@/lib/notes-db/types";
-import { DatePicker, FilesEditor, OptionPicker, RelationPicker, TagPicker, TextPopover, TextEditor, relatedIcon } from "./prop-pickers";
+import { AiSummaryPopover, DatePicker, FilesEditor, OptionPicker, RelationPicker, TagPicker, TextPopover, TextEditor, relatedIcon } from "./prop-pickers";
 import { OptionPill, anchorOf, errorText, okColor, relationHref, toast, usePropEnv, type Anchor } from "./prop-ui";
 import NoteLinkButton from "./NoteLinkMenu";
 import "./properties.css";
@@ -192,9 +192,11 @@ export default function PropertyValue({ note: noteIn, prop: propIn, properties, 
   };
 
   // ---- opening an editor ----
-  const opensPopover = editable && type !== "checkbox" && type !== "ai_summary" && !(isPage && TEXT_KINDS.includes(type));
+  const summaryPopover = type === "ai_summary" && variant === "cell";
+  const noEditor = type === "checkbox" || (type === "ai_summary" && !summaryPopover);
+  const opensPopover = editable && !noEditor && !(isPage && TEXT_KINDS.includes(type));
   const start = (target?: Element | null) => {
-    if (!editable || type === "checkbox" || type === "ai_summary") return;
+    if (!editable || noEditor) return;
     if (isPage && TEXT_KINDS.includes(type)) {
       setInline(true);
       return;
@@ -423,6 +425,8 @@ export default function PropertyValue({ note: noteIn, prop: propIn, properties, 
         return <DatePicker value={asDate(value)} includeTime={!!prop.config.includeTime} timezone={env.timezone} anchor={open} onClose={close} onSave={(v) => setValue(v)} />;
       case "files":
         return <FilesEditor files={asArray<FileValue>(value)} anchor={open} onClose={close} onChange={(f) => setValue(f.length ? f : null)} />;
+      case "ai_summary":
+        return summaryPopover ? <AiSummaryPopover text={asString(value)} anchor={open} busy={aiBusy} error={aiErr} onRun={() => void summarize()} onClose={close} /> : null;
       case "text":
       case "number":
       case "url":
@@ -466,7 +470,7 @@ export default function PropertyValue({ note: noteIn, prop: propIn, properties, 
         className={cls}
         onClick={editable ? onBoxClick : undefined}
         role={opensPopover || (isPage && editable && TEXT_KINDS.includes(type)) ? "button" : undefined}
-        tabIndex={editable && type !== "checkbox" && type !== "ai_summary" ? 0 : undefined}
+        tabIndex={editable && !noEditor ? 0 : undefined}
         onKeyDown={(e) => {
           if (e.target !== e.currentTarget) return;
           if (e.key === "Enter" || e.key === " ") {
