@@ -5,13 +5,15 @@
 // Want another look for all covers? Change COVER_STYLE only.
 import { COVERS } from "@/lib/covers";
 
-/** The "brand" of every cover. Colors are named (image models follow names better than hex codes). */
+/** The "brand" of every cover. Colors are named (image models follow names better than hex codes).
+ *  The background must be ONE flat color and nothing may touch the edges: that is what lets src/lib/cover-fit.ts cut the picture
+ *  tight around the subject and blend it into any frame (page cover, gallery cards of every size). */
 export const COVER_STYLE = [
   "Flat minimalist vector illustration in a calm editorial style:",
-  "soft rounded geometric shapes, a limited palette of warm cream background, deep teal, dusty coral and a touch of mustard,",
-  "subtle paper grain, soft gentle shadows, lots of empty space.",
-  "Wide banner composition: the main subject centered in the middle band, with plain empty space above and below so it survives a wide crop.",
-  "No text, no letters, no numbers, no logos, no watermark, no border, no human faces.",
+  "soft rounded geometric shapes in a limited palette of deep teal, dusty coral and a touch of mustard,",
+  "on a plain solid flat warm cream background: one single color, no gradient, no vignette, no texture, no grain, no shadows on the background.",
+  "Centered composition with generous empty margins on all sides: nothing touches or crosses the edges of the picture.",
+  "No text, no letters, no numbers, no logos, no watermark, no border, no frame, no human faces.",
 ].join(" ");
 
 /** Characters of the note sent to the AI (a cover only needs the gist). */
@@ -27,6 +29,7 @@ export const COVER_SYSTEM = [
   '"idea": the single idea or feeling a reader should get at a glance,',
   '"metaphor": ONE simple, concrete object or scene that stands for that idea. Prefer a clear everyday object over an abstract concept. Never a screenshot of the text, never anything with writing on it,',
   '"scene": what the picture shows, max 45 words: the main subject in the center plus one to three small supporting elements. Only what is visible. Do not mention style, colors, mood words or the medium (those are added separately).',
+  "Prefer a horizontal arrangement (elements side by side) over a tall stack: the picture is shown in a wide frame.",
   "Write every value in English, even if the note is in another language.",
   "If the user gives a DIRECTION, follow it for the metaphor and scene.",
 ].join("\n");
@@ -74,9 +77,24 @@ export function buildImagePrompt(scene: string): string {
   return `${s}. ${COVER_STYLE}`;
 }
 
-/** A cover made of colors, a gradient, nothing, or an earlier AI picture may be replaced by the bulk button; the user's own pictures never. */
+/** What is kept in the note about its last AI picture: the prompt, whoever wrote it (the AI's scene, your idea, or both). */
+export type CoverPromptRecord = { prompt: string; scene: string; idea: string; at: string };
+
+export function promptRecord(scene: string, idea?: string | null, at = new Date().toISOString()): CoverPromptRecord {
+  return { prompt: buildImagePrompt(scene), scene: clean(scene, SCENE_MAX), idea: (idea ?? "").replace(/\s+/g, " ").trim().slice(0, IDEA_MAX), at };
+}
+
+// ---- how an AI cover is marked in the note: ".../covers/ai-xxxx.webp#bg=f3ebdd" (the "#bg" is the picture's background color)
+const AI_COVER = /\/covers\/ai-/;
+export const isAiCover = (cover: string | null | undefined) => !!cover && AI_COVER.test(cover);
+/** The background color (6 hex digits) of a fitted AI cover, or null. */
+export const coverBg = (cover: string | null | undefined): string | null => /#bg=([0-9a-f]{6})$/i.exec(cover ?? "")?.[1]?.toLowerCase() ?? null;
+export const withCoverBg = (url: string, hex: string) => `${url.replace(/#.*$/, "")}#bg=${hex}`;
+/** An AI cover made before fitting existed (no background color): it can be fitted again without asking the AI. */
+export const needsFit = (cover: string | null | undefined) => isAiCover(cover) && !coverBg(cover);
+
+/** The bulk button may put a new picture on a note with no cover, or with a color or gradient. Its own pictures and AI covers are never replaced (an AI cover is changed from the note: “Try another”). */
 export function isReplaceableCover(cover: string | null | undefined): boolean {
   if (!cover) return true;
-  if (COVERS.some((c) => c.id === cover)) return true;
-  return /\/covers\/ai-/.test(cover);
+  return COVERS.some((c) => c.id === cover);
 }

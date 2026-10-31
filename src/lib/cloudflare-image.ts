@@ -2,8 +2,11 @@
 // resets at 00:00 UTC). Needs CF_ACCOUNT_ID and CF_API_TOKEN (permission "Workers AI: Run") in Vercel. Guide: ACTIVAR-PORTADAS-IA.md
 const MODEL = "@cf/black-forest-labs/flux-1-schnell";
 
+/** A Vercel value without spaces, line breaks or the quotes people paste around it. */
+const envValue = (v: string | undefined) => (v ?? "").trim().replace(/^["']+|["']+$/g, "").trim();
+
 export function hasImageAi() {
-  return !!(process.env.CF_ACCOUNT_ID?.trim() && process.env.CF_API_TOKEN?.trim());
+  return !!(envValue(process.env.CF_ACCOUNT_ID) && envValue(process.env.CF_API_TOKEN));
 }
 
 export type ImageResult = { bytes: Uint8Array; mime: string } | { error: string; quota?: boolean };
@@ -15,16 +18,20 @@ export function imageErrorFrom(status: number, body: unknown): { error: string; 
   if (status === 429 || errs.some((e) => e?.code === 4006) || /neurons|daily free allocation|rate limit/i.test(msg)) {
     return { error: "Today's free picture quota on Cloudflare is used up (it resets at 00:00 UTC). Try again later.", quota: true };
   }
+  const detail = errs.length ? ` Cloudflare says: ${errs.map((e) => `${e?.code ?? "?"} ${e?.message ?? ""}`.trim()).join("; ").slice(0, 200)}.` : ` (HTTP ${status})`;
   if (status === 401 || status === 403 || errs.some((e) => e?.code === 10000)) {
-    return { error: "Cloudflare didn't accept the token. Check CF_API_TOKEN (permission “Workers AI: Run”) and CF_ACCOUNT_ID in Vercel." };
+    return { error: `Cloudflare didn't accept the token.${detail} Usual causes: the token was made for another account, it lacks the “Workers AI” permission, or CF_ACCOUNT_ID isn't the account's ID.` };
+  }
+  if (status === 404 || errs.some((e) => e?.code === 7003)) {
+    return { error: `Cloudflare can't find that account.${detail} Check CF_ACCOUNT_ID in Vercel (the 32-character ID).` };
   }
   if (/flagged|nsfw|safety/i.test(msg)) return { error: "Cloudflare refused that picture. Try again for a different one." };
   return { error: msg ? `Cloudflare: ${msg.slice(0, 200)}` : `Cloudflare answered ${status}. Try again.` };
 }
 
 export async function generateImage(prompt: string, timeoutMs = 40000): Promise<ImageResult> {
-  const account = process.env.CF_ACCOUNT_ID?.trim();
-  const token = process.env.CF_API_TOKEN?.trim();
+  const account = envValue(process.env.CF_ACCOUNT_ID);
+  const token = envValue(process.env.CF_API_TOKEN);
   if (!account || !token) return { error: "Pictures aren't connected: CF_ACCOUNT_ID and CF_API_TOKEN are missing in Vercel (see ACTIVAR-PORTADAS-IA.md)." };
   try {
     const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(account)}/ai/run/${MODEL}`, {

@@ -22,5 +22,8 @@ export function coverStyle(cover: string | null | undefined, y = 50): React.CSSP
   if (!cover) return {};
   const g = COVERS.find((c) => c.id === cover);
   if (g) return { background: g.css };
+  // An AI cover ("…#bg=f3ebdd") is shown whole, centered, over its own background color: it fits any frame, no repositioning
+  const ai = /^(.*)#bg=([0-9a-f]{6})$/i.exec(cover);
+  if (ai) return { backgroundColor: `#${ai[2]}`, backgroundImage: `url("${ai[1].replace(/"/g, "%22")}")`, backgroundSize: "contain", backgroundPosition: "center", backgroundRepeat: "no-repeat" };
   return { backgroundImage: `url("${cover.replace(/"/g, "%22")}")`, backgroundPosition: `center ${y}%` };
 }

@@ -28,6 +28,7 @@ import { COVERS, coverStyle } from "@/lib/covers";
 
 import { WritingTextarea } from "@/components/WritingField";
 import { showAiUsage } from "@/lib/ai-usage-client";
+import { coverBg } from "@/lib/cover-art";
 export default function NoteEditor({
   id,
   title,
@@ -279,7 +280,7 @@ export default function NoteEditor({
                   <button type="button" onClick={(e) => setPop({ kind: "cover", rect: rectOf(e) })}>
                     Change cover
                   </button>
-                  {!COVERS.some((c) => c.id === page.cover) && (
+                  {!COVERS.some((c) => c.id === page.cover) && !coverBg(page.cover) && (
                     <button type="button" onClick={() => setRepositioning(true)}>
                       Reposition
                     </button>
@@ -391,7 +392,7 @@ export default function NoteEditor({
           />
         </Popover>
       )}
-      {pop?.kind === "cover" && <CoverPicker noteId={id} rect={pop.rect} onClose={() => setPop(null)} onPick={(c) => (void setting({ cover: c, coverY: 50 }), setCoverY(50), setPop(null))} />}
+      {pop?.kind === "cover" && <CoverPicker noteId={id} rect={pop.rect} last={page.coverPrompt ?? null} onClose={() => setPop(null)} onPick={(c, prompt) => (void setting({ cover: c, coverY: 50, ...(prompt ? { coverPrompt: prompt } : {}) }), setCoverY(50), setPop(null))} />}
       {pop?.kind === "backlinks" && (
         <Popover rect={pop.rect} onClose={() => setPop(null)} width={280} className="n-menu">
           <div className="p-1">
@@ -494,16 +495,17 @@ function Toggle({ label, on, onClick }: { label: string; on: boolean; onClick: (
   return <MenuItem label={label} onClick={onClick} right={<span className={`n-switch ${on ? "is-on" : ""}`} />} />;
 }
 
-type AiCover = { ok?: boolean; url?: string; scene?: string; usage?: string | null; error?: string };
+type CoverPrompt = NonNullable<PageSettings["coverPrompt"]>;
+type AiCover = { ok?: boolean; url?: string; scene?: string; usage?: string | null; error?: string; record?: CoverPrompt | null };
 
-function CoverPicker({ noteId, rect, onPick, onClose }: { noteId: string; rect: Rect; onPick: (c: string | null) => void; onClose: () => void }) {
+function CoverPicker({ noteId, rect, last, onPick, onClose }: { noteId: string; rect: Rect; last: CoverPrompt | null; onPick: (c: string | null, prompt?: CoverPrompt) => void; onClose: () => void }) {
   const [tab, setTab] = useState<"gallery" | "ai" | "upload" | "link">("gallery");
   const [link, setLink] = useState("");
   const [busy, setBusy] = useState(false);
   // ✨ AI: the picture is made from the note, shown here first, and only becomes the cover when you press Use
   const [idea, setIdea] = useState("");
   const [making, setMaking] = useState(false);
-  const [made, setMade] = useState<{ url: string; scene: string } | null>(null);
+  const [made, setMade] = useState<{ url: string; scene: string; record: CoverPrompt | null } | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const make = async () => {
     if (making) return;
@@ -513,7 +515,7 @@ function CoverPicker({ noteId, rect, onPick, onClose }: { noteId: string; rect: 
       const res = await fetch("/api/cover", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ noteId, idea }) });
       const r = (await res.json().catch(() => null)) as AiCover | null;
       if (r?.ok && r.url) {
-        setMade({ url: r.url, scene: r.scene ?? "" });
+        setMade({ url: r.url, scene: r.scene ?? "", record: r.record ?? null });
         showAiUsage(r.usage);
       } else setAiError(r?.error || "Couldn't make the cover. Try again.");
     } catch {
@@ -550,8 +552,7 @@ function CoverPicker({ noteId, rect, onPick, onClose }: { noteId: string; rect: 
         <div className="space-y-2 p-3">
           {made && (
             <div className="space-y-1">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={made.url} alt="" className="h-28 w-full rounded-md object-cover" />
+              <div className="h-28 w-full rounded-md" style={coverStyle(made.url)} aria-label="Preview" />
               {made.scene && <p className="text-xs text-faint">{made.scene}</p>}
             </div>
           )}
@@ -561,12 +562,33 @@ function CoverPicker({ noteId, rect, onPick, onClose }: { noteId: string; rect: 
               {making ? "Thinking and drawing…" : made ? "↻ Try another" : "✨ Make a cover from this note"}
             </button>
             {made && (
-              <button type="button" className="n-btn n-btn-primary flex-1" disabled={making} onClick={() => onPick(made.url)}>
+              <button type="button" className="n-btn n-btn-primary flex-1" disabled={making} onClick={() => onPick(made.url, made.record ?? undefined)}>
                 Use this cover
               </button>
             )}
           </div>
           {aiError && <p className="text-xs" style={{ color: "var(--n-red, #e16259)" }}>{aiError}</p>}
+          {last && (
+            <details className="rounded-md border border-line px-2 py-1.5 text-xs text-muted">
+              <summary className="cursor-pointer select-none">Last prompt used · {new Date(last.at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</summary>
+              <div className="mt-1.5 space-y-1.5">
+                {last.idea && (
+                  <p>
+                    <span className="text-faint">Your idea: </span>
+                    {last.idea}
+                  </p>
+                )}
+                <p>
+                  <span className="text-faint">Scene: </span>
+                  {last.scene}
+                </p>
+                <p className="text-faint">Full prompt sent to the image model: {last.prompt}</p>
+                <button type="button" className="n-btn" onClick={() => setIdea(last.idea || last.scene)}>
+                  Use as my idea
+                </button>
+              </div>
+            </details>
+          )}
           <p className="text-center text-xs text-faint">The AI reads the note, picks a simple image for it and draws it in the same style as your other covers. Takes ~10 s.</p>
         </div>
       )}

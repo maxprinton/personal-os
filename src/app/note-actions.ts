@@ -63,6 +63,8 @@ export type PageSettings = {
   icon?: string | null;
   cover?: string | null;
   coverY?: number | null;
+  /** The last prompt used to make the cover with AI (the AI's scene, your idea, and the full text sent to the image model). */
+  coverPrompt?: { prompt: string; scene: string; idea: string; at: string } | null;
   font?: "default" | "serif" | "mono";
   small?: boolean;
   full?: boolean;
@@ -72,7 +74,7 @@ export type PageSettings = {
   spellIgnore?: string[] | null;
 };
 
-const SETTING_KEYS: (keyof PageSettings)[] = ["icon", "cover", "coverY", "font", "small", "full", "locked", "toc", "spellIgnore"];
+const SETTING_KEYS: (keyof PageSettings)[] = ["icon", "cover", "coverY", "coverPrompt", "font", "small", "full", "locked", "toc", "spellIgnore"];
 
 /** Changes the page's icon, cover, font, width… (only the keys sent). */
 export async function savePageSettings(id: string, patch: PageSettings): Promise<{ ok?: boolean; error?: string; page?: PageSettings }> {

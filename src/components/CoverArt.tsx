@@ -1,17 +1,18 @@
 "use client";
 // 🖼 AI covers in the Notes bar: makes a cover for every selected note, one after the other, all in the same style.
-// Notes with a picture of their own (uploaded or a link) are skipped; colors, gradients and earlier AI covers are replaced.
+// Notes with a picture of their own (uploaded or a link) or an AI cover are skipped; colors and gradients are replaced;
+// AI covers made before the fitting existed are only cut and blended again (no AI used).
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { showAiUsage } from "@/lib/ai-usage-client";
 
 export const COVERS_PER_RUN = 20;
-type Res = { ok?: boolean; skipped?: boolean; quota?: boolean; error?: string; usage?: string | null };
+type Res = { ok?: boolean; skipped?: boolean; refit?: boolean; quota?: boolean; error?: string; usage?: string | null };
 
 export default function CoverArtButton({ getIds, count }: { getIds: () => string[]; count: number }) {
   const router = useRouter();
   const [phase, setPhase] = useState<"idle" | "ask" | "run" | "done">("idle");
-  const [prog, setProg] = useState({ i: 0, n: 0, made: 0, skipped: 0, failed: 0 });
+  const [prog, setProg] = useState({ i: 0, n: 0, made: 0, fitted: 0, skipped: 0, failed: 0 });
   const [note, setNote] = useState<string | null>(null);
   const stop = useRef(false);
 
@@ -20,13 +21,14 @@ export default function CoverArtButton({ getIds, count }: { getIds: () => string
     stop.current = false;
     setNote(null);
     let made = 0;
+    let fitted = 0;
     let skipped = 0;
     let failed = 0;
     let last: string | null = null;
     setPhase("run");
     for (let i = 0; i < ids.length; i++) {
       if (stop.current) break;
-      setProg({ i: i + 1, n: ids.length, made, skipped, failed });
+      setProg({ i: i + 1, n: ids.length, made, fitted, skipped, failed });
       let r: Res | null = null;
       try {
         const res = await fetch("/api/cover", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ noteId: ids[i], save: true }) });
@@ -35,7 +37,8 @@ export default function CoverArtButton({ getIds, count }: { getIds: () => string
         r = null;
       }
       if (r?.ok) {
-        made++;
+        if (r.refit) fitted++;
+        else made++;
         if (r.usage) last = r.usage;
       } else if (r?.skipped) skipped++;
       else {
@@ -44,7 +47,7 @@ export default function CoverArtButton({ getIds, count }: { getIds: () => string
         if (r?.quota) break;
       }
     }
-    setProg((p) => ({ ...p, made, skipped, failed }));
+    setProg((p) => ({ ...p, made, fitted, skipped, failed }));
     if (last) showAiUsage(last);
     setPhase("done");
     router.refresh();
@@ -64,7 +67,7 @@ export default function CoverArtButton({ getIds, count }: { getIds: () => string
     return (
       <span className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-muted">
-          Make covers for {Math.min(count, COVERS_PER_RUN)} note{count === 1 ? "" : "s"}? Notes with their own picture are skipped.
+          Make covers for {Math.min(count, COVERS_PER_RUN)} note{count === 1 ? "" : "s"}? Notes with their own picture or an AI cover are skipped; older AI covers are only re-fitted (free).
         </span>
         <button type="button" onClick={() => void run()} className="rounded-md border border-edge bg-subtle px-3 py-1.5 transition-colors hover:bg-hover">
           Start
@@ -79,7 +82,7 @@ export default function CoverArtButton({ getIds, count }: { getIds: () => string
     <>
       {phase === "done" && (
         <span className="text-sm text-muted" title={note ?? undefined}>
-          {prog.made} made{prog.skipped ? ` · ${prog.skipped} skipped` : ""}
+          {prog.made} made{prog.fitted ? ` · ${prog.fitted} re-fitted` : ""}{prog.skipped ? ` · ${prog.skipped} skipped` : ""}
           {prog.failed ? ` · ${prog.failed} failed${note ? `: ${note}` : ""}` : ""}
         </span>
       )}
