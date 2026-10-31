@@ -134,6 +134,7 @@ const FEATURE: Record<string, string> = {
   telegram: "Telegram (voice, photos, messages)",
   "notes-ai": "✨ AI in notes",
   "notes-summary": "AI summary property",
+  "cover-art": "AI covers (planning the picture)",
   writing: "Writing checker",
   voice: "Writing voice profile",
   "usage-check": "Usage checks (asking Groq what's left)",

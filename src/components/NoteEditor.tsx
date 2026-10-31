@@ -27,6 +27,7 @@ export { COVERS, coverStyle } from "@/lib/covers";
 import { COVERS, coverStyle } from "@/lib/covers";
 
 import { WritingTextarea } from "@/components/WritingField";
+import { showAiUsage } from "@/lib/ai-usage-client";
 export default function NoteEditor({
   id,
   title,
@@ -390,7 +391,7 @@ export default function NoteEditor({
           />
         </Popover>
       )}
-      {pop?.kind === "cover" && <CoverPicker rect={pop.rect} onClose={() => setPop(null)} onPick={(c) => (void setting({ cover: c, coverY: 50 }), setCoverY(50), setPop(null))} />}
+      {pop?.kind === "cover" && <CoverPicker noteId={id} rect={pop.rect} onClose={() => setPop(null)} onPick={(c) => (void setting({ cover: c, coverY: 50 }), setCoverY(50), setPop(null))} />}
       {pop?.kind === "backlinks" && (
         <Popover rect={pop.rect} onClose={() => setPop(null)} width={280} className="n-menu">
           <div className="p-1">
@@ -493,17 +494,41 @@ function Toggle({ label, on, onClick }: { label: string; on: boolean; onClick: (
   return <MenuItem label={label} onClick={onClick} right={<span className={`n-switch ${on ? "is-on" : ""}`} />} />;
 }
 
-function CoverPicker({ rect, onPick, onClose }: { rect: Rect; onPick: (c: string | null) => void; onClose: () => void }) {
-  const [tab, setTab] = useState<"gallery" | "upload" | "link">("gallery");
+type AiCover = { ok?: boolean; url?: string; scene?: string; usage?: string | null; error?: string };
+
+function CoverPicker({ noteId, rect, onPick, onClose }: { noteId: string; rect: Rect; onPick: (c: string | null) => void; onClose: () => void }) {
+  const [tab, setTab] = useState<"gallery" | "ai" | "upload" | "link">("gallery");
   const [link, setLink] = useState("");
   const [busy, setBusy] = useState(false);
+  // ✨ AI: the picture is made from the note, shown here first, and only becomes the cover when you press Use
+  const [idea, setIdea] = useState("");
+  const [making, setMaking] = useState(false);
+  const [made, setMade] = useState<{ url: string; scene: string } | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const make = async () => {
+    if (making) return;
+    setMaking(true);
+    setAiError(null);
+    try {
+      const res = await fetch("/api/cover", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ noteId, idea }) });
+      const r = (await res.json().catch(() => null)) as AiCover | null;
+      if (r?.ok && r.url) {
+        setMade({ url: r.url, scene: r.scene ?? "" });
+        showAiUsage(r.usage);
+      } else setAiError(r?.error || "Couldn't make the cover. Try again.");
+    } catch {
+      setAiError("Couldn't make the cover. Check your connection and try again.");
+    } finally {
+      setMaking(false);
+    }
+  };
   const file = useRef<HTMLInputElement>(null);
   return (
     <Popover rect={rect} onClose={onClose} width={420} className="n-menu">
       <div className="n-emoji-tabs">
-        {(["gallery", "upload", "link"] as const).map((k) => (
+        {(["gallery", "ai", "upload", "link"] as const).map((k) => (
           <button key={k} type="button" className={tab === k ? "is-on" : ""} onClick={() => setTab(k)}>
-            {k[0].toUpperCase() + k.slice(1)}
+            {k === "ai" ? "✨ AI" : k[0].toUpperCase() + k.slice(1)}
           </button>
         ))}
         <span className="flex-1" />
@@ -519,6 +544,30 @@ function CoverPicker({ rect, onPick, onClose }: { rect: Rect; onPick: (c: string
               <button key={c.id} type="button" title={c.label} onClick={() => onPick(c.id)} className="h-14 rounded-md transition-opacity hover:opacity-85" style={{ background: c.css }} />
             ))}
           </div>
+        </div>
+      )}
+      {tab === "ai" && (
+        <div className="space-y-2 p-3">
+          {made && (
+            <div className="space-y-1">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={made.url} alt="" className="h-28 w-full rounded-md object-cover" />
+              {made.scene && <p className="text-xs text-faint">{made.scene}</p>}
+            </div>
+          )}
+          <input value={idea} onChange={(e) => setIdea(e.target.value)} maxLength={300} placeholder="Idea for the picture (optional)" className="n-input w-full" onKeyDown={(e) => e.key === "Enter" && void make()} />
+          <div className="flex gap-2">
+            <button type="button" className={`n-btn flex-1 ${made ? "" : "n-btn-primary"}`} disabled={making} onClick={() => void make()}>
+              {making ? "Thinking and drawing…" : made ? "↻ Try another" : "✨ Make a cover from this note"}
+            </button>
+            {made && (
+              <button type="button" className="n-btn n-btn-primary flex-1" disabled={making} onClick={() => onPick(made.url)}>
+                Use this cover
+              </button>
+            )}
+          </div>
+          {aiError && <p className="text-xs" style={{ color: "var(--n-red, #e16259)" }}>{aiError}</p>}
+          <p className="text-center text-xs text-faint">The AI reads the note, picks a simple image for it and draws it in the same style as your other covers. Takes ~10 s.</p>
         </div>
       )}
       {tab === "upload" && (

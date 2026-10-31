@@ -7,6 +7,7 @@ import { COPY_KINDS, FORMATS, type CopyKind, type ExportFormat } from "@/lib/not
 import { getLiveNote } from "@/lib/note-export/live";
 import type { ExportNote } from "@/lib/note-export/model";
 import SummarizeNotes from "@/components/SummarizeNotes";
+import CoverArtButton from "@/components/CoverArt";
 import { isStaleBuildError, reloadOnce } from "@/lib/recover";
 
 type Lib = typeof import("@/lib/note-export");
@@ -409,6 +410,7 @@ export function NotesExportBar() {
         </button>
       )}
       <div className="ml-auto flex items-center gap-2">
+        <CoverArtButton getIds={() => [...ctx.selected]} count={n} />
         <SummarizeNotes getNotes={getNotes} count={n} />
         <ExportMenu getNotes={getNotes} count={n} />
       </div>
