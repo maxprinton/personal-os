@@ -73,6 +73,8 @@ export async function connectBot(_prev: ActionState): Promise<ActionState> {
       { command: "budget", description: "Budgets: spent, left" },
       { command: "movements", description: "Latest transactions (delete, account, receipt)" },
       { command: "unassigned", description: "Transactions without an account" },
+      { command: "categorize", description: "AI categorizes your uncategorized transactions" },
+      { command: "proposals", description: "New categories the AI suggests (create or skip)" },
       { command: "search", description: "Find tasks, notes, events, money: /search word" },
       { command: "notes", description: "Latest notes" },
       { command: "habits", description: "Streaks and today's habits" },

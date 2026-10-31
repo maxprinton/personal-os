@@ -19,6 +19,7 @@ import {
 } from "@/lib/bot/finance";
 import { cycleBefore, generateInsights, insightsView, noteView, setTime, settingsView, timeRows, toggleSetting } from "@/lib/bot/queries";
 import { undoById } from "@/lib/bot/undo";
+import { answerProposal } from "@/lib/bot/categorize";
 import { dayText } from "@/lib/bot-ahead";
 
 export type CallbackQuery = { id: string; data?: string; message?: { message_id?: number; chat: { id: number }; reply_markup?: unknown } };
@@ -299,6 +300,13 @@ async function route(c: Ctx, cq: CallbackQuery, chatId: number, msgId: number | 
     }
     case "bs":
       return pendingBalance(c, cq, chatId, msgId, id(a), b);
+    // ---- New categories proposed by the AI: ✓ create & apply · ✕ skip -------------------------
+    case "cp": {
+      const r = await answerProposal(c, id(a), b === "y");
+      await say(r.text, !r.ok);
+      // The answered row becomes its result; the other proposals keep their buttons
+      return swap(a, [[btn(r.text.slice(0, 58), "noop")]], r.text);
+    }
     case "md": {
       const t = await getTxn(c, id(a));
       if (!t || t.deleted_at) return say("Already deleted.", true);
@@ -402,6 +410,9 @@ async function route(c: Ctx, cq: CallbackQuery, chatId: number, msgId: number | 
       await say("OK");
       if (msgId) await editKb(chatId, msgId, []);
       return;
+
+    case "noop":
+      return say("Done ✓");
 
     default:
       return say("This button is from an older version.", true);

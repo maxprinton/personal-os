@@ -28,10 +28,14 @@ import { pk, type Kb } from "@/lib/bot/tg";
 import { savePendingTransaction } from "@/lib/capture";
 import { describe, type Parsed } from "@/lib/parse";
 import { startOfDay, usageReport, usageSummary } from "@/lib/ai-usage";
+import { runNightly } from "@/lib/auto-categorize";
+import { listProposals } from "@/lib/category-proposals";
+import { proposalsReply } from "@/lib/bot/categorize";
+import { localNow } from "@/lib/time";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 // Called by the database every 5 minutes (pg_cron + pg_net). Decides what to send to each linked Telegram chat.
 
@@ -142,6 +146,19 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings & { blockEn
     }
   }
 
+  // 🆕 New categories the AI proposed (last 36 h), asked once a day at the morning time with ✓ / ✕ buttons
+  {
+    const at = timeToMinutes(s.reminder_morning_time);
+    if (now.minutes >= at && now.minutes < at + WINDOW) {
+      const fresh = (await listProposals(admin, s.user_id).catch(() => [])).filter((p) => Date.now() - Date.parse(p.createdAt) < 36 * 3600_000);
+      const reply = proposalsReply(fresh, "🆕 The AI suggests new categories for transactions that didn't fit yours");
+      if (reply && (await claim(admin, s.user_id, "catprop", date))) {
+        await send(s.telegram_chat_id, reply.text, reply.kb);
+        sent++;
+      }
+    }
+  }
+
   // Money messages nobody picked an account for (10+ min): saved without one, so nothing is lost
   sent += await settlePendingAccounts(admin, s);
 
@@ -230,6 +247,18 @@ export async function POST(req: Request) {
       await runMaintenance(admin, u.user_id, u.timezone ?? "America/Guayaquil");
     } catch {
       // one user's problem must not stop the others
+    }
+  }
+  // ✨ Nightly (about 02:00 local): the AI categorizes whatever is still uncategorized and files proposals for new
+  // categories. Quiet on purpose: proposals reach Telegram in the morning, the rest shows on Finance with a ✨.
+  const nightStart = Date.now();
+  for (const u of (everyone ?? []) as { user_id: string; timezone: string | null }[]) {
+    try {
+      const now = localNow(u.timezone ?? "America/Guayaquil");
+      if (now.minutes < 120 || now.minutes >= 240 || Date.now() - nightStart > 20_000) continue;
+      if (await claim(admin, u.user_id, "autocat", now.date)) await runNightly(admin, u.user_id, 30_000);
+    } catch (e) {
+      console.error("nightly auto-categorize", e);
     }
   }
   // Scheduled note templates (Diario every day at 21:00…), with their Telegram notice

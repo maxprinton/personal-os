@@ -7,6 +7,8 @@ import type { ActionState } from "@/app/actions";
 import Modal, { btnPrimary, btnSecondary, inputCls } from "@/components/calendar/Modal";
 
 import { WritingInput } from "@/components/WritingField";
+import AutoCategorize from "@/components/AutoCategorize";
+import type { Proposal } from "@/lib/category-proposals";
 type Kind = "income" | "expense";
 export type ListTxn = {
   id: string;
@@ -33,11 +35,16 @@ export default function TransactionList({
   categories,
   accounts,
   today,
+  autoIds = [],
+  proposals = [],
 }: {
   txns: ListTxn[];
   categories: Cat[];
   accounts: Acc[];
   today: string;
+  /** Transactions whose category was chosen by the app (✨), not by you. */
+  autoIds?: string[];
+  proposals?: Proposal[];
 }) {
   const [q, setQ] = useState("");
   const [month, setMonth] = useState("all");
@@ -47,6 +54,7 @@ export default function TransactionList({
   const [editing, setEditing] = useState<ListTxn | null>(null);
 
   const catById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
+  const autoSet = useMemo(() => new Set(autoIds), [autoIds]);
   const accName = useMemo(() => new Map(accounts.map((a) => [a.id, a.name])), [accounts]);
   const months = useMemo(() => [...new Set(txns.map((t) => t.localDate.slice(0, 7)))].sort().reverse(), [txns]);
 
@@ -54,7 +62,11 @@ export default function TransactionList({
     const needle = q.trim().toLowerCase();
     return txns.filter((t) => {
       if (month !== "all" && !t.localDate.startsWith(month)) return false;
-      if (cat === "none" ? t.category_id : cat !== "all" && t.category_id !== cat) return false;
+      if (cat === "none") {
+        if (t.category_id) return false;
+      } else if (cat === "auto") {
+        if (!autoSet.has(t.id)) return false;
+      } else if (cat !== "all" && t.category_id !== cat) return false;
       if (acc === "none" ? t.account_id : acc !== "all" && t.account_id !== acc) return false;
       if (!needle) return true;
       const hay = [
@@ -67,7 +79,7 @@ export default function TransactionList({
         .toLowerCase();
       return hay.includes(needle);
     });
-  }, [txns, q, month, cat, acc, catById, accName]);
+  }, [txns, q, month, cat, acc, catById, accName, autoSet]);
 
   const filtering = q.trim() !== "" || month !== "all" || cat !== "all" || acc !== "all";
   const spent = filtered.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
@@ -84,6 +96,18 @@ export default function TransactionList({
 
   return (
     <div className="space-y-2">
+      <AutoCategorize
+        uncategorized={txns.filter((t) => !t.category_id).length}
+        autoCount={autoIds.length}
+        proposals={proposals}
+        onShow={(f) => {
+          setCat(f);
+          setQ("");
+          setMonth("all");
+          setAcc("all");
+          setLimit(PAGE);
+        }}
+      />
       <div className="flex flex-wrap gap-2">
         <input
           value={q}
@@ -104,6 +128,7 @@ export default function TransactionList({
         <select value={cat} onChange={(e) => { setCat(e.target.value); setLimit(PAGE); }} aria-label="Category" className={`${sel} max-w-[11rem]`}>
           <option value="all">All categories</option>
           <option value="none">Uncategorized</option>
+          {autoIds.length > 0 && <option value="auto">✨ Auto-categorized</option>}
           {categories.map((c) => (
             <option key={c.id} value={c.id}>{c.name}{c.kind === "income" ? " (income)" : ""}</option>
           ))}
@@ -150,6 +175,7 @@ export default function TransactionList({
                     {[t.description ? c?.name ?? "Uncategorized" : null, t.account_id ? accName.get(t.account_id) ?? "Removed account" : accounts.length ? "Unassigned" : null]
                       .filter(Boolean)
                       .join(" · ")}
+                    {autoSet.has(t.id) && <span className="text-accent" title="The app chose this category — tap to change it"> · ✨ auto</span>}
                     {isAdj && <span className="text-warning"> · tap to say what it was</span>}
                   </span>
                 </span>

@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { importBankCsv, importCalendar, importNotes, type ImportState } from "@/app/import-actions";
+import AutoCategorize from "@/components/AutoCategorize";
 
 const box = "space-y-3 rounded-lg border border-line p-4 bg-surface shadow-card";
 const btn = "rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-1.5 text-sm text-accent-fg disabled:opacity-50";
@@ -37,6 +38,7 @@ export function BankImport({ accounts }: { accounts: { id: string; name: string 
       </div>
       <button disabled={pending} className={btn}>{pending ? "Importing..." : "Import transactions"}</button>
       <Result s={s} />
+      {s.message && s.at ? <AutoCategorize key={s.at} autoStart /> : null}
     </form>
   );
 }

@@ -28,6 +28,7 @@ import { getDuePayments, getPaymentTemplates } from "@/lib/calendar/payments";
 import { describeRepeat } from "@/lib/calendar/recurrence";
 import { addDays } from "@/lib/time";
 import { isMobileRequest } from "@/lib/device";
+import { listProposals } from "@/lib/category-proposals";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,10 @@ export default async function FinancePage() {
   const userId = await currentUserId(supabase);
   const mobile = await isMobileRequest();
   const templates = userId ? await getPaymentTemplates(supabase, userId) : [];
+  // ✨ Categories chosen by the app, and new ones it proposes (both quietly empty until migration 0026 is run)
+  const autoRes = await supabase.from("transactions").select("id").is("deleted_at", null).not("category_id", "is", null).not("auto_category", "is", null).limit(1000);
+  const autoIds = autoRes.error ? [] : ((autoRes.data ?? []) as { id: string }[]).map((r) => r.id);
+  const proposals = userId ? await listProposals(supabase, userId).catch(() => []) : [];
   const due = userId ? await getDuePayments(supabase, userId, today) : [];
   // Payment events of the last month and the next one: upcoming ones can be paid early, paid ones show what was recorded
   const { data: payEventsData } = await supabase
@@ -177,6 +182,8 @@ export default async function FinancePage() {
               categories={categories.map((c) => ({ id: c.id, name: c.name, kind: c.kind }))}
               accounts={accountOpts}
               today={today}
+              autoIds={autoIds}
+              proposals={proposals}
             />
           </section>
 

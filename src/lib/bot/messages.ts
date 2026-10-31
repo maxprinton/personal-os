@@ -21,6 +21,7 @@ import { habitsView, insightsView, logMetric, metricDefs, metricsView, notesView
 import { handleReply } from "@/lib/bot/replies";
 import { askNotes, askQuestion } from "@/lib/bot/ask";
 import { undoLast } from "@/lib/bot/undo";
+import { categorizeView, proposalsView } from "@/lib/bot/categorize";
 import { markUsageReported, refreshFromGroq, scopeUsageLine, startOfDay, usageReport, usageSummary, withAiUsage } from "@/lib/ai-usage";
 import { addDays } from "@/lib/time";
 
@@ -45,6 +46,8 @@ const W = {
   tasks: ["/tareas", "tareas", "/tasks", "tasks", "/todo", "mis tareas", "todas las tareas", "all tasks"],
   archived: ["/archivadas", "archivadas", "/archived", "archived", "/archivo"],
   payments: ["/pagos", "pagos", "/payments", "payments", "/bills", "bills", "que tengo que pagar", "por pagar"],
+  categorize: ["/categorizar", "categorizar", "/categorize", "categorize", "/autocat", "/categorias", "categorias automaticas"],
+  proposals: ["/propuestas", "propuestas", "/proposals", "proposals", "/nuevascategorias"],
   unassigned: ["/sincuenta", "sincuenta", "sin cuenta", "/unassigned", "unassigned", "/no_account"],
   budget: ["/presupuesto", "/presupuestos", "presupuesto", "presupuestos", "/budget", "/budgets", "budget", "budgets"],
   movements: ["/movimientos", "movimientos", "/movements", "movements", "/txns", "/transactions", "transactions", "ultimos movimientos", "/recent"],
@@ -259,6 +262,11 @@ async function views(c: Ctx, text: string): Promise<boolean> {
     if (isOneOf(text, W.archived)) return await hit(archivedView(c));
     if (isOneOf(text, W.payments)) return await hit(paymentsView(c));
     if (isOneOf(text, W.unassigned)) return await hit(unassignedView(c, 0));
+    if (isOneOf(text, W.categorize)) {
+      await send(chatId, "✨ Reading your uncategorized transactions…");
+      return await hit(categorizeView(c));
+    }
+    if (isOneOf(text, W.proposals)) return await hit(proposalsView(c));
     if (isOneOf(text, W.budget)) return await hit(budgetView(c));
     if (isOneOf(text, W.movements)) return await hit(movementsView(c));
     if (isOneOf(text, W.notes)) return await hit(notesView(c));

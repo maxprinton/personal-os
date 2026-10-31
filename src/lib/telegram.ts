@@ -52,6 +52,7 @@ export const HELP = [
   "LOOK",
   "/today /now /tomorrow /week /nextweek /day friday",
   "/tasks /archived /payments /balance /budget /movements /unassigned",
+  "/categorize → the AI categorizes your uncategorized transactions · /proposals → new categories it suggests (✓ create · ✕ skip)",
   "/search word /notes /habits /metrics /insights /settings /menu",
   "/usage → how much of the free AI you used today and what's left",
   "",
