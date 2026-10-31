@@ -392,7 +392,7 @@ export default function NoteEditor({
           />
         </Popover>
       )}
-      {pop?.kind === "cover" && <CoverPicker noteId={id} rect={pop.rect} last={page.coverPrompt ?? null} onClose={() => setPop(null)} onPick={(c, prompt) => (void setting({ cover: c, coverY: 50, ...(prompt ? { coverPrompt: prompt } : {}) }), setCoverY(50), setPop(null))} />}
+      {pop?.kind === "cover" && <CoverPicker noteId={id} rect={pop.rect} last={page.coverPrompt ?? null} onMade={(rec) => setPage((p) => ({ ...p, coverPrompt: rec }))} onClose={() => setPop(null)} onPick={(c, prompt) => (void setting({ cover: c, coverY: 50, ...(prompt ? { coverPrompt: prompt } : {}) }), setCoverY(50), setPop(null))} />}
       {pop?.kind === "backlinks" && (
         <Popover rect={pop.rect} onClose={() => setPop(null)} width={280} className="n-menu">
           <div className="p-1">
@@ -496,10 +496,11 @@ function Toggle({ label, on, onClick }: { label: string; on: boolean; onClick: (
 }
 
 type CoverPrompt = NonNullable<PageSettings["coverPrompt"]>;
-type AiCover = { ok?: boolean; url?: string; scene?: string; usage?: string | null; error?: string; record?: CoverPrompt | null };
+type AiCover = { ok?: boolean; url?: string; scene?: string; usage?: string | null; error?: string; record?: CoverPrompt | null; promptSaved?: boolean; promptError?: string };
 
-function CoverPicker({ noteId, rect, last, onPick, onClose }: { noteId: string; rect: Rect; last: CoverPrompt | null; onPick: (c: string | null, prompt?: CoverPrompt) => void; onClose: () => void }) {
-  const [tab, setTab] = useState<"gallery" | "ai" | "upload" | "link">("gallery");
+function CoverPicker({ noteId, rect, last, onMade, onPick, onClose }: { noteId: string; rect: Rect; last: CoverPrompt | null; onMade: (record: CoverPrompt) => void; onPick: (c: string | null, prompt?: CoverPrompt) => void; onClose: () => void }) {
+  const [tab, setTab] = useState<"gallery" | "ai" | "upload" | "link">(last ? "ai" : "gallery");
+  const [promptNote, setPromptNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [link, setLink] = useState("");
   const [busy, setBusy] = useState(false);
   // ✨ AI: the picture is made from the note, shown here first, and only becomes the cover when you press Use
@@ -511,11 +512,14 @@ function CoverPicker({ noteId, rect, last, onPick, onClose }: { noteId: string; 
     if (making) return;
     setMaking(true);
     setAiError(null);
+    setPromptNote(null);
     try {
       const res = await fetch("/api/cover", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ noteId, idea }) });
       const r = (await res.json().catch(() => null)) as AiCover | null;
       if (r?.ok && r.url) {
         setMade({ url: r.url, scene: r.scene ?? "", record: r.record ?? null });
+        if (r.record && r.promptSaved) onMade(r.record);
+        setPromptNote(r.promptSaved ? { ok: true, text: "✓ Prompt saved in this note" } : { ok: false, text: `Couldn't save the prompt${r.promptError ? `: ${r.promptError}` : "."}` });
         showAiUsage(r.usage);
       } else setAiError(r?.error || "Couldn't make the cover. Try again.");
     } catch {
@@ -568,8 +572,9 @@ function CoverPicker({ noteId, rect, last, onPick, onClose }: { noteId: string; 
             )}
           </div>
           {aiError && <p className="text-xs" style={{ color: "var(--n-red, #e16259)" }}>{aiError}</p>}
+          {promptNote && <p className="text-xs" style={promptNote.ok ? { color: "var(--n-muted, #787774)" } : { color: "var(--n-red, #e16259)" }}>{promptNote.text}</p>}
           {last && (
-            <details className="rounded-md border border-line px-2 py-1.5 text-xs text-muted">
+            <details open className="rounded-md border border-line px-2 py-1.5 text-xs text-muted">
               <summary className="cursor-pointer select-none">Last prompt used · {new Date(last.at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</summary>
               <div className="mt-1.5 space-y-1.5">
                 {last.idea && (

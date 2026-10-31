@@ -12,7 +12,7 @@ import { generateImage, hasImageAi } from "@/lib/cloudflare-image";
 import { fitCover } from "@/lib/cover-fit";
 
 export type CoverResult =
-  | { ok: true; url: string; scene: string; about: string; usage: string | null; saved: boolean; record: CoverPromptRecord | null; refit?: boolean }
+  | { ok: true; url: string; scene: string; about: string; usage: string | null; saved: boolean; record: CoverPromptRecord | null; promptSaved: boolean; promptError?: string; refit?: boolean }
   | { ok?: false; error: string; skipped?: boolean; quota?: boolean };
 
 const urlFor = (path: string) => `/api/files/${path.split("/").map(encodeURIComponent).join("/")}`;
@@ -43,7 +43,7 @@ async function refitCover(sb: SupabaseClient, userId: string, noteId: string, co
   const r = await savePageSettings(noteId, { cover: stored.url, coverY: 50 });
   if (r.error) return { error: r.error };
   revalidatePath(`/notes/${noteId}`);
-  return { ok: true, url: stored.url, scene: "", about: "", usage: null, saved: true, record: null, refit: true };
+  return { ok: true, url: stored.url, scene: "", about: "", usage: null, saved: true, record: null, promptSaved: false, refit: true };
 }
 
 export async function makeCover(sb: SupabaseClient, userId: string, noteId: string, opts: { idea?: string; save?: boolean; force?: boolean } = {}): Promise<CoverResult> {
@@ -88,14 +88,13 @@ export async function makeCover(sb: SupabaseClient, userId: string, noteId: stri
   const stored = await storePicture(sb, userId, noteId, img.bytes, img.mime);
   if ("error" in stored) return stored;
 
+  // The prompt is kept in the note (Supabase, notes.page.coverPrompt) as soon as the picture exists, whether or not it ends up as the cover.
+  // With save (bulk mode) the picture becomes the cover in the same write.
   const record = promptRecord(plan.scene, opts.idea);
-  let saved = false;
-  if (opts.save) {
-    const { savePageSettings } = await import("@/app/note-actions");
-    const r = await savePageSettings(noteId, { cover: stored.url, coverY: 50, coverPrompt: record });
-    if (r.error) return { error: r.error };
-    saved = true;
-    revalidatePath(`/notes/${noteId}`);
-  }
-  return { ok: true, url: stored.url, scene: plan.scene, about: plan.about, usage, saved, record };
+  const { savePageSettings } = await import("@/app/note-actions");
+  const w = await savePageSettings(noteId, opts.save ? { cover: stored.url, coverY: 50, coverPrompt: record } : { coverPrompt: record });
+  if (opts.save && w.error) return { error: w.error };
+  if (opts.save) revalidatePath(`/notes/${noteId}`);
+  const saved = !!opts.save;
+  return { ok: true, url: stored.url, scene: plan.scene, about: plan.about, usage, saved, record, promptSaved: !w.error, ...(w.error ? { promptError: w.error } : {}) };
 }
