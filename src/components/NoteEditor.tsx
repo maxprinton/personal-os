@@ -9,7 +9,7 @@ import { useRouter } from "next/navigation";
 import type { Editor } from "@tiptap/core";
 import { appendToNote, autosaveNote, createSubpage, deletePage, duplicateNote, moveNote, savePageSettings, type PageSettings } from "@/app/note-actions";
 import { setLiveNote } from "@/lib/note-export/live";
-import { uploadNoteFile } from "@/lib/note-files";
+import { readClipboardImage, uploadNoteFile } from "@/lib/note-files";
 import type { PageRef } from "@/lib/editor/context";
 import { randomEmoji } from "@/lib/editor/emoji";
 import RichEditor from "@/components/editor/LazyRichEditor"; // loads the editor only when a note is shown
@@ -199,6 +199,38 @@ export default function NoteEditor({
 
   const locked = !!page.locked;
 
+  // 📋 Paste the cover from the clipboard in one click (button, or a click on the cover itself)
+  const [pasting, setPasting] = useState(false);
+  const [coverToast, setCoverToast] = useState<null | { text: string; error?: boolean; undo?: () => void }>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function flashCover(text: string, opts: { error?: boolean; undo?: () => void } = {}) {
+    setCoverToast({ text, ...opts });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setCoverToast(null), opts.undo ? 7000 : 4000);
+  }
+  async function pasteCover() {
+    if (pasting || locked) return;
+    setPasting(true);
+    try {
+      const clip = await readClipboardImage();
+      if ("error" in clip) return flashCover(clip.error, { error: true });
+      const up = await uploadNoteFile(clip.file);
+      if (!up) return flashCover("Couldn't upload the image (max 50 MB).", { error: true });
+      const prev = { cover: page.cover ?? null, coverY: page.coverY ?? 50 };
+      setCoverY(50);
+      await setting({ cover: up.url, coverY: 50 });
+      flashCover("Cover pasted", {
+        undo: () => {
+          setCoverY(prev.coverY);
+          void setting({ cover: prev.cover, coverY: prev.coverY });
+          setCoverToast(null);
+        },
+      });
+    } finally {
+      setPasting(false);
+    }
+  }
+
   /** ✨ from the top bar or the ⋯ menu: summary goes at the top, "Ask AI" writes at the end of the page. */
   function openAi(mode: AiMode, rect?: Rect) {
     setPop(null);
@@ -262,7 +294,16 @@ export default function NoteEditor({
       </div>
 
       {page.cover && (
-        <div className={`n-cover ${repositioning ? "is-repositioning" : ""}`} style={coverStyle(page.cover, coverY)} onMouseDown={startReposition}>
+        <div
+          className={`n-cover ${repositioning ? "is-repositioning" : ""} ${!locked && !repositioning ? "is-pasteable" : ""}`}
+          style={coverStyle(page.cover, coverY)}
+          onMouseDown={startReposition}
+          title={!locked && !repositioning ? "Click to paste the image from your clipboard" : undefined}
+          onClick={(e) => {
+            if (locked || repositioning || (e.target as HTMLElement).closest(".n-cover-actions")) return;
+            void pasteCover();
+          }}
+        >
           {repositioning && <span className="n-cover-hint">Drag image to reposition</span>}
           {!locked && (
             <div className="n-cover-actions">
@@ -277,6 +318,9 @@ export default function NoteEditor({
                 </>
               ) : (
                 <>
+                  <button type="button" disabled={pasting} onClick={() => void pasteCover()}>
+                    {pasting ? "Pasting…" : "📋 Paste"}
+                  </button>
                   <button type="button" onClick={(e) => setPop({ kind: "cover", rect: rectOf(e) })}>
                     Change cover
                   </button>
@@ -315,6 +359,11 @@ export default function NoteEditor({
               {!page.cover && (
                 <button type="button" onClick={() => void setting({ cover: COVERS[Math.floor(Math.random() * 8)].id, coverY: 50 })}>
                   🖼 Add cover
+                </button>
+              )}
+              {!page.cover && (
+                <button type="button" disabled={pasting} onClick={() => void pasteCover()} title="Use the image in your clipboard as the cover">
+                  {pasting ? "Pasting…" : "📋 Paste cover"}
                 </button>
               )}
             </div>
@@ -392,7 +441,17 @@ export default function NoteEditor({
           />
         </Popover>
       )}
-      {pop?.kind === "cover" && <CoverPicker noteId={id} rect={pop.rect} last={page.coverPrompt ?? null} onMade={(rec) => setPage((p) => ({ ...p, coverPrompt: rec }))} onClose={() => setPop(null)} onPick={(c, prompt) => (void setting({ cover: c, coverY: 50, ...(prompt ? { coverPrompt: prompt } : {}) }), setCoverY(50), setPop(null))} />}
+      {pop?.kind === "cover" && <CoverPicker noteId={id} rect={pop.rect} last={page.coverPrompt ?? null} onPaste={() => (setPop(null), void pasteCover())} onMade={(rec) => setPage((p) => ({ ...p, coverPrompt: rec }))} onClose={() => setPop(null)} onPick={(c, prompt) => (void setting({ cover: c, coverY: 50, ...(prompt ? { coverPrompt: prompt } : {}) }), setCoverY(50), setPop(null))} />}
+      {coverToast && (
+        <div className={`n-cover-toast ${coverToast.error ? "is-error" : ""}`} role="status">
+          <span>{coverToast.text}</span>
+          {coverToast.undo && (
+            <button type="button" onClick={coverToast.undo}>
+              Undo
+            </button>
+          )}
+        </div>
+      )}
       {pop?.kind === "backlinks" && (
         <Popover rect={pop.rect} onClose={() => setPop(null)} width={280} className="n-menu">
           <div className="p-1">
@@ -498,7 +557,7 @@ function Toggle({ label, on, onClick }: { label: string; on: boolean; onClick: (
 type CoverPrompt = NonNullable<PageSettings["coverPrompt"]>;
 type AiCover = { ok?: boolean; url?: string; scene?: string; usage?: string | null; error?: string; record?: CoverPrompt | null; promptSaved?: boolean; promptError?: string };
 
-function CoverPicker({ noteId, rect, last, onMade, onPick, onClose }: { noteId: string; rect: Rect; last: CoverPrompt | null; onMade: (record: CoverPrompt) => void; onPick: (c: string | null, prompt?: CoverPrompt) => void; onClose: () => void }) {
+function CoverPicker({ noteId, rect, last, onMade, onPick, onPaste, onClose }: { noteId: string; rect: Rect; last: CoverPrompt | null; onMade: (record: CoverPrompt) => void; onPick: (c: string | null, prompt?: CoverPrompt) => void; onPaste: () => void; onClose: () => void }) {
   const [tab, setTab] = useState<"gallery" | "ai" | "upload" | "link">(last ? "ai" : "gallery");
   const [promptNote, setPromptNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [link, setLink] = useState("");
@@ -599,6 +658,9 @@ function CoverPicker({ noteId, rect, last, onMade, onPick, onClose }: { noteId: 
       )}
       {tab === "upload" && (
         <div className="space-y-2 p-3">
+          <button type="button" className="n-btn n-btn-primary w-full" onClick={onPaste}>
+            📋 Paste image from clipboard
+          </button>
           <button type="button" className="n-btn w-full" disabled={busy} onClick={() => file.current?.click()}>
             {busy ? "Uploading…" : "Upload file"}
           </button>

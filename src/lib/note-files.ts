@@ -25,3 +25,21 @@ export async function uploadNoteFile(file: File): Promise<{ url: string; name: s
   }
   return { url: `/api/files/${path.split("/").map(encodeURIComponent).join("/")}`, name: file.name || "file", size: file.size };
 }
+
+/** Reads the image that is in the clipboard (the browser asks permission the first time). */
+export async function readClipboardImage(): Promise<{ file: File } | { error: string }> {
+  if (typeof navigator === "undefined" || !navigator.clipboard?.read) return { error: "This browser can't read the clipboard. Use Upload instead." };
+  try {
+    const items = await navigator.clipboard.read();
+    for (const item of items) {
+      const type = item.types.find((t) => t.startsWith("image/"));
+      if (!type) continue;
+      const blob = await item.getType(type);
+      const ext = (type.split("/")[1] ?? "png").replace("jpeg", "jpg").replace(/\+.*$/, "");
+      return { file: new File([blob], `pasted-cover.${ext}`, { type }) };
+    }
+    return { error: "There's no image in the clipboard. Copy an image first." };
+  } catch (e) {
+    return { error: e instanceof DOMException && e.name === "NotAllowedError" ? "Allow clipboard access in the browser to paste." : "Couldn't read the clipboard." };
+  }
+}
