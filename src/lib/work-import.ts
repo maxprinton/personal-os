@@ -12,6 +12,8 @@ export type ImportRow = {
   /** $ per hour when the table has a money column; null → use your default rate. */
   rate: number | null;
   video_url: string | null;
+  /** Text in parentheses after the class name ("B2-7 (RECUPERADO SAB 5 9AM)") goes here. */
+  notes: string | null;
   line: number; // 1-based line in the pasted text (for error messages)
 };
 
@@ -152,10 +154,18 @@ const HEADERS: Record<"group" | "when" | "url" | "hours" | "money", string[]> = 
   money: ["dinero", "money", "pay", "pago", "amount", "monto"],
 };
 
+/** "6", "$6.00", "1,5" → number. Anything else (a link, "attachment:…") → null. */
 const num = (s: string | undefined) => {
-  const n = Number(String(s ?? "").replace(/[^0-9.,-]/g, "").replace(",", "."));
-  return s && Number.isFinite(n) && n >= 0 && /\d/.test(s) ? n : null;
+  const t = String(s ?? "").trim().replace(/^\$\s*/, "").replace(/\s*(?:usd|\$)$/i, "");
+  return /^\d+(?:[.,]\d+)?$/.test(t) ? Number(t.replace(",", ".")) : null;
 };
+
+/** "B2-7 (RECUPERADO SAB 5 9AM)" → class "B2-7" + note "RECUPERADO SAB 5 9AM". */
+export function splitGroup(raw: string): { group: string; notes: string | null } {
+  const g = raw.replace(/\s+/g, " ").trim();
+  const m = /^(.+?)\s*\(([^)]+)\)\s*$/.exec(g);
+  return m && m[1].trim() ? { group: m[1].trim(), notes: m[2].trim() } : { group: g, notes: null };
+}
 
 export function parseNotionTable(text: string, today: string): ImportResult {
   const table = splitDelimited(text.replace(/^﻿/, ""));
@@ -167,9 +177,12 @@ export function parseNotionTable(text: string, today: string): ImportResult {
   const head = table[0].map((c) => fold(c).trim());
   const find = (k: keyof typeof HEADERS) => head.findIndex((h) => HEADERS[k].includes(h));
   const hasHeader = find("group") >= 0 || find("when") >= 0;
+  // Without a header, the columns after Clase and Horario are read by what they contain: a link = the video, plain numbers =
+  // hours then money, anything else (attendance images "attachment:…", Concat…) is ignored. So a table with or without the URL
+  // column works.
   const col = hasHeader
     ? { group: find("group"), when: find("when"), url: find("url"), hours: find("hours"), money: find("money") }
-    : { group: 0, when: 1, url: 2, hours: 3, money: 4 };
+    : { group: 0, when: 1, url: -1, hours: -1, money: -1 };
   if (col.group < 0 || col.when < 0) {
     return { rows, errors: [{ line: 1, text: table[0].join(" | ").slice(0, 80), reason: "I need a “Clase” column and a “Horario” column" }], hasHeader };
   }
@@ -179,16 +192,33 @@ export function parseNotionTable(text: string, today: string): ImportResult {
     if (cells.every((c) => !c.trim())) return;
     const line = i + 1;
     const shown = cells.join(" | ").slice(0, 80);
-    const group = (cells[col.group] ?? "").replace(/\s+/g, " ").trim();
+    const { group, notes } = splitGroup(cells[col.group] ?? "");
     if (!group) return void errors.push({ line, text: shown, reason: "No class name" });
     const when = parseWhen(cells[col.when] ?? "", today);
     if ("error" in when) return void errors.push({ line, text: shown, reason: when.error });
     const computed = calcHours(when.start, when.end);
     if (computed <= 0 || computed > 12) return void errors.push({ line, text: shown, reason: "The class length looks wrong" });
-    const hoursCol = col.hours >= 0 ? num(cells[col.hours]) : null;
-    const money = col.money >= 0 ? num(cells[col.money]) : null;
+    let hoursCol: number | null;
+    let money: number | null;
+    let url: string;
+    if (hasHeader) {
+      hoursCol = col.hours >= 0 ? num(cells[col.hours]) : null;
+      money = col.money >= 0 ? num(cells[col.money]) : null;
+      url = col.url >= 0 ? (cells[col.url] ?? "").trim() : "";
+    } else {
+      const nums: number[] = [];
+      url = "";
+      for (const raw of cells.slice(2)) {
+        const c = raw.trim();
+        if (/^https?:\/\//i.test(c)) url = url || c;
+        else {
+          const n = num(c);
+          if (n !== null) nums.push(n);
+        }
+      }
+      [hoursCol, money] = [nums[0] ?? null, nums[1] ?? null];
+    }
     const per = hoursCol && hoursCol > 0 ? hoursCol : computed;
-    const url = col.url >= 0 ? (cells[col.url] ?? "").trim() : "";
     rows.push({
       class_date: when.date,
       start_time: hhmm(when.start),
@@ -197,6 +227,7 @@ export function parseNotionTable(text: string, today: string): ImportResult {
       hours: computed,
       rate: money === null ? null : Math.round((money / per) * 100) / 100,
       video_url: isHttpUrl(url) ? url : null,
+      notes,
       line,
     });
   });

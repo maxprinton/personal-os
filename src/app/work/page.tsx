@@ -4,7 +4,7 @@ import { getSettings } from "@/lib/agenda";
 import { currentUserId } from "@/lib/calendar/model";
 import { localNow } from "@/lib/time";
 import Section from "@/components/ui/Section";
-import WorkRow from "@/components/WorkRow";
+import { BulkClasses, PendingVideos } from "@/components/WorkBulk";
 import { ExportPanel, NewClassForm, SettingsForm } from "@/components/WorkForms";
 import WorkImport from "@/components/WorkImport";
 import {
@@ -102,29 +102,8 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
       </section>
 
       {toPost.length > 0 && (
-        <Section
-          title="Videos still to post"
-          count={toPost.length}
-          tone="warning"
-          action={
-            folder ? (
-              <a href={folder} target="_blank" rel="noreferrer" className="text-xs font-medium text-accent underline">
-                Open the Drive folder ↗
-              </a>
-            ) : undefined
-          }
-        >
-          <ul className="divide-y divide-line rounded-lg border border-line bg-surface text-sm shadow-card">
-            {toPost.slice(0, 12).map((c) => (
-              <li key={c.id}>
-                <Link href={`/work?month=${monthKey(c.class_date)}`} className="flex items-center justify-between gap-3 px-3 py-2 hover:bg-subtle">
-                  <span className="font-medium">{c.group_name}</span>
-                  <span className="text-muted">{shortDay(c.class_date)}</span>
-                </Link>
-              </li>
-            ))}
-            {toPost.length > 12 && <li className="px-3 py-2 text-xs text-faint">+ {toPost.length - 12} more (older months)</li>}
-          </ul>
+        <Section title="Videos still to post" count={toPost.length} tone="warning">
+          <PendingVideos classes={toPost} folder={folder} />
         </Section>
       )}
 
@@ -138,11 +117,7 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
         {classes.length === 0 ? (
           <p className="text-sm text-muted">No classes in {monthLabelEn(month)} yet.</p>
         ) : (
-          <ul className="space-y-3">
-            {[...classes].reverse().map((c) => (
-              <WorkRow key={c.id} c={c} ended={classEnded(c, now)} suggestions={suggestions} />
-            ))}
-          </ul>
+          <BulkClasses items={[...classes].reverse().map((c) => ({ c, ended: classEnded(c, now) }))} suggestions={suggestions} />
         )}
       </Section>
 

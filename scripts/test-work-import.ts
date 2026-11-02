@@ -1,5 +1,5 @@
 // Importing the Notion class table: delimiters, dates in several formats, times, hours, money, links and bad rows.
-import { findDate, findTimes, parseNotionTable, parseWhen, splitDelimited } from "@/lib/work-import";
+import { findDate, findTimes, parseNotionTable, parseWhen, splitDelimited, splitGroup } from "@/lib/work-import";
 
 let pass = 0;
 let fail = 0;
@@ -82,6 +82,29 @@ ok("no money column → null rate (your default applies)", noMoney.rows[0].rate 
 
 ok("wrong table → nothing imported, every line explained", parseNotionTable("foo\tbar\n1\t2", TODAY).errors.length === 2 && parseNotionTable("foo\tbar\n1\t2", TODAY).rows.length === 0);
 ok("header without a Horario column → asks for it", (() => { const e = parseNotionTable("Clase\tFoo\nA\tx", TODAY); return e.rows.length === 0 && e.errors.length === 1 && /Horario/.test(e.errors[0].reason); })());
+// ---- a real paste from Notion: no header, no URL column, Clase · Horario · Horas · Dinero · asistencia
+const real = [
+  "B2-5\tOct 27 9:00 PM → 10:00 PM\t1\t6\t",
+  "B1-6\tOct 27 8:00 PM → 9:00 PM\t1\t6\tattachment:007d3449-3f99-4727-b287-e2ab19f7d7f8:image.png",
+  "B2-7 (RECUPERADO SAB 5 9AM)\tSep 3 8:00 AM → 9:00 AM\t1\t6\tattachment:ef92ad1c-6c07-45d8-8896-a2a2aa978ea5:image.png",
+  "Personalizado #8 Gabriela\tAug 24 5:00 PM → 6:00 PM\t1\t6\tattachment:25152109-fe04-4669-8ee8-446d5eacb2e6:image.png",
+  "A1-6\tOct 21 8:00 PM → 9:00 PM\t1\t6\tattachment:e0d958bf-2ba2-42ab-9bfe-f330e8b78a52:Screenshot_2026-10-21_195904.png",
+].join("\n");
+const rr = parseNotionTable(real, TODAY);
+ok("real paste: all 5 rows, no errors", rr.rows.length === 5 && rr.errors.length === 0, JSON.stringify(rr.errors));
+ok("real paste: no header", !rr.hasHeader);
+ok("real paste: hours 1 and $6/h (the attachment id is NOT read as money)", rr.rows.every((r) => r.hours === 1 && r.rate === 6), rr.rows.map((r) => `${r.hours}/${r.rate}`).join(","));
+ok("real paste: no video link", rr.rows.every((r) => r.video_url === null));
+ok("real paste: AM time", rr.rows[2].start_time === "08:00" && rr.rows[2].end_time === "09:00");
+ok("real paste: the note in parentheses is split from the class", rr.rows[2].group_name === "B2-7" && rr.rows[2].notes === "RECUPERADO SAB 5 9AM", `${rr.rows[2].group_name}|${rr.rows[2].notes}`);
+ok("real paste: personalized students keep their name", rr.rows[3].group_name === "Personalizado #8 Gabriela" && rr.rows[3].notes === null);
+const withUrl = parseNotionTable("B2-5\tOct 27 9:00 PM → 10:00 PM\thttps://drive.google.com/x\t1\t6", TODAY);
+ok("headerless with a URL column in the middle also works", withUrl.rows[0].video_url === "https://drive.google.com/x" && withUrl.rows[0].hours === 1 && withUrl.rows[0].rate === 6);
+ok("headerless: only hours", parseNotionTable("A\tOct 27 7:00 PM → 8:30 PM\t1.5", TODAY).rows[0].rate === null);
+ok("headerless: a number glued to text is not money", parseNotionTable("A\tOct 27 7:00 PM → 8:00 PM\t1\tabc123", TODAY).rows[0].rate === null);
+ok("split group: plain", splitGroup("  B2-5 ").group === "B2-5" && splitGroup("B2-5").notes === null);
+ok("split group: parentheses only → keeps the text as the class", splitGroup("(solo)").group === "(solo)");
+
 ok("empty text → nothing", parseNotionTable("   \n", TODAY).rows.length === 0);
 ok("half-hour rate: $9 for 1.5 h = $6", parseNotionTable("Clase\tHorario\tDinero\nA\tOct 27 7:00 PM → 8:30 PM\t$9", TODAY).rows[0].rate === 6);
 

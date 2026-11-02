@@ -148,6 +148,22 @@ export async function setVideoPosted(_prev: ActionState, form: FormData): Promis
   return { ok: true, at: Date.now() };
 }
 
+/**
+ * Marks many classes at once (the checkboxes on /work). posted = true → "video posted" (no link needed: it is a manual tick,
+ * e.g. for old months or videos you already uploaded); false → undo. Only touches classes that are not already in that state.
+ */
+export async function setVideosPosted(ids: string[], posted: boolean): Promise<ActionState> {
+  const clean = [...new Set((Array.isArray(ids) ? ids : []).filter((id) => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)))].slice(0, 500);
+  if (!clean.length) return { error: "Select at least one class first." };
+  const supabase = await createClient();
+  const patch = posted ? { video_posted: true, video_posted_at: new Date().toISOString() } : { video_posted: false, video_posted_at: null };
+  const { data, error } = await supabase.from("work_classes").update(patch).in("id", clean).eq("video_posted", !posted).select("id");
+  if (error) return { error: error.message };
+  refresh();
+  const n = data?.length ?? 0;
+  return { ok: true, at: Date.now(), info: `${n} ${n === 1 ? "class" : "classes"} ${posted ? "marked as posted" : "back to “not posted”"}.` };
+}
+
 export async function saveWorkSettings(_prev: ActionState, form: FormData): Promise<ActionState> {
   const sub = money(form.get("substitute_rate"));
   const head = money(form.get("head_rate"));
@@ -238,6 +254,7 @@ export async function importWorkClasses(_prev: ActionState, form: FormData): Pro
       video_posted: !!url,
       video_url: url,
       video_posted_at: url ? now : null,
+      notes: r.notes ? String(r.notes).trim().slice(0, 300) || null : null,
     });
   }
   if (!clean.length) return { error: "None of the rows could be used." };
