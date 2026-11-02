@@ -1,6 +1,6 @@
 // Work log: hours and pay, the company Sheet's formats (date, time range, month), month totals and the paste-ready text.
 import {
-  byTime, calcAmount, calcHours, classEnded, detailRows, fmtHours, fmtMoney, hasEvidence, hhmm, parseVideoCmd, ruleError, isHttpUrl, isValidForReport, missingEvidence, needsEvidence, isMonthKey, monthBounds, monthKey, monthLabelEn,
+  byTime, calcAmount, calcHours, classEnded, detailRows, fmtHours, fmtMoney, hasEvidence, hhmm, isOrigin, reportClasses, parseVideoCmd, ruleError, isHttpUrl, isValidForReport, missingEvidence, needsEvidence, isMonthKey, monthBounds, monthKey, monthLabelEn,
   monthLabelEs, groupKey, teacherMap, rateFor, sheetDate, sheetRange, shiftMonth, shortDay, summarize, summaryRow, toMinutes, toTsv, type WorkClass,
 } from "@/lib/work-log";
 
@@ -118,11 +118,11 @@ ok("summary: with evidence the hours count", withProof.recoveryHours === 1.5 && 
 ok("summary: collaborations never count as extra or recovered hours", summarize([cls({ sheet_type: "collaboration", video_posted: true, video_url: "https://d/c" })]).extraHours === 0);
 
 // ---- rules about who requests a class
-ok("rule: extra needs someone to request it", ruleError("extra", "") !== null && ruleError("extra", null) !== null);
-ok("rule: extra is never 'Propia'", ruleError("extra", "Propia") !== null && ruleError("extra", " propia ") !== null);
-ok("rule: extra requested by the academy or a teacher is fine", ruleError("extra", "Academia") === null && ruleError("extra", "Felipe") === null);
-ok("rule: collaboration names the teacher", ruleError("collaboration", "") !== null && ruleError("collaboration", "Felipe") === null);
-ok("rule: recovery and untyped classes are free", ruleError("recovery", "") === null && ruleError(null, "") === null && ruleError("", null) === null);
+ok("rule: every Sheet type needs a teacher", ruleError("extra", "") !== null && ruleError("extra", null) !== null && ruleError("collaboration", "") !== null && ruleError("recovery", "") !== null);
+ok("rule: never Propia or the academy", ruleError("extra", "Propia") !== null && ruleError("extra", " propia ") !== null && ruleError("extra", "Academia") !== null && ruleError("recovery", "La Academia") !== null && ruleError("extra", "la empresa") !== null);
+ok("rule: a teacher is fine", ruleError("extra", "Felipe") === null && ruleError("collaboration", "Felipe Gonzalez") === null && ruleError("recovery", "Ana") === null);
+ok("rule: untyped classes are free", ruleError(null, "") === null && ruleError("", null) === null && ruleError(undefined, "Propia") === null);
+ok("isOrigin", isOrigin("Academia") && isOrigin(" propia ") && !isOrigin("Felipe") && !isOrigin(null));
 
 // ---- cancelled by the student
 const cancelled = [
@@ -163,7 +163,7 @@ ok("groupKey: case and spaces", groupKey("  KIDS-7 ") === "kids-7" && groupKey("
   ok("teacherMap: latest teacher wins, case-insensitive code", m["b2-5"] === "Ana", JSON.stringify(m));
   ok("teacherMap: 'Propia' is never remembered", m["b2-5"] !== "Propia");
   ok("teacherMap: empty latest falls back to an older teacher", m["kids-7"] === "Luis");
-  ok("teacherMap: Academia is remembered", m["c1-1"] === "Academia");
+  ok("teacherMap: Academia is not a teacher, so it is not remembered", m["c1-1"] === undefined);
   const m2 = teacherMap(cl, [{ code_key: "b2-5", teacher: "Marta" }, { code_key: "new-1", teacher: " Pedro " }]);
   ok("teacherMap: saved teacher overrides history", m2["b2-5"] === "Marta" && m2["kids-7"] === "Luis");
   ok("teacherMap: saved code without classes", m2["new-1"] === "Pedro");
@@ -187,6 +187,26 @@ ok("groupKey: case and spaces", groupKey("  KIDS-7 ") === "kids-7" && groupKey("
   const a = summarize([noLink, withLink]);
   const b = summarize([noLink, withLink], undefined, { includeNoLink: true });
   ok("summarize: extra hours count the no-link class only when included", a.extraHours === 1 && b.extraHours === 2 && a.missingEvidenceCount === 1 && b.missingEvidenceCount === 0, JSON.stringify([a.extraHours, b.extraHours]));
+}
+
+// ---- the classes as the report lists them
+{
+  const map = { "b2-5": "Ana", "a1-6": "Luis" };
+  const list = [
+    cls({ id: "r1", group_name: "B2-5", sheet_type: null, requested_by: null }),
+    cls({ id: "r2", group_name: "A1-6", sheet_type: "extra", requested_by: null, video_posted: true, video_url: "https://d/1" }),
+    cls({ id: "r3", group_name: "Z9", sheet_type: null, requested_by: null }),
+    cls({ id: "r4", group_name: "B2-5", sheet_type: "extra", requested_by: "Academia", video_posted: true, video_url: "https://d/2" }),
+    cls({ id: "r5", group_name: "B2-5", sheet_type: null, status: "cancelled_late" }),
+  ];
+  const strict = reportClasses(list, map);
+  ok("reportClasses: without options only typed classes with their link", strict.map((c) => c.id).join() === "r2,r4", strict.map((c) => c.id).join());
+  ok("reportClasses: teacher comes from the code when the class has none", strict.find((c) => c.id === "r2")?.requested_by === "Luis");
+  ok("reportClasses: 'Academia' is replaced by the code's teacher", strict.find((c) => c.id === "r4")?.requested_by === "Ana");
+  const withUn = reportClasses(list, map, { includeUnreported: true, includeNoLink: true });
+  ok("reportClasses: unreported classes count as Hora Extra, cancelled ones never", withUn.map((c) => c.id).sort().join() === "r1,r2,r3,r4" && withUn.every((c) => c.sheet_type === "extra"), withUn.map((c) => c.id).join());
+  ok("reportClasses: a class whose code has no teacher keeps it empty", withUn.find((c) => c.id === "r3")?.requested_by === null);
+  ok("reportClasses: no link → out unless asked", reportClasses(list, map, { includeUnreported: true }).map((c) => c.id).sort().join() === "r2,r4");
 }
 
 console.log(fail ? `\n${fail} failed, ${pass} passed` : `✅ work-log: ${pass} checks passed`);

@@ -7,9 +7,10 @@ import Section from "@/components/ui/Section";
 import { BulkClasses, PendingVideos } from "@/components/WorkBulk";
 import { ExportPanel, NewClassForm, SettingsForm } from "@/components/WorkForms";
 import WorkImport from "@/components/WorkImport";
+import WorkTable from "@/components/WorkTable";
 import WorkGroups, { type GroupRow, type TeacherRow } from "@/components/WorkGroups";
 import {
-  byTime, classEnded, groupKey, teacherMap, missingEvidence, DETAIL_HEADERS, detailRows, fmtHours, fmtMoney, isMonthKey, monthBounds, monthKey, monthLabelEn, monthLabelEs,
+  byTime, classEnded, groupKey, isOrigin, teacherMap, missingEvidence, DETAIL_HEADERS, detailRows, fmtHours, fmtMoney, isMonthKey, monthBounds, monthKey, monthLabelEn, monthLabelEs,
   shiftMonth, shortDay, SUMMARY_HEADERS, summarize, toWorkClass,
 } from "@/lib/work-log";
 
@@ -68,15 +69,15 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
   const teacherCount = new Map<string, number>();
   for (const r of hist) {
     const who = (r.requested_by ?? "").trim();
-    if (who && !/^(propia|academia)$/i.test(who)) teacherCount.set(who, (teacherCount.get(who) ?? 0) + 1);
+    if (who && !isOrigin(who)) teacherCount.set(who, (teacherCount.get(who) ?? 0) + 1);
   }
-  for (const t of Object.values(map)) if (!/^(propia|academia)$/i.test(t) && !teacherCount.has(t)) teacherCount.set(t, 0);
+  for (const t of Object.values(map)) if (!isOrigin(t) && !teacherCount.has(t)) teacherCount.set(t, 0);
   const teacherRows: TeacherRow[] = [...teacherCount.entries()]
     .map(([name, classesN]) => ({ name, classes: classesN, groups: Object.values(map).filter((t) => t === name).length }))
     .sort((a, z) => z.classes - a.classes || a.name.localeCompare(z.name));
   const suggestions = {
     groups: [...codes.values()].map((c) => c.code).slice(0, 60),
-    people: ["Propia", "Academia", ...teacherRows.map((t) => t.name)].slice(0, 60),
+    people: teacherRows.map((t) => t.name).slice(0, 60),
     groupTeachers: map,
   };
 
@@ -85,7 +86,6 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
   const months = monthKeys.map((k) => ({ key: k, label: monthLabelEn(k) }));
 
   const sum = summarize(classes, now);
-  const sumAll = summarize(classes, now, { includeNoLink: true });
   const folder = settings?.video_folder_url ?? "";
   const teacher = settings?.teacher_name ?? "";
   const subRate = Number(settings?.substitute_rate ?? 6);
@@ -155,25 +155,21 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
         )}
       </Section>
 
+      <Section title="Teacher and video for each class">
+        <WorkTable classes={classes} map={map} people={suggestions.people} />
+      </Section>
+
       <Section title="Excel for the company">
         <ExportPanel
           month={month}
           months={months}
           monthLabel={monthLabelEn(month)}
-          detail={detailRows(classes)}
-          detailAll={detailRows(classes, true)}
+          classes={classes}
+          map={map}
           detailHeaders={DETAIL_HEADERS}
           summaryHeaders={SUMMARY_HEADERS}
           teacher={teacher}
           monthEs={monthLabelEs(month)}
-          recoveryHours={fmtHours(sum.recoveryHours)}
-          extraHours={fmtHours(sum.extraHours)}
-          recoveryHoursAll={fmtHours(sumAll.recoveryHours)}
-          extraHoursAll={fmtHours(sumAll.extraHours)}
-          unreported={classes.filter((c) => c.status === "taught" && !c.sheet_type).map((c) => ({ id: c.id, label: `${c.group_name} · ${shortDay(c.class_date)}` }))}
-          people={suggestions.people}
-          collaborationCount={sum.collaborationCount}
-          blocked={missingEvidence(classes).map((c) => ({ id: c.id, label: `${c.group_name} · ${shortDay(c.class_date)}`, hours: fmtHours(c.hours) }))}
         />
       </Section>
 

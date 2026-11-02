@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { fillWorkbook, type FillRow } from "@/lib/xlsx-fill";
 import { templateBytes } from "@/lib/xlsx-template";
 import {
-  byTime, fmtHours, isMonthKey, isValidForReport, monthBounds, monthLabelEs, sheetRange, SHEET_TYPE_LABEL, summarize, toWorkClass, type SheetType,
+  byTime, fmtHours, isMonthKey, monthBounds, monthLabelEs, reportClasses, sheetRange, SHEET_TYPE_LABEL, summarize, teacherMap, toWorkClass, type SheetType,
 } from "@/lib/work-log";
 
 export const runtime = "nodejs";
@@ -22,18 +22,27 @@ export async function GET(req: Request) {
   const lostRaw = Number((url.searchParams.get("lost") ?? "0").replace(",", "."));
   if (!isMonthKey(month)) return NextResponse.json({ error: "Unknown month." }, { status: 400 });
   const all = url.searchParams.get("all") === "1"; // also the Extra/Recuperación that still have no video link
+  const unrep = url.searchParams.get("unrep") === "1"; // classes "Not reported in the Sheet" count as Hora Extra
   const lost = Number.isFinite(lostRaw) && lostRaw >= 0 ? lostRaw : 0;
 
   const { from, to } = monthBounds(month);
-  const [classesRes, settingsRes] = await Promise.all([
+  const [classesRes, settingsRes, histRes, savedRes] = await Promise.all([
     supabase.from("work_classes").select("*").gte("class_date", from).lte("class_date", to),
     supabase.from("work_settings").select("teacher_name").maybeSingle(),
+    supabase.from("work_classes").select("class_date,group_name,requested_by").order("class_date", { ascending: false }).limit(3000),
+    supabase.from("work_groups").select("code_key,teacher,effective_from"),
   ]);
   if (classesRes.error) return NextResponse.json({ error: classesRes.error.message }, { status: 500 });
-  const classes = ((classesRes.data ?? []) as Record<string, unknown>[]).map(toWorkClass).sort(byTime);
+  const monthClasses = ((classesRes.data ?? []) as Record<string, unknown>[]).map(toWorkClass).sort(byTime);
+  // The teacher of each class: its own, otherwise the one its class code belongs to (the report never says "Propia" or the academy).
+  const map = teacherMap(
+    (histRes.data ?? []) as { class_date: string; group_name: string; requested_by: string | null }[],
+    (savedRes.error ? [] : savedRes.data ?? []) as { code_key: string; teacher: string; effective_from: string | null }[],
+  );
+  const classes = reportClasses(monthClasses, map, { includeNoLink: all, includeUnreported: unrep });
   const sum = summarize(classes, undefined, { includeNoLink: all });
 
-  const rows: FillRow[] = classes.filter((c) => isValidForReport(c, all)).map((c) => ({
+  const rows: FillRow[] = classes.map((c) => ({
     date: c.class_date,
     time: sheetRange(c.start_time, c.end_time),
     group: c.group_name,

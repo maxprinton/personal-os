@@ -1,12 +1,12 @@
 "use client";
 
 import { useActionState, useEffect, useState } from "react";
-import { addAttendance, deleteWorkClass, removeAttendance, setVideoPosted, updateWorkClass } from "@/app/work-actions";
+import { addAttendance, deleteWorkClass, removeAttendance, setClassTeacher, setVideoPosted, updateWorkClass } from "@/app/work-actions";
 import { readClipboardImage, uploadNoteFile } from "@/lib/note-files";
 import type { ActionState } from "@/app/actions";
 import { ClassFields, type Suggestions } from "@/components/WorkForms";
 import { formatMinutes } from "@/lib/time";
-import { fmtHours, fmtMoney, needsEvidence, ROLE_LABEL, SHEET_TYPE_LABEL, shortDay, STATUS_LABEL, toMinutes, type WorkClass } from "@/lib/work-log";
+import { fmtHours, fmtMoney, groupKey, isOrigin, needsEvidence, ROLE_LABEL, SHEET_TYPE_LABEL, shortDay, STATUS_LABEL, toMinutes, type WorkClass } from "@/lib/work-log";
 
 const INPUT = "rounded-md border border-line-strong px-2 py-1.5 text-sm";
 const PRIMARY = "rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-1.5 text-sm text-accent-fg disabled:opacity-50";
@@ -40,6 +40,41 @@ function VideoCell({ c, ended }: { c: WorkClass; ended: boolean }) {
       <button disabled={pending} className={GHOST}>
         {pending ? "…" : "Mark posted"}
       </button>
+      {state.error && <span className="basis-full text-xs text-danger">{state.error}</span>}
+    </form>
+  );
+}
+
+/** Who asked for the class (always a teacher). Filled from the class code; change it only when it was someone else. */
+function TeacherCell({ c, suggestions }: { c: WorkClass; suggestions: Suggestions }) {
+  const [state, action, pending] = useActionState<ActionState, FormData>(setClassTeacher, {});
+  const own = c.requested_by && !isOrigin(c.requested_by) ? c.requested_by : "";
+  const known = suggestions.groupTeachers?.[groupKey(c.group_name)] ?? "";
+  const [v, setV] = useState(own || known);
+  const listId = `teachers-${c.id}`;
+  return (
+    <form action={action} className="flex flex-wrap items-center gap-2">
+      <input type="hidden" name="id" value={c.id} />
+      <span className={`text-xs font-medium ${v.trim() ? "text-muted" : "text-warning"}`}>Teacher who asked</span>
+      <input
+        name="teacher"
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        list={listId}
+        placeholder="Teacher"
+        autoComplete="off"
+        className={`${INPUT} min-w-0 flex-1 basis-40 py-1 text-xs`}
+      />
+      <datalist id={listId}>
+        {suggestions.people.map((p) => (
+          <option key={p} value={p} />
+        ))}
+      </datalist>
+      {v.trim() !== own && (
+        <button disabled={pending} className={GHOST}>
+          {pending ? "…" : "Save"}
+        </button>
+      )}
       {state.error && <span className="basis-full text-xs text-danger">{state.error}</span>}
     </form>
   );
@@ -179,13 +214,7 @@ export default function WorkRow({ c, ended, suggestions }: { c: WorkClass; ended
           </p>
         </div>
       </div>
-      {(c.requested_by || c.notes) && (
-        <p className="text-sm text-muted">
-          {c.requested_by && <span>Requested by {c.requested_by}</span>}
-          {c.requested_by && c.notes && " · "}
-          {c.notes}
-        </p>
-      )}
+      {c.notes && <p className="text-sm text-muted">{c.notes}</p>}
       {cancelled ? (
         <p className="text-xs text-muted">
           {STATUS_LABEL[c.status]}. It does not count as an hour lost, extra or recovered, and it stays out of the monthly Excel.
@@ -193,6 +222,7 @@ export default function WorkRow({ c, ended, suggestions }: { c: WorkClass; ended
         </p>
       ) : (
         <>
+          <TeacherCell c={c} suggestions={suggestions} />
           <VideoCell c={c} ended={ended} />
           <Attendance c={c} />
         </>

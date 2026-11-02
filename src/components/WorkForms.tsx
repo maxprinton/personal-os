@@ -2,9 +2,9 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { bulkAssign, createWorkClass, saveWorkSettings } from "@/app/work-actions";
+import { createWorkClass, saveWorkSettings } from "@/app/work-actions";
 import type { ActionState } from "@/app/actions";
-import { groupKey, SHEET_TYPE_LABEL, toTsv } from "@/lib/work-log";
+import { detailRows, fmtHours, groupKey, hasEvidence, needsEvidence, reportClasses, SHEET_TYPE_LABEL, shortDay, summarize, toTsv, type WorkClass } from "@/lib/work-log";
 
 const INPUT = "rounded-md border border-line-strong px-2 py-1.5 text-sm";
 const PRIMARY =
@@ -84,7 +84,7 @@ export function ClassFields({ d, s, idp }: { d: ClassDefaults; s: Suggestions; i
         </select>
       </label>
       <label className="space-y-1 text-xs text-muted">
-        Requested by (Solicitud)
+        Teacher who asked (Solicitud)
         <input
           name="requested_by"
           list={`${idp}-people`}
@@ -93,7 +93,7 @@ export function ClassFields({ d, s, idp }: { d: ClassDefaults; s: Suggestions; i
             setTouched(true);
             setWho(e.target.value);
           }}
-          placeholder="Propia, Academia or a teacher"
+          placeholder="Teacher who asked"
           autoComplete="off"
           className={`${INPUT} w-full text-fg`}
         />
@@ -227,51 +227,39 @@ export function ExportPanel({
   month,
   months,
   monthLabel,
-  detail: detailStrict,
-  detailAll,
+  classes,
+  map,
   detailHeaders,
   summaryHeaders,
   teacher,
   monthEs,
-  recoveryHours: recStrict,
-  extraHours: extraStrict,
-  recoveryHoursAll,
-  extraHoursAll,
-  unreported,
-  people,
-  collaborationCount,
-  blocked,
 }: {
   month: string;
   /** Every month that has classes (plus the one on screen), newest first. */
   months: { key: string; label: string }[];
   monthLabel: string;
-  detail: string[][];
-  /** Same rows but also the Extra/Recuperación that have no video link yet. */
-  detailAll: string[][];
+  /** All the classes of the month and the teacher each class code belongs to: the report is worked out here, as the Excel will be. */
+  classes: WorkClass[];
+  map: Record<string, string>;
   detailHeaders: string[];
   summaryHeaders: string[];
   teacher: string;
   monthEs: string;
-  recoveryHours: string;
-  extraHours: string;
-  recoveryHoursAll: string;
-  extraHoursAll: string;
-  /** Taught classes of this month that are “Not reported in the Sheet” (they would not be in the Excel). */
-  unreported: { id: string; label: string }[];
-  people: string[];
-  collaborationCount: number;
-  blocked: { id: string; label: string; hours: string }[];
 }) {
   const router = useRouter();
-  const [include, setInclude] = useState(true);
-  const detail = include ? detailAll : detailStrict;
-  const recoveryHours = include ? recoveryHoursAll : recStrict;
-  const extraHours = include ? extraHoursAll : extraStrict;
-  const [fixType, setFixType] = useState("extra");
-  const [fixTeacher, setFixTeacher] = useState("");
-  const [fixBusy, setFixBusy] = useState(false);
-  const [fixMsg, setFixMsg] = useState<{ text: string; error: boolean } | null>(null);
+  const [include, setInclude] = useState(true); // also Hora Extra / Recuperación without a video link yet
+  const [incUnrep, setIncUnrep] = useState(true); // classes "Not reported in the Sheet" go in as Hora Extra
+  const rc = reportClasses(classes, map, { includeNoLink: include, includeUnreported: incUnrep });
+  const detail = detailRows(rc, include);
+  const sum = summarize(rc, undefined, { includeNoLink: include });
+  const recoveryHours = fmtHours(sum.recoveryHours);
+  const extraHours = fmtHours(sum.extraHours);
+  const collaborationCount = sum.collaborationCount;
+  const taughtN = classes.filter((c) => c.status === "taught").length;
+  const unreportedN = classes.filter((c) => c.status === "taught" && !c.sheet_type).length;
+  const noLink = rc.filter((c) => needsEvidence(c.sheet_type) && !hasEvidence(c));
+  const noTeacher = rc.filter((c) => !(c.requested_by ?? "").trim());
+  const label = (c: WorkClass) => `${c.group_name} · ${shortDay(c.class_date)}`;
   const [lost, setLost] = useState("0");
   const [copied, setCopied] = useState<"" | "detail" | "summary" | "failed">("");
   const [busy, setBusy] = useState(false);
@@ -290,20 +278,11 @@ export function ExportPanel({
     setTimeout(() => setCopied(""), 2500);
   }
 
-  async function includeUnreported() {
-    setFixBusy(true);
-    setFixMsg(null);
-    const r = await bulkAssign(unreported.map((u) => u.id), { teacher: fixTeacher, useGroup: !fixTeacher.trim(), sheet_type: fixType });
-    setFixMsg({ text: r.error ?? r.info ?? "Done.", error: !!r.error });
-    setFixBusy(false);
-    if (!r.error) router.refresh();
-  }
-
   async function download() {
     setBusy(true);
     setDlError("");
     try {
-      const res = await fetch(`/api/work/xlsx?month=${encodeURIComponent(month)}&lost=${encodeURIComponent(lost)}&all=${include ? 1 : 0}`);
+      const res = await fetch(`/api/work/xlsx?month=${encodeURIComponent(month)}&lost=${encodeURIComponent(lost)}&all=${include ? 1 : 0}&unrep=${incUnrep ? 1 : 0}`);
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
         setDlError(j.error ?? "I couldn't build the Excel. Try again.");
@@ -327,78 +306,39 @@ export function ExportPanel({
   return (
     <div className="space-y-4 rounded-lg border border-line bg-surface p-4 shadow-card">
       <p className="text-sm text-muted">
-        {monthLabel}: {detail.length} {detail.length === 1 ? "class goes" : "classes go"} in “Reporte detallado”. Press the button, open the Excel to check it,
-        then upload it to the company’s Drive yourself.
+        {monthLabel}: {detail.length} of {taughtN} {taughtN === 1 ? "class goes" : "classes go"} in “Reporte detallado”. The “Solicitud” column is always the teacher who
+        asked (set it, and the videos, in the table above). Press the button, open the Excel to check it, then upload it to the company’s Drive yourself.
       </p>
 
-      {unreported.length > 0 && (
-        <div className="space-y-2 rounded-md border border-warning p-3 text-sm">
-          <p className="font-medium text-warning">
-            {unreported.length} {unreported.length === 1 ? "class is" : "classes are"} “Not reported in the Sheet” — that is why the Excel comes out empty
-          </p>
-          <p className="text-xs text-muted">
-            Only classes with a type (Hora Extra, Recuperación or Colaboración) and a requesting teacher go in the report. Choose them here and they are added:
-            leave the teacher empty to use the teacher of each class code (set them in “Class codes and teachers”).
-          </p>
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="space-y-1 text-xs text-muted">
-              Type
-              <select value={fixType} onChange={(e) => setFixType(e.target.value)} className={`${INPUT} block text-fg`}>
-                {(["extra", "collaboration", "recovery"] as const).map((k) => (
-                  <option key={k} value={k}>
-                    {SHEET_TYPE_LABEL[k]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1 text-xs text-muted">
-              Teacher (optional)
-              <input
-                value={fixTeacher}
-                onChange={(e) => setFixTeacher(e.target.value)}
-                list="export-people"
-                placeholder="Each code’s teacher"
-                autoComplete="off"
-                className={`${INPUT} block w-48 text-fg`}
-              />
-              <datalist id="export-people">
-                {people.map((p) => (
-                  <option key={p} value={p} />
-                ))}
-              </datalist>
-            </label>
-            <button type="button" onClick={includeUnreported} disabled={fixBusy} className={PRIMARY}>
-              {fixBusy ? "…" : `Add these ${unreported.length} to the Excel`}
-            </button>
-          </div>
-          {fixMsg && <p className={`text-xs ${fixMsg.error ? "text-danger" : "text-success"}`}>{fixMsg.text}</p>}
-        </div>
-      )}
-
-      {blocked.length > 0 && (
+      {unreportedN > 0 && (
         <label className="flex items-start gap-2 text-sm">
-          <input type="checkbox" checked={include} onChange={(e) => setInclude(e.target.checked)} className="mt-1 h-4 w-4 accent-[var(--accent)]" />
+          <input type="checkbox" checked={incUnrep} onChange={(e) => setIncUnrep(e.target.checked)} className="mt-1 h-4 w-4 accent-[var(--accent)]" />
           <span>
-            Include the {blocked.length} Hora Extra / Recuperación that don’t have a video link yet
-            <span className="block text-xs text-muted">Their Evidencia cell stays empty — add the link in the Excel before uploading, because the company voids them without it.</span>
+            Include the {unreportedN} {unreportedN === 1 ? "class" : "classes"} marked “Not reported in the Sheet”, as Hora Extra
+            <span className="block text-xs text-muted">Untick it for a month you already reported.</span>
           </span>
         </label>
       )}
 
-      {blocked.length > 0 && (
+      {noLink.length > 0 && (
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" checked={include} onChange={(e) => setInclude(e.target.checked)} className="mt-1 h-4 w-4 accent-[var(--accent)]" />
+          <span>
+            Include the {noLink.length} Hora Extra / Recuperación that don’t have a video link yet
+            <span className="block text-xs text-muted">Their Evidencia cell stays empty — add the link in the table above, or in the Excel before uploading: the company voids them without the recording.</span>
+          </span>
+        </label>
+      )}
+
+      {noTeacher.length > 0 && (
         <div className="space-y-1 rounded-md border border-warning p-3 text-sm">
           <p className="font-medium text-warning">
-            {blocked.length} {blocked.length === 1 ? "class has" : "classes have"} no video link yet — {include ? "included with Evidencia empty" : "left out of the Excel"}
+            {noTeacher.length} {noTeacher.length === 1 ? "class has" : "classes have"} no teacher — their Solicitud cell will be empty
           </p>
-          <p className="text-xs text-muted">
-            The company voids Hora Extra and Hora Recuperada without the full recording. Post the video and add its Drive link in the class card and they
-            will be included.
-          </p>
+          <p className="text-xs text-muted">Write the teacher in the table above (or set it for the class code in “Class codes and teachers”).</p>
           <ul className="text-xs">
-            {blocked.map((b) => (
-              <li key={b.id}>
-                {b.label} · {b.hours} h
-              </li>
+            {noTeacher.map((c) => (
+              <li key={c.id}>{label(c)}</li>
             ))}
           </ul>
         </div>
@@ -421,7 +361,7 @@ export function ExportPanel({
           </select>
         </label>
         <label className="space-y-1 text-xs text-muted">
-          Hours lost (Horas Perdidas) (Horas Perdidas)
+          Hours lost (Horas Perdidas)
           <input value={lost} onChange={(e) => setLost(e.target.value)} inputMode="decimal" className={`${INPUT} block w-24 text-fg`} />
         </label>
         <button type="button" onClick={download} disabled={busy} className={PRIMARY}>

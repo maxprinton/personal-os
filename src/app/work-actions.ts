@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { isDate, isTime } from "@/lib/time";
-import { calcHours, groupKey, hhmm, isHttpUrl, needsEvidence, rateFor, ruleError, teacherMap, type SheetType, type WorkRole, type WorkStatus } from "@/lib/work-log";
+import { calcHours, groupKey, hhmm, isHttpUrl, isOrigin, needsEvidence, rateFor, ruleError, teacherMap, type SheetType, type WorkRole, type WorkStatus } from "@/lib/work-log";
 import type { ImportRow } from "@/lib/work-import";
 import type { ActionState } from "@/app/actions";
 import { localNow } from "@/lib/time";
@@ -174,7 +174,7 @@ export async function saveGroupTeacher(_prev: ActionState, form: FormData): Prom
   const code = String(form.get("code") ?? "").trim();
   const teacher = String(form.get("teacher") ?? "").trim();
   if (!code) return { error: "Missing class code." };
-  if (/^propia$/i.test(teacher)) return { error: "“Propia” is not a teacher." };
+  if (isOrigin(teacher)) return { error: "“Propia” / “Academia” are not teachers." };
   const supabase = await createClient();
   const key = groupKey(code);
   if (!teacher) {
@@ -197,7 +197,7 @@ export async function renameTeacher(_prev: ActionState, form: FormData): Promise
   const to = String(form.get("to") ?? "").trim();
   if (!from || !to) return { error: "Write the new name." };
   if (from === to) return { ok: true, at: Date.now() };
-  if (/^propia$/i.test(to)) return { error: "“Propia” is not a teacher." };
+  if (isOrigin(to)) return { error: "“Propia” / “Academia” are not teachers." };
   const supabase = await createClient();
   const { data, error } = await supabase.from("work_classes").update({ requested_by: to, updated_at: new Date().toISOString() }).eq("requested_by", from).select("id");
   if (error) return { error: error.message };
@@ -269,6 +269,68 @@ export async function bulkAssign(ids: string[], opts: { teacher?: string; useGro
   if (noTeacher) parts.push(`${noTeacher} had no known teacher for their code`);
   if (broken.length) parts.push(`${broken.length} skipped because Hora Extra / Colaboración need a requesting teacher (${broken.slice(0, 3).join(", ")}${broken.length > 3 ? "…" : ""})`);
   return { ok: done > 0 || (!broken.length && !noTeacher), at: Date.now(), info: parts.join(" · ") + ".", ...(done === 0 && (broken.length || noTeacher) ? { error: parts.join(" · ") + "." } : {}) };
+}
+
+/** Sets who asked for ONE class (always a teacher). Empty = go back to the teacher of its class code. */
+export async function setClassTeacher(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const id = String(form.get("id") ?? "");
+  const teacher = String(form.get("teacher") ?? "").trim();
+  if (!id) return { error: "Missing class." };
+  if (teacher && isOrigin(teacher)) return { error: "Write the teacher’s name, not “Propia” or the academy." };
+  const supabase = await createClient();
+  const { error } = await supabase.from("work_classes").update({ requested_by: teacher || null, updated_at: new Date().toISOString() }).eq("id", id);
+  if (error) return { error: error.message };
+  refresh();
+  return { ok: true, at: Date.now() };
+}
+
+export type ReportRowInput = { id: string; label: string; teacher: string; video_url: string; sheet_type: string };
+
+/**
+ * Saves the month table: for each row the teacher who asked, the video link and the type in the Sheet ("none" = not in the report).
+ * A link also marks the video as posted. A row that breaks a rule (no teacher on a Sheet class, bad link) is reported and nothing is saved.
+ */
+export async function saveReportRows(rows: ReportRowInput[]): Promise<ActionState> {
+  const list = (Array.isArray(rows) ? rows : []).slice(0, 300);
+  if (!list.length) return { error: "Nothing to save." };
+  const bad: string[] = [];
+  for (const r of list) {
+    const teacher = String(r.teacher ?? "").trim();
+    const url = String(r.video_url ?? "").trim();
+    const st = String(r.sheet_type ?? "");
+    if (!/^[0-9a-f-]{36}$/i.test(String(r.id))) return { error: "Unknown class." };
+    if (st !== "none" && !SHEET_TYPES.includes(st)) return { error: "Unknown class type." };
+    if (url && !isHttpUrl(url)) bad.push(`${r.label}: the link must start with https://`);
+    else {
+      const rule = st === "none" ? (teacher && isOrigin(teacher) ? "Write the teacher’s name, not “Propia” or the academy." : null) : ruleError(st, teacher);
+      if (rule) bad.push(`${r.label}: ${rule}`);
+    }
+  }
+  if (bad.length) return { error: `Nothing was saved. ${bad.slice(0, 4).join(" · ")}${bad.length > 4 ? ` · +${bad.length - 4} more` : ""}` };
+
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+  const results = await Promise.all(
+    list.map((r) => {
+      const url = String(r.video_url ?? "").trim();
+      return supabase
+        .from("work_classes")
+        .update({
+          requested_by: String(r.teacher ?? "").trim() || null,
+          sheet_type: r.sheet_type === "none" ? null : r.sheet_type,
+          updated_at: now,
+          ...(url ? { video_url: url } : {}),
+        })
+        .eq("id", r.id);
+    }),
+  );
+  const failed = results.find((x) => x.error);
+  if (failed?.error) return { error: failed.error.message };
+  // a link means the video is posted (without touching the ones already marked)
+  const withLink = list.filter((r) => String(r.video_url ?? "").trim()).map((r) => r.id);
+  if (withLink.length) await supabase.from("work_classes").update({ video_posted: true, video_posted_at: now }).in("id", withLink).eq("video_posted", false);
+  refresh();
+  return { ok: true, at: Date.now(), info: `${list.length} ${list.length === 1 ? "class" : "classes"} saved.` };
 }
 
 export async function saveWorkSettings(_prev: ActionState, form: FormData): Promise<ActionState> {

@@ -233,13 +233,15 @@ export function toTsv(rows: string[][]) {
   return rows.map((r) => r.map((c) => String(c).replace(/[\t\r\n]+/g, " ").trim()).join("\t")).join("\n");
 }
 
-/** Company rules about who requests a class: an Hora Extra is never on your own initiative, and a Colaboración names the
- *  teacher who sent the students. Returns the message to show, or null when the combination is fine. */
+/** “Propia”, “Academia”, “la empresa”… are not a teacher: the Solicitud column always names the teacher who asked. */
+export const isOrigin = (who: string | null | undefined) => /^\s*(propia|academia|la academia|empresa|la empresa|instituto|el instituto)\s*$/i.test(who ?? "");
+
+/** Rule for the report: every class that goes in the Sheet (Hora Extra, Colaboración or Recuperación) names the TEACHER who asked,
+ *  never “Propia” or the academy. Returns the message to show, or null when the combination is fine. */
 export function ruleError(sheetType: string | null | undefined, requestedBy: string | null | undefined) {
+  if (!sheetType) return null;
   const who = (requestedBy ?? "").trim();
-  if (sheetType === "extra" && (!who || /^propia$/i.test(who)))
-    return "A Hora Extra must be requested by another teacher or the academy. Write who asked (not “Propia”).";
-  if (sheetType === "collaboration" && !who) return "Write which teacher sent you their students (Requested by).";
+  if (!who || isOrigin(who)) return "Write the teacher who asked for the class (the Solicitud is always a teacher, not “Propia” or the academy).";
   return null;
 }
 
@@ -295,7 +297,7 @@ export function groupKey(code: string) {
 /**
  * Which teacher each class code belongs to right now: the teacher on your most recent class with that code, unless you saved
  * one for the code (`saved`) — that one wins until a class dated AFTER its `effective_from` day names someone else.
- * "Propia" is not a teacher, so it is never remembered. Keys are `groupKey`s.
+ * "Propia" / "Academia" are not teachers, so they are never remembered. Keys are `groupKey`s.
  */
 export function teacherMap(
   classes: { class_date: string; group_name: string; requested_by: string | null }[],
@@ -306,7 +308,7 @@ export function teacherMap(
   for (const c of newestFirst) {
     const who = (c.requested_by ?? "").trim();
     const k = groupKey(c.group_name);
-    if (!k || !who || /^propia$/i.test(who) || latest[k]) continue;
+    if (!k || !who || isOrigin(who) || latest[k]) continue;
     latest[k] = { date: c.class_date, who };
   }
   const out: Record<string, string> = {};
@@ -319,4 +321,25 @@ export function teacherMap(
     out[s.code_key] = t;
   }
   return out;
+}
+
+/**
+ * The classes exactly as the report will list them: only taught ones; the teacher is the class's own, otherwise the one its code
+ * belongs to (`map`); a class with no Sheet type counts as Hora Extra when `includeUnreported` (your usual class); and Hora Extra /
+ * Recuperación without a video link stay out unless `includeNoLink`.
+ */
+export function reportClasses(
+  classes: WorkClass[],
+  map: Record<string, string>,
+  opts: { includeNoLink?: boolean; includeUnreported?: boolean } = {},
+): WorkClass[] {
+  return classes
+    .filter((c) => c.status === "taught")
+    .map((c) => ({
+      ...c,
+      sheet_type: c.sheet_type ?? (opts.includeUnreported ? ("extra" as SheetType) : null),
+      requested_by: (c.requested_by ?? "").trim() && !isOrigin(c.requested_by) ? c.requested_by : map[groupKey(c.group_name)] ?? null,
+    }))
+    .filter((c) => isValidForReport(c, !!opts.includeNoLink))
+    .sort(byTime);
 }

@@ -79,7 +79,7 @@ export default function WorkImport({ today }: { today: string }) {
               </label>
               <label className="space-y-1 text-xs text-muted">
                 Requested by
-                <input name="requested_by" placeholder="Academia (needed for Hora Extra)" className={`${INPUT} w-full text-fg`} />
+                <input name="requested_by" placeholder="Teacher who asked (needed for Hora Extra)" className={`${INPUT} w-full text-fg`} />
               </label>
               <label className="space-y-1 text-xs text-muted">
                 I taught as
