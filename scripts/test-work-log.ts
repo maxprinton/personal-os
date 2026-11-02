@@ -1,7 +1,7 @@
 // Work log: hours and pay, the company Sheet's formats (date, time range, month), month totals and the paste-ready text.
 import {
   byTime, calcAmount, calcHours, classEnded, detailRows, fmtHours, fmtMoney, hasEvidence, hhmm, parseVideoCmd, ruleError, isHttpUrl, isValidForReport, missingEvidence, needsEvidence, isMonthKey, monthBounds, monthKey, monthLabelEn,
-  monthLabelEs, rateFor, sheetDate, sheetRange, shiftMonth, shortDay, summarize, summaryRow, toMinutes, toTsv, type WorkClass,
+  monthLabelEs, groupKey, teacherMap, rateFor, sheetDate, sheetRange, shiftMonth, shortDay, summarize, summaryRow, toMinutes, toTsv, type WorkClass,
 } from "@/lib/work-log";
 
 let pass = 0;
@@ -147,6 +147,47 @@ ok("video cmd: not a link → not a command", parseVideoCmd("video B2-5 later") 
 
 ok("tsv: tabs and rows", toTsv([["a", "b"], ["c", "d"]]) === "a\tb\nc\td");
 ok("tsv: tabs and line breaks inside a cell become spaces", toTsv([["x\ty", "l1\nl2"]]) === "x y\tl1 l2");
+
+// ---- teachers per class code
+ok("groupKey: case and spaces", groupKey("  KIDS-7 ") === "kids-7" && groupKey("Kids  7") === "kids 7" && groupKey("") === "");
+{
+  const cl = [
+    { class_date: "2026-09-01", group_name: "B2-5", requested_by: "Felipe" },
+    { class_date: "2026-10-05", group_name: "b2-5", requested_by: "Ana" },
+    { class_date: "2026-10-20", group_name: "B2-5", requested_by: "Propia" },
+    { class_date: "2026-10-01", group_name: "KIDS-7", requested_by: null },
+    { class_date: "2026-08-01", group_name: "Kids-7", requested_by: "Luis" },
+    { class_date: "2026-10-02", group_name: "C1-1", requested_by: "Academia" },
+  ];
+  const m = teacherMap(cl);
+  ok("teacherMap: latest teacher wins, case-insensitive code", m["b2-5"] === "Ana", JSON.stringify(m));
+  ok("teacherMap: 'Propia' is never remembered", m["b2-5"] !== "Propia");
+  ok("teacherMap: empty latest falls back to an older teacher", m["kids-7"] === "Luis");
+  ok("teacherMap: Academia is remembered", m["c1-1"] === "Academia");
+  const m2 = teacherMap(cl, [{ code_key: "b2-5", teacher: "Marta" }, { code_key: "new-1", teacher: " Pedro " }]);
+  ok("teacherMap: saved teacher overrides history", m2["b2-5"] === "Marta" && m2["kids-7"] === "Luis");
+  ok("teacherMap: saved code without classes", m2["new-1"] === "Pedro");
+  const m3 = teacherMap(cl, [{ code_key: "b2-5", teacher: "Marta", effective_from: "2026-10-01" }, { code_key: "kids-7", teacher: "Eva", effective_from: "2026-10-10" }]);
+  ok("teacherMap: saved wins over older classes", m3["kids-7"] === "Eva");
+  ok("teacherMap: a class AFTER the saved day wins over it", m3["b2-5"] === "Ana", m3["b2-5"]);
+  const m4 = teacherMap(cl, [{ code_key: "b2-5", teacher: "Marta", effective_from: "2026-10-05" }]);
+  ok("teacherMap: a class on the same day does not beat the saved one", m4["b2-5"] === "Marta");
+  ok("teacherMap: no data", Object.keys(teacherMap([])).length === 0);
+}
+
+// ---- report without the video link (the "include" option)
+{
+  const noLink = cls({ id: "n1", sheet_type: "extra", requested_by: "Ana", video_posted: false, video_url: null });
+  const notInSheet = cls({ id: "n2", sheet_type: null });
+  const withLink = cls({ id: "n3", sheet_type: "extra", requested_by: "Ana", video_posted: true, video_url: "https://d/x" });
+  ok("report: Extra without link is out by default", !isValidForReport(noLink) && isValidForReport(withLink));
+  ok("report: ...but in when asked to include it", isValidForReport(noLink, true));
+  ok("report: a class without Sheet type is never in", !isValidForReport(notInSheet, true));
+  ok("detailRows: includeNoLink adds the row with an empty Evidencia", detailRows([noLink, withLink]).length === 1 && detailRows([noLink, withLink], true).length === 2 && detailRows([noLink], true)[0][5] === "");
+  const a = summarize([noLink, withLink]);
+  const b = summarize([noLink, withLink], undefined, { includeNoLink: true });
+  ok("summarize: extra hours count the no-link class only when included", a.extraHours === 1 && b.extraHours === 2 && a.missingEvidenceCount === 1 && b.missingEvidenceCount === 0, JSON.stringify([a.extraHours, b.extraHours]));
+}
 
 console.log(fail ? `\n${fail} failed, ${pass} passed` : `✅ work-log: ${pass} checks passed`);
 process.exit(fail ? 1 : 0);

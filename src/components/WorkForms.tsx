@@ -1,9 +1,10 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { createWorkClass, saveWorkSettings } from "@/app/work-actions";
+import { useRouter } from "next/navigation";
+import { bulkAssign, createWorkClass, saveWorkSettings } from "@/app/work-actions";
 import type { ActionState } from "@/app/actions";
-import { SHEET_TYPE_LABEL, toTsv } from "@/lib/work-log";
+import { groupKey, SHEET_TYPE_LABEL, toTsv } from "@/lib/work-log";
 
 const INPUT = "rounded-md border border-line-strong px-2 py-1.5 text-sm";
 const PRIMARY =
@@ -24,10 +25,20 @@ export type ClassDefaults = {
   status?: "taught" | "cancelled_early" | "cancelled_late";
 };
 
-export type Suggestions = { groups: string[]; people: string[] };
+/** groupTeachers: class code (lower-case key) → the teacher it belongs to now. */
+export type Suggestions = { groups: string[]; people: string[]; groupTeachers?: Record<string, string> };
 
 /** The fields of a class, shared by "Add a class" and "Edit". */
 export function ClassFields({ d, s, idp }: { d: ClassDefaults; s: Suggestions; idp: string }) {
+  const [group, setGroup] = useState(d.group_name ?? "");
+  const [who, setWho] = useState(d.requested_by ?? "");
+  const [touched, setTouched] = useState(false);
+  const known = s.groupTeachers?.[groupKey(group)] ?? "";
+  function pickGroup(v: string) {
+    setGroup(v);
+    const t = s.groupTeachers?.[groupKey(v)];
+    if (t && !d.id && !touched) setWho(t); // new class: its code remembers the teacher
+  }
   return (
     <>
       {d.id && <input type="hidden" name="id" value={d.id} />}
@@ -49,7 +60,8 @@ export function ClassFields({ d, s, idp }: { d: ClassDefaults; s: Suggestions; i
           name="group_name"
           required
           list={`${idp}-groups`}
-          defaultValue={d.group_name}
+          value={group}
+          onChange={(e) => pickGroup(e.target.value)}
           placeholder="B2-5"
           autoComplete="off"
           className={`${INPUT} w-full text-fg`}
@@ -76,7 +88,11 @@ export function ClassFields({ d, s, idp }: { d: ClassDefaults; s: Suggestions; i
         <input
           name="requested_by"
           list={`${idp}-people`}
-          defaultValue={d.requested_by ?? ""}
+          value={who}
+          onChange={(e) => {
+            setTouched(true);
+            setWho(e.target.value);
+          }}
           placeholder="Propia, Academia or a teacher"
           autoComplete="off"
           className={`${INPUT} w-full text-fg`}
@@ -86,6 +102,19 @@ export function ClassFields({ d, s, idp }: { d: ClassDefaults; s: Suggestions; i
             <option key={p} value={p} />
           ))}
         </datalist>
+        {known && known !== who && (
+          <button
+            type="button"
+            onClick={() => {
+              setWho(known);
+              setTouched(true);
+            }}
+            className="block text-left text-accent underline"
+          >
+            {group.trim()} belongs to {known} — use {known}
+          </button>
+        )}
+        {known && known === who && <span className="block text-faint">{group.trim()} → {known} (remembered)</span>}
       </label>
       <label className="space-y-1 text-xs text-muted">
         I taught as
@@ -196,29 +225,53 @@ export function SettingsForm({
 /** The month's report: one button gives the Excel in the company's format; the copy-and-paste rows stay below as a backup. */
 export function ExportPanel({
   month,
+  months,
   monthLabel,
-  detail,
+  detail: detailStrict,
+  detailAll,
   detailHeaders,
   summaryHeaders,
   teacher,
   monthEs,
-  recoveryHours,
-  extraHours,
+  recoveryHours: recStrict,
+  extraHours: extraStrict,
+  recoveryHoursAll,
+  extraHoursAll,
+  unreported,
+  people,
   collaborationCount,
   blocked,
 }: {
   month: string;
+  /** Every month that has classes (plus the one on screen), newest first. */
+  months: { key: string; label: string }[];
   monthLabel: string;
   detail: string[][];
+  /** Same rows but also the Extra/Recuperación that have no video link yet. */
+  detailAll: string[][];
   detailHeaders: string[];
   summaryHeaders: string[];
   teacher: string;
   monthEs: string;
   recoveryHours: string;
   extraHours: string;
+  recoveryHoursAll: string;
+  extraHoursAll: string;
+  /** Taught classes of this month that are “Not reported in the Sheet” (they would not be in the Excel). */
+  unreported: { id: string; label: string }[];
+  people: string[];
   collaborationCount: number;
   blocked: { id: string; label: string; hours: string }[];
 }) {
+  const router = useRouter();
+  const [include, setInclude] = useState(true);
+  const detail = include ? detailAll : detailStrict;
+  const recoveryHours = include ? recoveryHoursAll : recStrict;
+  const extraHours = include ? extraHoursAll : extraStrict;
+  const [fixType, setFixType] = useState("extra");
+  const [fixTeacher, setFixTeacher] = useState("");
+  const [fixBusy, setFixBusy] = useState(false);
+  const [fixMsg, setFixMsg] = useState<{ text: string; error: boolean } | null>(null);
   const [lost, setLost] = useState("0");
   const [copied, setCopied] = useState<"" | "detail" | "summary" | "failed">("");
   const [busy, setBusy] = useState(false);
@@ -237,11 +290,20 @@ export function ExportPanel({
     setTimeout(() => setCopied(""), 2500);
   }
 
+  async function includeUnreported() {
+    setFixBusy(true);
+    setFixMsg(null);
+    const r = await bulkAssign(unreported.map((u) => u.id), { teacher: fixTeacher, useGroup: !fixTeacher.trim(), sheet_type: fixType });
+    setFixMsg({ text: r.error ?? r.info ?? "Done.", error: !!r.error });
+    setFixBusy(false);
+    if (!r.error) router.refresh();
+  }
+
   async function download() {
     setBusy(true);
     setDlError("");
     try {
-      const res = await fetch(`/api/work/xlsx?month=${encodeURIComponent(month)}&lost=${encodeURIComponent(lost)}`);
+      const res = await fetch(`/api/work/xlsx?month=${encodeURIComponent(month)}&lost=${encodeURIComponent(lost)}&all=${include ? 1 : 0}`);
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
         setDlError(j.error ?? "I couldn't build the Excel. Try again.");
@@ -269,10 +331,64 @@ export function ExportPanel({
         then upload it to the company’s Drive yourself.
       </p>
 
+      {unreported.length > 0 && (
+        <div className="space-y-2 rounded-md border border-warning p-3 text-sm">
+          <p className="font-medium text-warning">
+            {unreported.length} {unreported.length === 1 ? "class is" : "classes are"} “Not reported in the Sheet” — that is why the Excel comes out empty
+          </p>
+          <p className="text-xs text-muted">
+            Only classes with a type (Hora Extra, Recuperación or Colaboración) and a requesting teacher go in the report. Choose them here and they are added:
+            leave the teacher empty to use the teacher of each class code (set them in “Class codes and teachers”).
+          </p>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="space-y-1 text-xs text-muted">
+              Type
+              <select value={fixType} onChange={(e) => setFixType(e.target.value)} className={`${INPUT} block text-fg`}>
+                {(["extra", "collaboration", "recovery"] as const).map((k) => (
+                  <option key={k} value={k}>
+                    {SHEET_TYPE_LABEL[k]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1 text-xs text-muted">
+              Teacher (optional)
+              <input
+                value={fixTeacher}
+                onChange={(e) => setFixTeacher(e.target.value)}
+                list="export-people"
+                placeholder="Each code’s teacher"
+                autoComplete="off"
+                className={`${INPUT} block w-48 text-fg`}
+              />
+              <datalist id="export-people">
+                {people.map((p) => (
+                  <option key={p} value={p} />
+                ))}
+              </datalist>
+            </label>
+            <button type="button" onClick={includeUnreported} disabled={fixBusy} className={PRIMARY}>
+              {fixBusy ? "…" : `Add these ${unreported.length} to the Excel`}
+            </button>
+          </div>
+          {fixMsg && <p className={`text-xs ${fixMsg.error ? "text-danger" : "text-success"}`}>{fixMsg.text}</p>}
+        </div>
+      )}
+
+      {blocked.length > 0 && (
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" checked={include} onChange={(e) => setInclude(e.target.checked)} className="mt-1 h-4 w-4 accent-[var(--accent)]" />
+          <span>
+            Include the {blocked.length} Hora Extra / Recuperación that don’t have a video link yet
+            <span className="block text-xs text-muted">Their Evidencia cell stays empty — add the link in the Excel before uploading, because the company voids them without it.</span>
+          </span>
+        </label>
+      )}
+
       {blocked.length > 0 && (
         <div className="space-y-1 rounded-md border border-warning p-3 text-sm">
           <p className="font-medium text-warning">
-            {blocked.length} {blocked.length === 1 ? "class has" : "classes have"} no evidence yet — left out of the Excel
+            {blocked.length} {blocked.length === 1 ? "class has" : "classes have"} no video link yet — {include ? "included with Evidencia empty" : "left out of the Excel"}
           </p>
           <p className="text-xs text-muted">
             The company voids Hora Extra and Hora Recuperada without the full recording. Post the video and add its Drive link in the class card and they
@@ -291,11 +407,25 @@ export function ExportPanel({
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="space-y-1 text-xs text-muted">
-          Hours lost this month (Horas Perdidas)
+          Month
+          <select
+            value={month}
+            onChange={(e) => router.replace(`/work?month=${e.target.value}`, { scroll: false })}
+            className={`${INPUT} block min-w-44 text-fg`}
+          >
+            {months.map((m) => (
+              <option key={m.key} value={m.key}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1 text-xs text-muted">
+          Hours lost (Horas Perdidas) (Horas Perdidas)
           <input value={lost} onChange={(e) => setLost(e.target.value)} inputMode="decimal" className={`${INPUT} block w-24 text-fg`} />
         </label>
         <button type="button" onClick={download} disabled={busy} className={PRIMARY}>
-          {busy ? "Building…" : "Download the Excel"}
+          {busy ? "Building…" : `Download ${monthLabel}`}
         </button>
       </div>
       {dlError && <p className="text-sm text-danger">{dlError}</p>}

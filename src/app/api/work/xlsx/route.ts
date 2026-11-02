@@ -21,6 +21,7 @@ export async function GET(req: Request) {
   const month = url.searchParams.get("month") ?? "";
   const lostRaw = Number((url.searchParams.get("lost") ?? "0").replace(",", "."));
   if (!isMonthKey(month)) return NextResponse.json({ error: "Unknown month." }, { status: 400 });
+  const all = url.searchParams.get("all") === "1"; // also the Extra/Recuperación that still have no video link
   const lost = Number.isFinite(lostRaw) && lostRaw >= 0 ? lostRaw : 0;
 
   const { from, to } = monthBounds(month);
@@ -30,9 +31,9 @@ export async function GET(req: Request) {
   ]);
   if (classesRes.error) return NextResponse.json({ error: classesRes.error.message }, { status: 500 });
   const classes = ((classesRes.data ?? []) as Record<string, unknown>[]).map(toWorkClass).sort(byTime);
-  const sum = summarize(classes);
+  const sum = summarize(classes, undefined, { includeNoLink: all });
 
-  const rows: FillRow[] = classes.filter(isValidForReport).map((c) => ({
+  const rows: FillRow[] = classes.filter((c) => isValidForReport(c, all)).map((c) => ({
     date: c.class_date,
     time: sheetRange(c.start_time, c.end_time),
     group: c.group_name,

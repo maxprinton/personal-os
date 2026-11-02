@@ -3,9 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { isDate, isTime } from "@/lib/time";
-import { calcHours, hhmm, isHttpUrl, needsEvidence, rateFor, ruleError, type SheetType, type WorkRole, type WorkStatus } from "@/lib/work-log";
+import { calcHours, groupKey, hhmm, isHttpUrl, needsEvidence, rateFor, ruleError, teacherMap, type SheetType, type WorkRole, type WorkStatus } from "@/lib/work-log";
 import type { ImportRow } from "@/lib/work-import";
 import type { ActionState } from "@/app/actions";
+import { localNow } from "@/lib/time";
+import { getSettings } from "@/lib/agenda";
 
 function refresh() {
   revalidatePath("/work");
@@ -162,6 +164,111 @@ export async function setVideosPosted(ids: string[], posted: boolean): Promise<A
   refresh();
   const n = data?.length ?? 0;
   return { ok: true, at: Date.now(), info: `${n} ${n === 1 ? "class" : "classes"} ${posted ? "marked as posted" : "back to “not posted”"}.` };
+}
+
+const GROUPS_HINT = "Run MIGRACION-0029-profesores-por-clase.sql in Supabase (SQL Editor) first, then try again.";
+const noGroupsTable = (m: string) => /work_groups/i.test(m) && /(does not exist|schema cache|relation|find the table)/i.test(m);
+
+/** Saves which teacher a class code belongs to from today on ("" = forget it and go back to the latest class's teacher). */
+export async function saveGroupTeacher(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const code = String(form.get("code") ?? "").trim();
+  const teacher = String(form.get("teacher") ?? "").trim();
+  if (!code) return { error: "Missing class code." };
+  if (/^propia$/i.test(teacher)) return { error: "“Propia” is not a teacher." };
+  const supabase = await createClient();
+  const key = groupKey(code);
+  if (!teacher) {
+    const { error } = await supabase.from("work_groups").delete().eq("code_key", key);
+    if (error) return { error: noGroupsTable(error.message) ? GROUPS_HINT : error.message };
+  } else {
+    const { timezone } = await getSettings(supabase);
+    const { error } = await supabase
+      .from("work_groups")
+      .upsert({ code, code_key: key, teacher, effective_from: localNow(timezone).date, updated_at: new Date().toISOString() }, { onConflict: "user_id,code_key" });
+    if (error) return { error: noGroupsTable(error.message) ? GROUPS_HINT : error.message };
+  }
+  refresh();
+  return { ok: true, at: Date.now(), info: teacher ? `${code} → ${teacher}` : `${code}: back to the last class's teacher` };
+}
+
+/** Renames a teacher everywhere (classes and saved class codes) — fixes typos so the report spells the name one way. */
+export async function renameTeacher(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const from = String(form.get("from") ?? "").trim();
+  const to = String(form.get("to") ?? "").trim();
+  if (!from || !to) return { error: "Write the new name." };
+  if (from === to) return { ok: true, at: Date.now() };
+  if (/^propia$/i.test(to)) return { error: "“Propia” is not a teacher." };
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("work_classes").update({ requested_by: to, updated_at: new Date().toISOString() }).eq("requested_by", from).select("id");
+  if (error) return { error: error.message };
+  await supabase.from("work_groups").update({ teacher: to, updated_at: new Date().toISOString() }).eq("teacher", from); // table may not exist yet: ignore
+  refresh();
+  const n = data?.length ?? 0;
+  return { ok: true, at: Date.now(), info: `${from} → ${to} on ${n} ${n === 1 ? "class" : "classes"}.` };
+}
+
+/**
+ * Sets the teacher and/or the Sheet type on many classes at once. `teacher` is applied to all of them; `useGroup` gives each class
+ * the teacher its code belongs to. `sheet_type`: "" keep, "none" = not in the Sheet. A class that would break a company rule
+ * (Hora Extra without a requesting teacher…) is skipped and reported.
+ */
+export async function bulkAssign(ids: string[], opts: { teacher?: string; useGroup?: boolean; sheet_type?: string }): Promise<ActionState> {
+  const clean = [...new Set((Array.isArray(ids) ? ids : []).filter((id) => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)))].slice(0, 500);
+  if (!clean.length) return { error: "Select at least one class first." };
+  const teacher = String(opts.teacher ?? "").trim();
+  const useGroup = !!opts.useGroup;
+  const st = String(opts.sheet_type ?? "");
+  if (!teacher && !useGroup && !st) return { error: "Choose a teacher (or “each class’s teacher”) and/or a type to apply." };
+  if (st && st !== "none" && !SHEET_TYPES.includes(st)) return { error: "Unknown class type." };
+
+  const supabase = await createClient();
+  const { data: rows, error } = await supabase.from("work_classes").select("id,group_name,class_date,sheet_type,requested_by,status").in("id", clean);
+  if (error) return { error: friendly(error.message) };
+
+  let map: Record<string, string> = {};
+  if (useGroup && !teacher) {
+    const [{ data: all }, saved] = await Promise.all([
+      supabase.from("work_classes").select("class_date,group_name,requested_by").order("class_date", { ascending: false }).limit(3000),
+      supabase.from("work_groups").select("code_key,teacher,effective_from"),
+    ]);
+    map = teacherMap((all ?? []) as { class_date: string; group_name: string; requested_by: string | null }[], (saved.error ? [] : saved.data ?? []) as { code_key: string; teacher: string; effective_from: string | null }[]);
+  }
+
+  const batches = new Map<string, { who: string | null; type: string | null; ids: string[] }>();
+  let unchanged = 0;
+  let noTeacher = 0;
+  const broken: string[] = [];
+  for (const r of rows ?? []) {
+    const who = teacher || (useGroup ? map[groupKey(String(r.group_name))] ?? null : null);
+    if (useGroup && !teacher && !who) noTeacher++;
+    const newWho = who ?? ((r.requested_by as string | null) ?? null);
+    const newType = st === "" ? ((r.sheet_type as string | null) ?? null) : st === "none" ? null : st;
+    if (newWho === (r.requested_by ?? null) && newType === (r.sheet_type ?? null)) {
+      unchanged++;
+      continue;
+    }
+    const rule = r.status === "taught" || !r.status ? ruleError(newType, newWho) : null;
+    if (rule) {
+      broken.push(`${r.group_name} ${r.class_date}`);
+      continue;
+    }
+    const k = `${newWho ?? ""}\u0000${newType ?? ""}`;
+    const b = batches.get(k) ?? { who: newWho, type: newType, ids: [] };
+    b.ids.push(String(r.id));
+    batches.set(k, b);
+  }
+  let done = 0;
+  for (const b of batches.values()) {
+    const { error: e } = await supabase.from("work_classes").update({ requested_by: b.who, sheet_type: b.type, updated_at: new Date().toISOString() }).in("id", b.ids);
+    if (e) return { error: friendly(e.message) };
+    done += b.ids.length;
+  }
+  refresh();
+  const parts = [`${done} ${done === 1 ? "class" : "classes"} updated`];
+  if (unchanged) parts.push(`${unchanged} already had it`);
+  if (noTeacher) parts.push(`${noTeacher} had no known teacher for their code`);
+  if (broken.length) parts.push(`${broken.length} skipped because Hora Extra / Colaboración need a requesting teacher (${broken.slice(0, 3).join(", ")}${broken.length > 3 ? "…" : ""})`);
+  return { ok: done > 0 || (!broken.length && !noTeacher), at: Date.now(), info: parts.join(" · ") + ".", ...(done === 0 && (broken.length || noTeacher) ? { error: parts.join(" · ") + "." } : {}) };
 }
 
 export async function saveWorkSettings(_prev: ActionState, form: FormData): Promise<ActionState> {

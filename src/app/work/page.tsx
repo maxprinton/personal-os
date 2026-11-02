@@ -7,8 +7,9 @@ import Section from "@/components/ui/Section";
 import { BulkClasses, PendingVideos } from "@/components/WorkBulk";
 import { ExportPanel, NewClassForm, SettingsForm } from "@/components/WorkForms";
 import WorkImport from "@/components/WorkImport";
+import WorkGroups, { type GroupRow, type TeacherRow } from "@/components/WorkGroups";
 import {
-  byTime, classEnded, missingEvidence, DETAIL_HEADERS, detailRows, fmtHours, fmtMoney, isMonthKey, monthBounds, monthKey, monthLabelEn, monthLabelEs,
+  byTime, classEnded, groupKey, teacherMap, missingEvidence, DETAIL_HEADERS, detailRows, fmtHours, fmtMoney, isMonthKey, monthBounds, monthKey, monthLabelEn, monthLabelEs,
   shiftMonth, shortDay, SUMMARY_HEADERS, summarize, toWorkClass,
 } from "@/lib/work-log";
 
@@ -34,24 +35,57 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
   const month = sp.month && isMonthKey(sp.month) ? sp.month : monthKey(now.date);
   const { from, to } = monthBounds(month);
 
-  const [settingsRes, monthRes, pendingRes, recentRes] = await Promise.all([
+  const [settingsRes, monthRes, pendingRes, histRes, savedRes] = await Promise.all([
     supabase.from("work_settings").select("*").maybeSingle(),
     supabase.from("work_classes").select("*").gte("class_date", from).lte("class_date", to).order("class_date").order("start_time"),
     supabase.from("work_classes").select("*").eq("video_posted", false).lte("class_date", now.date).order("class_date", { ascending: false }).limit(200),
-    supabase.from("work_classes").select("group_name,requested_by").order("class_date", { ascending: false }).limit(300),
+    supabase.from("work_classes").select("class_date,group_name,requested_by").order("class_date", { ascending: false }).limit(3000),
+    supabase.from("work_groups").select("code,code_key,teacher,effective_from"),
   ]);
 
   const settings = settingsRes.data as { teacher_name: string | null; substitute_rate: number; head_rate: number; video_folder_url: string | null } | null;
   const tableMissing = monthRes.error?.code === "42P01" || monthRes.error?.message?.includes("work_classes");
   const classes = ((monthRes.data ?? []) as Record<string, unknown>[]).map(toWorkClass).sort(byTime);
   const toPost = ((pendingRes.data ?? []) as Record<string, unknown>[]).map(toWorkClass).filter((c) => c.status === "taught" && classEnded(c, now));
-  const recent = (recentRes.data ?? []) as { group_name: string; requested_by: string | null }[];
+  const hist = (histRes.data ?? []) as { class_date: string; group_name: string; requested_by: string | null }[];
+  const saved = (savedRes.error ? [] : savedRes.data ?? []) as { code: string; code_key: string; teacher: string; effective_from: string | null }[];
+  const map = teacherMap(hist, saved);
+
+  // Class codes (newest first, "KIDS-7" and "Kids-7" count as one) and the teachers they belong to.
+  const codes = new Map<string, { code: string; classes: number }>();
+  for (const r of hist) {
+    const k = groupKey(r.group_name);
+    if (!k) continue;
+    const e = codes.get(k);
+    if (e) e.classes++;
+    else codes.set(k, { code: r.group_name.trim(), classes: 1 });
+  }
+  for (const s of saved) if (!codes.has(s.code_key)) codes.set(s.code_key, { code: s.code, classes: 0 });
+  const savedKeys = new Set(saved.map((s) => s.code_key));
+  const groupRows: GroupRow[] = [...codes.entries()]
+    .map(([k, v]) => ({ code: v.code, classes: v.classes, teacher: map[k] ?? "", saved: savedKeys.has(k) }))
+    .sort((a, z) => a.code.localeCompare(z.code, undefined, { numeric: true }));
+  const teacherCount = new Map<string, number>();
+  for (const r of hist) {
+    const who = (r.requested_by ?? "").trim();
+    if (who && !/^(propia|academia)$/i.test(who)) teacherCount.set(who, (teacherCount.get(who) ?? 0) + 1);
+  }
+  for (const t of Object.values(map)) if (!/^(propia|academia)$/i.test(t) && !teacherCount.has(t)) teacherCount.set(t, 0);
+  const teacherRows: TeacherRow[] = [...teacherCount.entries()]
+    .map(([name, classesN]) => ({ name, classes: classesN, groups: Object.values(map).filter((t) => t === name).length }))
+    .sort((a, z) => z.classes - a.classes || a.name.localeCompare(z.name));
   const suggestions = {
-    groups: [...new Set(recent.map((r) => r.group_name).filter(Boolean))].slice(0, 40),
-    people: [...new Set(["Propia", "Academia", ...recent.map((r) => r.requested_by ?? "").filter(Boolean)])].slice(0, 40),
+    groups: [...codes.values()].map((c) => c.code).slice(0, 60),
+    people: ["Propia", "Academia", ...teacherRows.map((t) => t.name)].slice(0, 60),
+    groupTeachers: map,
   };
 
+  // Months for the Excel picker: every month that has classes, plus the one on screen and the current one.
+  const monthKeys = [...new Set([month, monthKey(now.date), ...hist.map((r) => monthKey(r.class_date))])].sort().reverse();
+  const months = monthKeys.map((k) => ({ key: k, label: monthLabelEn(k) }));
+
   const sum = summarize(classes, now);
+  const sumAll = summarize(classes, now, { includeNoLink: true });
   const folder = settings?.video_folder_url ?? "";
   const teacher = settings?.teacher_name ?? "";
   const subRate = Number(settings?.substitute_rate ?? 6);
@@ -124,17 +158,27 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
       <Section title="Excel for the company">
         <ExportPanel
           month={month}
+          months={months}
           monthLabel={monthLabelEn(month)}
           detail={detailRows(classes)}
+          detailAll={detailRows(classes, true)}
           detailHeaders={DETAIL_HEADERS}
           summaryHeaders={SUMMARY_HEADERS}
           teacher={teacher}
           monthEs={monthLabelEs(month)}
           recoveryHours={fmtHours(sum.recoveryHours)}
           extraHours={fmtHours(sum.extraHours)}
+          recoveryHoursAll={fmtHours(sumAll.recoveryHours)}
+          extraHoursAll={fmtHours(sumAll.extraHours)}
+          unreported={classes.filter((c) => c.status === "taught" && !c.sheet_type).map((c) => ({ id: c.id, label: `${c.group_name} · ${shortDay(c.class_date)}` }))}
+          people={suggestions.people}
           collaborationCount={sum.collaborationCount}
           blocked={missingEvidence(classes).map((c) => ({ id: c.id, label: `${c.group_name} · ${shortDay(c.class_date)}`, hours: fmtHours(c.hours) }))}
         />
+      </Section>
+
+      <Section title="Class codes and teachers">
+        <WorkGroups groups={groupRows} teachers={teacherRows} people={suggestions.people} />
       </Section>
 
       <Section title="Settings">

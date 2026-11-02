@@ -154,8 +154,9 @@ function addOneDay(date: string) {
 export const needsEvidence = (t: SheetType | null) => t === "extra" || t === "recovery";
 export const hasEvidence = (c: Pick<WorkClass, "video_posted" | "video_url">) => c.video_posted && !!c.video_url?.trim();
 /** Can this class go in the Sheet report? It needs a type and, for extra/recovery, the video link. */
-export const isValidForReport = (c: Pick<WorkClass, "sheet_type" | "video_posted" | "video_url"> & { status?: WorkStatus }) =>
-  (c.status ?? "taught") === "taught" && !!c.sheet_type && (!needsEvidence(c.sheet_type) || hasEvidence(c));
+/** includeNoLink: also accept Hora Extra / Recuperación whose video link is still missing (the Evidencia cell stays empty). */
+export const isValidForReport = (c: Pick<WorkClass, "sheet_type" | "video_posted" | "video_url"> & { status?: WorkStatus }, includeNoLink = false) =>
+  (c.status ?? "taught") === "taught" && !!c.sheet_type && (includeNoLink || !needsEvidence(c.sheet_type) || hasEvidence(c));
 /** Extra/recovered classes that are still missing their evidence (oldest first). */
 export const missingEvidence = (list: WorkClass[]) => list.filter((c) => c.status === "taught" && needsEvidence(c.sheet_type) && !hasEvidence(c)).sort(byTime);
 
@@ -176,7 +177,7 @@ export type WorkSummary = {
   videosPending: number;
 };
 
-export function summarize(list: WorkClass[], now?: { date: string; minutes: number }): WorkSummary {
+export function summarize(list: WorkClass[], now?: { date: string; minutes: number }, opts?: { includeNoLink?: boolean }): WorkSummary {
   const s: WorkSummary = { classes: 0, cancelled: 0, hours: 0, amount: 0, recoveryHours: 0, extraHours: 0, collaborationHours: 0, collaborationCount: 0, missingEvidenceCount: 0, missingEvidenceHours: 0, videosPending: 0 };
   for (const c of list) {
     s.amount += c.amount; // a late cancellation can still be paid (its rate is whatever you set)
@@ -187,7 +188,7 @@ export function summarize(list: WorkClass[], now?: { date: string; minutes: numb
     s.classes++;
     s.hours += c.hours;
     if (c.sheet_type === "recovery" || c.sheet_type === "extra") {
-      if (!hasEvidence(c)) {
+      if (!opts?.includeNoLink && !hasEvidence(c)) {
         s.missingEvidenceCount++;
         s.missingEvidenceHours += c.hours;
       } else if (c.sheet_type === "recovery") s.recoveryHours += c.hours;
@@ -206,9 +207,9 @@ export function summarize(list: WorkClass[], now?: { date: string; minutes: numb
 /** "Reporte detallado" tab: one row per class that has a Sheet type (extra/recovered ones only with their video link). Columns: Fecha, Horario, Grupo o estudiante,
  *  Tipo de clase, Solicitud, Evidencia, Información adicional y detalles. */
 export const DETAIL_HEADERS = ["Fecha", "Horario", "Grupo o estudiante", "Tipo de clase", "Solicitud", "Evidencia", "Información adicional y detalles"];
-export function detailRows(list: WorkClass[]) {
+export function detailRows(list: WorkClass[], includeNoLink = false) {
   return [...list]
-    .filter(isValidForReport)
+    .filter((c) => isValidForReport(c, includeNoLink))
     .sort(byTime)
     .map((c) => [
       sheetDate(c.class_date),
@@ -285,3 +286,37 @@ export function shortDay(date: string) {
 }
 
 export const isHttpUrl = (s: string) => /^https?:\/\/\S+$/i.test(s.trim());
+
+/** A class code compared without caring about case or extra spaces ("KIDS-7" = "Kids-7"). */
+export function groupKey(code: string) {
+  return String(code ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/**
+ * Which teacher each class code belongs to right now: the teacher on your most recent class with that code, unless you saved
+ * one for the code (`saved`) — that one wins until a class dated AFTER its `effective_from` day names someone else.
+ * "Propia" is not a teacher, so it is never remembered. Keys are `groupKey`s.
+ */
+export function teacherMap(
+  classes: { class_date: string; group_name: string; requested_by: string | null }[],
+  saved: { code_key: string; teacher: string; effective_from?: string | null }[] = [],
+): Record<string, string> {
+  const latest: Record<string, { date: string; who: string }> = {};
+  const newestFirst = [...classes].sort((a, b) => (a.class_date < b.class_date ? 1 : a.class_date > b.class_date ? -1 : 0));
+  for (const c of newestFirst) {
+    const who = (c.requested_by ?? "").trim();
+    const k = groupKey(c.group_name);
+    if (!k || !who || /^propia$/i.test(who) || latest[k]) continue;
+    latest[k] = { date: c.class_date, who };
+  }
+  const out: Record<string, string> = {};
+  for (const k of Object.keys(latest)) out[k] = latest[k].who;
+  for (const s of saved) {
+    const t = s.teacher.trim();
+    if (!s.code_key || !t) continue;
+    const l = latest[s.code_key];
+    if (l && s.effective_from && l.date > s.effective_from) continue;
+    out[s.code_key] = t;
+  }
+  return out;
+}

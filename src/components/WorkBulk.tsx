@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { setVideosPosted } from "@/app/work-actions";
+import { bulkAssign, setVideosPosted } from "@/app/work-actions";
 import WorkRow from "@/components/WorkRow";
 import type { Suggestions } from "@/components/WorkForms";
-import { monthKey, monthLabelEn, needsEvidence, shortDay, type WorkClass } from "@/lib/work-log";
+import { monthKey, monthLabelEn, needsEvidence, shortDay, SHEET_TYPE_LABEL, type WorkClass } from "@/lib/work-log";
 
 const GHOST = "rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium transition-colors hover:bg-subtle disabled:opacity-50";
 const PRIMARY = "rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-fg shadow-sm transition-colors hover:bg-accent-hover disabled:opacity-50";
@@ -53,6 +53,72 @@ function Msg({ msg }: { msg: { text: string; error: boolean } | null }) {
 
 type Item = { c: WorkClass; ended: boolean };
 
+
+/** Teacher / Sheet type for the selected classes: type a name (or pick one), or let every class take the teacher its code belongs to. */
+function AssignPanel({ ids, people, onDone }: { ids: string[]; people: string[]; onDone: () => void }) {
+  const [teacher, setTeacher] = useState("");
+  const [type, setType] = useState("");
+  const [busy, startTransition] = useTransition();
+  const [msg, setMsg] = useState<{ text: string; error: boolean } | null>(null);
+
+  function run(useGroup: boolean) {
+    setMsg(null);
+    startTransition(async () => {
+      const r = await bulkAssign(ids, { teacher: useGroup ? "" : teacher, useGroup, sheet_type: type });
+      setMsg({ text: r.error ?? r.info ?? "Done.", error: !!r.error });
+      if (!r.error) onDone();
+    });
+  }
+
+  return (
+    <details className="rounded-md border border-line p-3" open>
+      <summary className="cursor-pointer text-sm font-medium">Teacher and type for the {ids.length} selected</summary>
+      <div className="mt-3 space-y-2">
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="space-y-1 text-xs text-muted">
+            Teacher (Solicitud)
+            <input
+              value={teacher}
+              onChange={(e) => setTeacher(e.target.value)}
+              list="bulk-people"
+              placeholder="Pick or type a new name"
+              autoComplete="off"
+              className="block w-52 rounded-md border border-line-strong px-2 py-1.5 text-sm text-fg"
+            />
+            <datalist id="bulk-people">
+              {people.map((p) => (
+                <option key={p} value={p} />
+              ))}
+            </datalist>
+          </label>
+          <label className="space-y-1 text-xs text-muted">
+            Type in the Sheet
+            <select value={type} onChange={(e) => setType(e.target.value)} className="block rounded-md border border-line-strong px-2 py-1.5 text-sm text-fg">
+              <option value="">Keep as it is</option>
+              {(["extra", "collaboration", "recovery"] as const).map((k) => (
+                <option key={k} value={k}>
+                  {SHEET_TYPE_LABEL[k]}
+                </option>
+              ))}
+              <option value="none">Not reported in the Sheet</option>
+            </select>
+          </label>
+          <button type="button" className={PRIMARY} disabled={busy || !ids.length || (!teacher.trim() && !type)} onClick={() => run(false)}>
+            {busy ? "…" : "Apply to selected"}
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className={GHOST} disabled={busy || !ids.length} onClick={() => run(true)}>
+            Give each one its code’s teacher
+          </button>
+          <span className="text-xs text-muted">Uses the teacher each code belongs to (see “Class codes → teacher”). The type above is applied too, if you chose one.</span>
+        </div>
+        <Msg msg={msg} />
+      </div>
+    </details>
+  );
+}
+
 /** The month's classes with checkboxes: pick several (or all) and mark their videos as posted in one click. */
 export function BulkClasses({ items, suggestions }: { items: Item[]; suggestions: Suggestions }) {
   const b = useBulk();
@@ -98,6 +164,7 @@ export function BulkClasses({ items, suggestions }: { items: Item[]; suggestions
             Mark the whole month as posted
           </button>
         </div>
+        {b.sel.size > 0 && <AssignPanel ids={chosen} people={suggestions.people} onDone={b.clear} />}
         {needLink > 0 && (
           <p className="text-xs text-warning">
             {needLink} of the selected {needLink === 1 ? "is" : "are"} Hora Extra / Recuperación without a link: they get ticked, but they stay out of the company Excel until you add the Drive link.
