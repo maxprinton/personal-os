@@ -6,32 +6,13 @@ import { localNow } from "@/lib/time";
 import Section from "@/components/ui/Section";
 import WorkRow from "@/components/WorkRow";
 import { ExportPanel, NewClassForm, SettingsForm } from "@/components/WorkForms";
+import WorkImport from "@/components/WorkImport";
 import {
   byTime, classEnded, missingEvidence, DETAIL_HEADERS, detailRows, fmtHours, fmtMoney, isMonthKey, monthBounds, monthKey, monthLabelEn, monthLabelEs,
-  shiftMonth, shortDay, SUMMARY_HEADERS, summarize, type WorkClass,
+  shiftMonth, shortDay, SUMMARY_HEADERS, summarize, toWorkClass,
 } from "@/lib/work-log";
 
 export const dynamic = "force-dynamic";
-
-// numeric columns can arrive as text depending on the driver — always turn them into numbers
-function toClass(r: Record<string, unknown>): WorkClass {
-  return {
-    id: String(r.id),
-    class_date: String(r.class_date),
-    start_time: String(r.start_time),
-    end_time: String(r.end_time),
-    group_name: String(r.group_name),
-    role: r.role === "head" ? "head" : "substitute",
-    sheet_type: (r.sheet_type as WorkClass["sheet_type"]) ?? null,
-    requested_by: (r.requested_by as string | null) ?? null,
-    hours: Number(r.hours),
-    rate: Number(r.rate),
-    amount: Number(r.amount),
-    video_posted: Boolean(r.video_posted),
-    video_url: (r.video_url as string | null) ?? null,
-    notes: (r.notes as string | null) ?? null,
-  };
-}
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -62,8 +43,8 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
 
   const settings = settingsRes.data as { teacher_name: string | null; substitute_rate: number; head_rate: number; video_folder_url: string | null } | null;
   const tableMissing = monthRes.error?.code === "42P01" || monthRes.error?.message?.includes("work_classes");
-  const classes = ((monthRes.data ?? []) as Record<string, unknown>[]).map(toClass).sort(byTime);
-  const toPost = ((pendingRes.data ?? []) as Record<string, unknown>[]).map(toClass).filter((c) => classEnded(c, now));
+  const classes = ((monthRes.data ?? []) as Record<string, unknown>[]).map(toWorkClass).sort(byTime);
+  const toPost = ((pendingRes.data ?? []) as Record<string, unknown>[]).map(toWorkClass).filter((c) => c.status === "taught" && classEnded(c, now));
   const recent = (recentRes.data ?? []) as { group_name: string; requested_by: string | null }[];
   const suggestions = {
     groups: [...new Set(recent.map((r) => r.group_name).filter(Boolean))].slice(0, 40),
@@ -113,7 +94,7 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Stat label="Hours" value={fmtHours(sum.hours)} sub={`${sum.classes} ${sum.classes === 1 ? "class" : "classes"}`} />
+          <Stat label="Hours" value={fmtHours(sum.hours)} sub={`${sum.classes} ${sum.classes === 1 ? "class" : "classes"}${sum.cancelled ? ` · ${sum.cancelled} cancelled` : ""}`} />
           <Stat label="Earned" value={fmtMoney(sum.amount)} sub={monthLabelEs(month)} />
           <Stat label="Videos to post" value={String(sum.videosPending)} sub="this month" />
           <Stat label="Not posted (all months)" value={String(toPost.length)} />
@@ -151,6 +132,8 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
         <NewClassForm today={isCurrent ? now.date : from} suggestions={suggestions} />
       </Section>
 
+      <WorkImport today={now.date} />
+
       <Section title="Classes" count={classes.length}>
         {classes.length === 0 ? (
           <p className="text-sm text-muted">No classes in {monthLabelEn(month)} yet.</p>
@@ -163,8 +146,9 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
         )}
       </Section>
 
-      <Section title="Report for the company Sheet">
+      <Section title="Excel for the company">
         <ExportPanel
+          month={month}
           monthLabel={monthLabelEn(month)}
           detail={detailRows(classes)}
           detailHeaders={DETAIL_HEADERS}

@@ -21,6 +21,7 @@ export type ClassDefaults = {
   requested_by?: string | null;
   notes?: string | null;
   rate?: number | null;
+  status?: "taught" | "cancelled_early" | "cancelled_late";
 };
 
 export type Suggestions = { groups: string[]; people: string[] };
@@ -103,7 +104,16 @@ export function ClassFields({ d, s, idp }: { d: ClassDefaults; s: Suggestions; i
           className={`${INPUT} w-full text-fg`}
         />
       </label>
-      <label className="col-span-2 space-y-1 text-xs text-muted sm:col-span-4">
+      <label className="col-span-2 space-y-1 text-xs text-muted sm:col-span-2">
+        Status
+        <select name="status" defaultValue={d.status ?? "taught"} className={`${INPUT} w-full text-fg`}>
+          <option value="taught">Taught</option>
+          <option value="cancelled_early">Student cancelled BEFORE it started</option>
+          <option value="cancelled_late">Student cancelled AFTER it started</option>
+        </select>
+      </label>
+      {d.id && <input type="hidden" name="was_status" value={d.status ?? "taught"} />}
+      <label className="col-span-2 space-y-1 text-xs text-muted sm:col-span-2">
         Details (goes in “Información adicional”)
         <input
           name="notes"
@@ -183,8 +193,9 @@ export function SettingsForm({
   );
 }
 
-/** Copy-and-paste export in the company Sheet's columns (one tab = one button). */
+/** The month's report: one button gives the Excel in the company's format; the copy-and-paste rows stay below as a backup. */
 export function ExportPanel({
+  month,
   monthLabel,
   detail,
   detailHeaders,
@@ -196,6 +207,7 @@ export function ExportPanel({
   collaborationCount,
   blocked,
 }: {
+  month: string;
   monthLabel: string;
   detail: string[][];
   detailHeaders: string[];
@@ -209,6 +221,8 @@ export function ExportPanel({
 }) {
   const [lost, setLost] = useState("0");
   const [copied, setCopied] = useState<"" | "detail" | "summary" | "failed">("");
+  const [busy, setBusy] = useState(false);
+  const [dlError, setDlError] = useState("");
   const lostN = Number(lost.replace(",", "."));
   const summary = [teacher || "(your name)", monthEs, String(Number.isFinite(lostN) ? lostN : 0), recoveryHours, extraHours, String(collaborationCount)];
 
@@ -223,21 +237,46 @@ export function ExportPanel({
     setTimeout(() => setCopied(""), 2500);
   }
 
+  async function download() {
+    setBusy(true);
+    setDlError("");
+    try {
+      const res = await fetch(`/api/work/xlsx?month=${encodeURIComponent(month)}&lost=${encodeURIComponent(lost)}`);
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        setDlError(j.error ?? "I couldn't build the Excel. Try again.");
+        return;
+      }
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `Reporte-de-horas-${month}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    } catch {
+      setDlError("I couldn't download it. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-4 rounded-lg border border-line bg-surface p-4 shadow-card">
       <p className="text-sm text-muted">
-        Copy a tab’s rows and paste them into the first empty row of the company Sheet (click the first cell, then Ctrl+V). Only classes with a
-        type are included. {monthLabel}: {detail.length} {detail.length === 1 ? "row" : "rows"} for “Reporte detallado”.
+        {monthLabel}: {detail.length} {detail.length === 1 ? "class goes" : "classes go"} in “Reporte detallado”. Press the button, open the Excel to check it,
+        then upload it to the company’s Drive yourself.
       </p>
 
       {blocked.length > 0 && (
         <div className="space-y-1 rounded-md border border-warning p-3 text-sm">
           <p className="font-medium text-warning">
-            {blocked.length} {blocked.length === 1 ? "class has" : "classes have"} no evidence yet — left out of both tabs
+            {blocked.length} {blocked.length === 1 ? "class has" : "classes have"} no evidence yet — left out of the Excel
           </p>
           <p className="text-xs text-muted">
             The company voids Hora Extra and Hora Recuperada without the full recording. Post the video and add its Drive link in the class card and they
-            will appear here.
+            will be included.
           </p>
           <ul className="text-xs">
             {blocked.map((b) => (
@@ -248,75 +287,87 @@ export function ExportPanel({
           </ul>
         </div>
       )}
+      {!teacher && <p className="text-xs text-warning">Your name is empty, so “Docente” will be blank. Add it in Settings below.</p>}
 
-      <div className="space-y-2">
-        <h3 className="text-sm font-medium">Tab “Reporte detallado”</h3>
-        {detail.length === 0 ? (
-          <p className="text-sm text-faint">No classes with a Sheet type this month.</p>
-        ) : (
-          <div className="overflow-x-auto rounded-md border border-line">
-            <table className="w-full min-w-[640px] text-left text-xs">
-              <thead className="bg-subtle text-muted">
-                <tr>
-                  {detailHeaders.map((h) => (
-                    <th key={h} className="px-2 py-1.5 font-medium">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {detail.map((r, i) => (
-                  <tr key={i} className="border-t border-line">
-                    {r.map((c, j) => (
-                      <td key={j} className="max-w-[16rem] truncate px-2 py-1.5">
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="space-y-1 text-xs text-muted">
+          Hours lost this month (Horas Perdidas)
+          <input value={lost} onChange={(e) => setLost(e.target.value)} inputMode="decimal" className={`${INPUT} block w-24 text-fg`} />
+        </label>
+        <button type="button" onClick={download} disabled={busy} className={PRIMARY}>
+          {busy ? "Building…" : "Download the Excel"}
+        </button>
+      </div>
+      {dlError && <p className="text-sm text-danger">{dlError}</p>}
+
+      <details className="rounded-md border border-line p-3">
+        <summary className="cursor-pointer text-sm font-medium">Or copy the rows to paste into the company’s own file</summary>
+        <div className="mt-3 space-y-4">
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium">Tab “Reporte detallado”</h3>
+            {detail.length === 0 ? (
+              <p className="text-sm text-faint">No classes with a Sheet type this month.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-md border border-line">
+                <table className="w-full min-w-[640px] text-left text-xs">
+                  <thead className="bg-subtle text-muted">
+                    <tr>
+                      {detailHeaders.map((h) => (
+                        <th key={h} className="px-2 py-1.5 font-medium">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.map((r, i) => (
+                      <tr key={i} className="border-t border-line">
+                        {r.map((c, j) => (
+                          <td key={j} className="max-w-[16rem] truncate px-2 py-1.5">
+                            {c}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <button type="button" disabled={detail.length === 0} onClick={() => copy("detail")} className={GHOST}>
+              {copied === "detail" ? "Copied ✓" : "Copy rows (no headers)"}
+            </button>
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium">Tab “Resumen”</h3>
+            <div className="overflow-x-auto rounded-md border border-line">
+              <table className="w-full min-w-[520px] text-left text-xs">
+                <thead className="bg-subtle text-muted">
+                  <tr>
+                    {summaryHeaders.map((h) => (
+                      <th key={h} className="px-2 py-1.5 font-medium">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-t border-line">
+                    {summary.map((c, j) => (
+                      <td key={j} className="px-2 py-1.5">
                         {c}
                       </td>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+            </div>
+            <button type="button" onClick={() => copy("summary")} className={GHOST}>
+              {copied === "summary" ? "Copied ✓" : "Copy the row"}
+            </button>
           </div>
-        )}
-        <button type="button" disabled={detail.length === 0} onClick={() => copy("detail")} className={GHOST}>
-          {copied === "detail" ? "Copied ✓" : "Copy rows (no headers)"}
-        </button>
-      </div>
-
-      <div className="space-y-2">
-        <h3 className="text-sm font-medium">Tab “Resumen”</h3>
-        <div className="overflow-x-auto rounded-md border border-line">
-          <table className="w-full min-w-[520px] text-left text-xs">
-            <thead className="bg-subtle text-muted">
-              <tr>
-                {summaryHeaders.map((h) => (
-                  <th key={h} className="px-2 py-1.5 font-medium">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-t border-line">
-                {summary.map((c, j) => (
-                  <td key={j} className="px-2 py-1.5">
-                    {c}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
+          {copied === "failed" && <p className="text-sm text-danger">The browser blocked copying. Select the text in the table and copy it by hand.</p>}
         </div>
-        <label className="flex items-center gap-2 text-xs text-muted">
-          Hours lost this month (Horas Perdidas — I can’t know these)
-          <input value={lost} onChange={(e) => setLost(e.target.value)} inputMode="decimal" className={`${INPUT} w-20 text-fg`} />
-        </label>
-        <button type="button" onClick={() => copy("summary")} className={GHOST}>
-          {copied === "summary" ? "Copied ✓" : "Copy the row"}
-        </button>
-      </div>
-      {copied === "failed" && <p className="text-sm text-danger">The browser blocked copying. Select the text in the table and copy it by hand.</p>}
+      </details>
     </div>
   );
 }

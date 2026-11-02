@@ -1,6 +1,6 @@
 // Work log: hours and pay, the company Sheet's formats (date, time range, month), month totals and the paste-ready text.
 import {
-  byTime, calcAmount, calcHours, classEnded, detailRows, fmtHours, fmtMoney, hasEvidence, hhmm, isHttpUrl, isValidForReport, missingEvidence, needsEvidence, isMonthKey, monthBounds, monthKey, monthLabelEn,
+  byTime, calcAmount, calcHours, classEnded, detailRows, fmtHours, fmtMoney, hasEvidence, hhmm, parseVideoCmd, ruleError, isHttpUrl, isValidForReport, missingEvidence, needsEvidence, isMonthKey, monthBounds, monthKey, monthLabelEn,
   monthLabelEs, rateFor, sheetDate, sheetRange, shiftMonth, shortDay, summarize, summaryRow, toMinutes, toTsv, type WorkClass,
 } from "@/lib/work-log";
 
@@ -63,7 +63,7 @@ let n = 0;
 const cls = (o: Partial<WorkClass>): WorkClass => {
   const base: WorkClass = {
     id: `c${++n}`, class_date: "2026-10-27", start_time: "20:00:00", end_time: "21:00:00", group_name: "B1-6", role: "substitute",
-    sheet_type: "collaboration", requested_by: "Felipe", hours: 1, rate: 6, amount: 6, video_posted: false, video_url: null, notes: null,
+    sheet_type: "collaboration", requested_by: "Felipe", hours: 1, rate: 6, amount: 6, video_posted: false, video_url: null, notes: null, status: "taught", attendance_urls: [],
   };
   return { ...base, ...o };
 };
@@ -116,6 +116,34 @@ ok("missing evidence list", missingEvidence(list).map((c) => c.group_name).join(
 const withProof = summarize([cls({ sheet_type: "recovery", hours: 1.5, amount: 9, video_posted: true, video_url: "https://d/r" }), cls({ sheet_type: "extra", video_posted: true, video_url: "https://d/e" })]);
 ok("summary: with evidence the hours count", withProof.recoveryHours === 1.5 && withProof.extraHours === 1 && withProof.missingEvidenceCount === 0);
 ok("summary: collaborations never count as extra or recovered hours", summarize([cls({ sheet_type: "collaboration", video_posted: true, video_url: "https://d/c" })]).extraHours === 0);
+
+// ---- rules about who requests a class
+ok("rule: extra needs someone to request it", ruleError("extra", "") !== null && ruleError("extra", null) !== null);
+ok("rule: extra is never 'Propia'", ruleError("extra", "Propia") !== null && ruleError("extra", " propia ") !== null);
+ok("rule: extra requested by the academy or a teacher is fine", ruleError("extra", "Academia") === null && ruleError("extra", "Felipe") === null);
+ok("rule: collaboration names the teacher", ruleError("collaboration", "") !== null && ruleError("collaboration", "Felipe") === null);
+ok("rule: recovery and untyped classes are free", ruleError("recovery", "") === null && ruleError(null, "") === null && ruleError("", null) === null);
+
+// ---- cancelled by the student
+const cancelled = [
+  cls({ group_name: "P1", sheet_type: "extra", requested_by: "Academia", video_posted: true, video_url: "https://d/p1" }),
+  cls({ group_name: "P2", sheet_type: "extra", requested_by: "Academia", status: "cancelled_early", hours: 1, rate: 0, amount: 0 }),
+  cls({ group_name: "P3", sheet_type: "extra", requested_by: "Academia", status: "cancelled_late", hours: 1, rate: 6, amount: 6 }),
+];
+const sc = summarize(cancelled, { date: "2026-10-28", minutes: 600 });
+ok("cancelled: not counted as classes or hours", sc.classes === 1 && sc.hours === 1 && sc.cancelled === 2, `${sc.classes}/${sc.hours}/${sc.cancelled}`);
+ok("cancelled: a paid late cancellation still counts in the money", sc.amount === 12, String(sc.amount));
+ok("cancelled: never in extra hours", sc.extraHours === 1);
+ok("cancelled: never need a video", sc.videosPending === 0 && sc.missingEvidenceCount === 0 && missingEvidence(cancelled).length === 0);
+ok("cancelled: never in the report", detailRows(cancelled).length === 1 && !isValidForReport(cancelled[1]) && !isValidForReport(cancelled[2]));
+
+// ---- Telegram: video command
+const v1 = parseVideoCmd("video B2-5 https://drive.google.com/file/d/1/view");
+ok("video cmd: class + link", v1?.group === "B2-5" && v1.url === "https://drive.google.com/file/d/1/view");
+const v2 = parseVideoCmd("video https://drive.google.com/x");
+ok("video cmd: only the link → latest class", v2?.group === null && v2.url === "https://drive.google.com/x");
+ok("video cmd: slash and accent", parseVideoCmd("/vídeo a1-6 https://d/x")?.group === "a1-6");
+ok("video cmd: not a link → not a command", parseVideoCmd("video B2-5 later") === null && parseVideoCmd("video") === null && parseVideoCmd("videos B2-5 https://d/x") === null);
 
 ok("tsv: tabs and rows", toTsv([["a", "b"], ["c", "d"]]) === "a\tb\nc\td");
 ok("tsv: tabs and line breaks inside a cell become spaces", toTsv([["x\ty", "l1\nl2"]]) === "x y\tl1 l2");

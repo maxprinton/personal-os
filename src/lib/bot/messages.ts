@@ -22,6 +22,8 @@ import { handleReply } from "@/lib/bot/replies";
 import { askNotes, askQuestion } from "@/lib/bot/ask";
 import { undoLast } from "@/lib/bot/undo";
 import { categorizeView, proposalsView } from "@/lib/bot/categorize";
+import { markVideo, workView } from "@/lib/bot/work";
+import { parseVideoCmd } from "@/lib/work-log";
 import { markUsageReported, refreshFromGroq, scopeUsageLine, startOfDay, usageReport, usageSummary, withAiUsage } from "@/lib/ai-usage";
 import { addDays } from "@/lib/time";
 
@@ -58,6 +60,7 @@ const W = {
   settings: ["/ajustes", "ajustes", "/settings", "settings", "/config", "config", "configuracion"],
   ai: ["/ai"],
   usage: ["/usage", "/uso", "usage", "uso"],
+  work: ["/work", "work", "/trabajo", "trabajo", "/horas", "horas", "/clases", "clases", "/videos", "videos"],
   undo: ["/undo", "/deshacer", "deshacer", "undo"],
 };
 
@@ -271,6 +274,7 @@ async function views(c: Ctx, text: string): Promise<boolean> {
     if (isOneOf(text, W.movements)) return await hit(movementsView(c));
     if (isOneOf(text, W.notes)) return await hit(notesView(c));
     if (isOneOf(text, W.habits)) return await hit(habitsView(c));
+    if (isOneOf(text, W.work)) return await hit(workView(c));
     if (isOneOf(text, W.insights)) return await hit(insightsView(c));
     if (isOneOf(text, W.metrics)) return await hit(metricsView(c));
     if (isOneOf(text, W.settings)) return await hit(settingsView(c));
@@ -299,6 +303,10 @@ type ActionReply = { text: string; kb: Kb; thread?: string | null };
 
 /** Messages with a clear start: habits, events, payments, free days, block notes, balances, metrics. */
 async function actions(c: Ctx, text: string): Promise<ActionReply | null> {
+  // Work log: "video B2-5 https://drive.google.com/…" marks that class's video as posted
+  const vid = parseVideoCmd(text);
+  if (vid) return await markVideo(c, vid.group, vid.url);
+
   // Habits: "habit: Stretch in Gym" · "done stretch" / "skip stretch" (and "done <task>")
   const habitCmd = parseHabitCommand(text);
   if (habitCmd?.kind === "create") {

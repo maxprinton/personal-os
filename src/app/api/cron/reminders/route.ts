@@ -32,6 +32,7 @@ import { runNightly } from "@/lib/auto-categorize";
 import { listProposals } from "@/lib/category-proposals";
 import { proposalsReply } from "@/lib/bot/categorize";
 import { localNow } from "@/lib/time";
+import { workVideoReminders } from "@/lib/bot/work";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -144,6 +145,13 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings & { blockEn
         sent++;
       }
     }
+  }
+
+  // 🎥 A class ended and its video isn't posted: one reminder per class (the work log is optional — errors are ignored)
+  try {
+    sent += await workVideoReminders(admin, s, now);
+  } catch {
+    // no work log yet
   }
 
   // 🆕 New categories the AI proposed (last 36 h), asked once a day at the morning time with ✓ / ✕ buttons

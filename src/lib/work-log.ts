@@ -3,6 +3,14 @@
 
 export type WorkRole = "substitute" | "head";
 export type SheetType = "recovery" | "extra" | "collaboration";
+/** taught · cancelled_early = a personalized student cancelled BEFORE the class started (not a lost hour; reschedule if asked) ·
+ *  cancelled_late = cancelled once it had started (you are exempt). Cancelled classes never count in the monthly report. */
+export type WorkStatus = "taught" | "cancelled_early" | "cancelled_late";
+export const STATUS_LABEL: Record<WorkStatus, string> = {
+  taught: "Taught",
+  cancelled_early: "Cancelled by the student before it started",
+  cancelled_late: "Cancelled by the student after it started",
+};
 
 export const ROLE_LABEL: Record<WorkRole, string> = { substitute: "Substitute", head: "Head teacher" };
 /** Names exactly as the company Sheet writes them (Tipo de clase). */
@@ -28,6 +36,8 @@ export type WorkClass = {
   video_posted: boolean;
   video_url: string | null;
   notes: string | null;
+  status: WorkStatus;
+  attendance_urls: string[];
 };
 
 const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -144,13 +154,15 @@ function addOneDay(date: string) {
 export const needsEvidence = (t: SheetType | null) => t === "extra" || t === "recovery";
 export const hasEvidence = (c: Pick<WorkClass, "video_posted" | "video_url">) => c.video_posted && !!c.video_url?.trim();
 /** Can this class go in the Sheet report? It needs a type and, for extra/recovery, the video link. */
-export const isValidForReport = (c: Pick<WorkClass, "sheet_type" | "video_posted" | "video_url">) =>
-  !!c.sheet_type && (!needsEvidence(c.sheet_type) || hasEvidence(c));
+export const isValidForReport = (c: Pick<WorkClass, "sheet_type" | "video_posted" | "video_url"> & { status?: WorkStatus }) =>
+  (c.status ?? "taught") === "taught" && !!c.sheet_type && (!needsEvidence(c.sheet_type) || hasEvidence(c));
 /** Extra/recovered classes that are still missing their evidence (oldest first). */
-export const missingEvidence = (list: WorkClass[]) => list.filter((c) => needsEvidence(c.sheet_type) && !hasEvidence(c)).sort(byTime);
+export const missingEvidence = (list: WorkClass[]) => list.filter((c) => c.status === "taught" && needsEvidence(c.sheet_type) && !hasEvidence(c)).sort(byTime);
 
 export type WorkSummary = {
   classes: number;
+  /** Classes cancelled by the student (not counted in hours or the report). */
+  cancelled: number;
   hours: number;
   amount: number;
   recoveryHours: number;
@@ -165,11 +177,15 @@ export type WorkSummary = {
 };
 
 export function summarize(list: WorkClass[], now?: { date: string; minutes: number }): WorkSummary {
-  const s: WorkSummary = { classes: 0, hours: 0, amount: 0, recoveryHours: 0, extraHours: 0, collaborationHours: 0, collaborationCount: 0, missingEvidenceCount: 0, missingEvidenceHours: 0, videosPending: 0 };
+  const s: WorkSummary = { classes: 0, cancelled: 0, hours: 0, amount: 0, recoveryHours: 0, extraHours: 0, collaborationHours: 0, collaborationCount: 0, missingEvidenceCount: 0, missingEvidenceHours: 0, videosPending: 0 };
   for (const c of list) {
+    s.amount += c.amount; // a late cancellation can still be paid (its rate is whatever you set)
+    if (c.status !== "taught") {
+      s.cancelled++;
+      continue;
+    }
     s.classes++;
     s.hours += c.hours;
-    s.amount += c.amount;
     if (c.sheet_type === "recovery" || c.sheet_type === "extra") {
       if (!hasEvidence(c)) {
         s.missingEvidenceCount++;
@@ -214,6 +230,45 @@ export function summaryRow(teacher: string, month: string, lostHours: number, s:
 /** Tab-separated text: pasting it into Google Sheets fills one cell per column. */
 export function toTsv(rows: string[][]) {
   return rows.map((r) => r.map((c) => String(c).replace(/[\t\r\n]+/g, " ").trim()).join("\t")).join("\n");
+}
+
+/** Company rules about who requests a class: an Hora Extra is never on your own initiative, and a Colaboración names the
+ *  teacher who sent the students. Returns the message to show, or null when the combination is fine. */
+export function ruleError(sheetType: string | null | undefined, requestedBy: string | null | undefined) {
+  const who = (requestedBy ?? "").trim();
+  if (sheetType === "extra" && (!who || /^propia$/i.test(who)))
+    return "A Hora Extra must be requested by another teacher or the academy. Write who asked (not “Propia”).";
+  if (sheetType === "collaboration" && !who) return "Write which teacher sent you their students (Requested by).";
+  return null;
+}
+
+/** Telegram: "video B2-5 https://drive…" (or just "video https://drive…" for the latest class without one). */
+export function parseVideoCmd(text: string): { group: string | null; url: string } | null {
+  const m = /^\/?v[ií]deo\s+(?:(\S+)\s+)?(https?:\/\/\S+)\s*$/i.exec(text.trim());
+  return m ? { group: m[1] ?? null, url: m[2] } : null;
+}
+
+/** A database row → WorkClass. Numbers can arrive as text; the 0028 columns may not exist yet (then: taught, no screenshots). */
+export function toWorkClass(r: Record<string, unknown>): WorkClass {
+  const st = String(r.status ?? "taught");
+  return {
+    id: String(r.id),
+    class_date: String(r.class_date),
+    start_time: String(r.start_time),
+    end_time: String(r.end_time),
+    group_name: String(r.group_name),
+    role: r.role === "head" ? "head" : "substitute",
+    sheet_type: (r.sheet_type as SheetType | null) ?? null,
+    requested_by: (r.requested_by as string | null) ?? null,
+    hours: Number(r.hours),
+    rate: Number(r.rate),
+    amount: Number(r.amount),
+    video_posted: Boolean(r.video_posted),
+    video_url: (r.video_url as string | null) ?? null,
+    notes: (r.notes as string | null) ?? null,
+    status: st === "cancelled_early" || st === "cancelled_late" ? st : "taught",
+    attendance_urls: Array.isArray(r.attendance_urls) ? (r.attendance_urls as unknown[]).map(String) : [],
+  };
 }
 
 /** Pays differ by role; null/invalid rate falls back to the default for that role. */
