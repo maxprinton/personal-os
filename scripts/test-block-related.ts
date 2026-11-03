@@ -36,16 +36,17 @@ function fake(tables: Record<string, Row[]>, fail = false) {
 
 const U = "u1";
 const rel = (source: string, target: string, over: Row = {}): Row => ({ user_id: U, source_type: "note", source_id: source, target_type: "block_type", target_id: target, deleted_at: null, ...over });
-const note = (id: string, title: string, over: Row = {}): Row => ({ id, user_id: U, title, page: null, parent_id: null, block_name: null, is_template: false, deleted_at: null, ...over });
+const note = (id: string, title: string, over: Row = {}): Row => ({ id, user_id: U, title, updated_at: "2026-01-01T00:00:00Z", page: null, parent_id: null, block_name: null, is_template: false, deleted_at: null, ...over });
 
-await test("lists the normal notes linked to each block, by title", async () => {
+await test("lists the normal notes linked to each block, newest edited first", async () => {
   const sb = fake({
     entity_relations: [rel("n2", "gym"), rel("n1", "gym"), rel("n1", "work")],
-    notes: [note("n1", "Zeta plan", { page: { icon: "🏋️" } }), note("n2", "Alpha")],
+    notes: [note("n1", "Zeta plan", { page: { icon: "🏋️" }, updated_at: "2026-03-01T00:00:00Z" }), note("n2", "Alpha", { updated_at: "2026-02-01T00:00:00Z" })],
   });
   const out = await getBlockLinkedNotes(sb, U);
-  assert.deepEqual(out.gym.map((n) => n.title), ["Alpha", "Zeta plan"]);
-  assert.equal(out.gym[1].icon, "🏋️");
+  assert.deepEqual(out.gym.map((n) => n.title), ["Zeta plan", "Alpha"]);
+  assert.equal(out.gym[0].updated, "2026-03-01T00:00:00Z");
+  assert.equal(out.gym[0].icon, "🏋️");
   assert.deepEqual(out.work.map((n) => n.id), ["n1"]);
 });
 

@@ -140,7 +140,7 @@ export type CalendarData = {
   /** Block notes by lower-case block name (the name is the key, like LifeOS). */
   blockNotes: Record<string, { id: string; content: string }>;
   /** Normal notes linked to each block (by block type id), listed as "Related notes" in the block window and Focus. */
-  blockLinks?: Record<string, { id: string; title: string; icon: string | null; sub: boolean }[]>;
+  blockLinks?: Record<string, { id: string; title: string; icon: string | null; sub: boolean; updated: string }[]>;
 };
 
 /** Result of every calendar server action. */

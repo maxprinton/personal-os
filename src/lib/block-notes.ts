@@ -30,7 +30,7 @@ export async function getBlockNotes(sb: SupabaseClient, userId: string): Promise
 }
 
 /** A normal note (not a block note) linked to a block: from its "Events & blocks" property or "Link to…". */
-export type BlockLinkedNote = { id: string; title: string; icon: string | null; sub: boolean };
+export type BlockLinkedNote = { id: string; title: string; icon: string | null; sub: boolean; /** Last edited (ISO), for the newest / oldest order. */ updated: string };
 
 /**
  * The normal notes related to each block, by block_type id (what the block window and the Focus panel list as
@@ -81,13 +81,13 @@ export async function getBlockLinkedNotes(sb: SupabaseClient, userId: string): P
     for (let i = 0; i < ids.length; i += 200) {
       const { data } = await sb
         .from("notes")
-        .select("id,title,page,parent_id,block_name,is_template")
+        .select("id,title,page,parent_id,block_name,is_template,updated_at")
         .eq("user_id", userId)
         .is("deleted_at", null)
         .in("id", ids.slice(i, i + 200));
-      for (const n of (data ?? []) as { id: string; title: string; page: { icon?: string | null } | null; parent_id: string | null; block_name: string | null; is_template: boolean }[]) {
+      for (const n of (data ?? []) as { id: string; title: string; page: { icon?: string | null } | null; parent_id: string | null; block_name: string | null; is_template: boolean; updated_at: string | null }[]) {
         if (n.block_name || n.is_template) continue;
-        notes.set(n.id, { id: n.id, title: (n.title ?? "").trim() || "Untitled", icon: n.page?.icon ?? null, sub: !!n.parent_id });
+        notes.set(n.id, { id: n.id, title: (n.title ?? "").trim() || "Untitled", icon: n.page?.icon ?? null, sub: !!n.parent_id, updated: n.updated_at ?? "" });
       }
     }
     const out: Record<string, BlockLinkedNote[]> = {};
@@ -97,7 +97,7 @@ export async function getBlockLinkedNotes(sb: SupabaseClient, userId: string): P
       const list = (out[r.target_id] ??= []);
       if (!list.some((x) => x.id === n.id)) list.push(n);
     }
-    for (const list of Object.values(out)) list.sort((a, b) => a.title.localeCompare(b.title));
+    for (const list of Object.values(out)) list.sort((a, b) => b.updated.localeCompare(a.updated) || a.title.localeCompare(b.title));
     return out;
   } catch {
     return {};
