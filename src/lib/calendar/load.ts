@@ -8,7 +8,7 @@ import { getFinanceOptions } from "@/lib/calendar/payments";
 import { getBlockTypes, getFreeDays, getOccurrences, getSlots } from "@/lib/calendar/model";
 import { getEvents, getEventTypes } from "@/lib/calendar/events";
 import type { CalendarData } from "@/lib/calendar/types";
-import { getBlockNotes, noteKey } from "@/lib/block-notes";
+import { getBlockLinkedNotes, getBlockNotes, noteKey } from "@/lib/block-notes";
 
 export async function userTimezone(sb: SupabaseClient, userId: string) {
   const { data } = await sb.from("user_settings").select("timezone").eq("user_id", userId).maybeSingle();
@@ -28,7 +28,7 @@ export async function loadCalendar(
   const pastEditUntil = until && new Date(until).getTime() > Date.now() ? until : null;
   await runMaintenance(sb, userId, timezone);
   const now = localNow(timezone);
-  const [blockTypes, slots, occurrences, eventTypes, events, habits, checks, { tasks, taskLogs }, freeDays, finance, notes] = await Promise.all([
+  const [blockTypes, slots, occurrences, eventTypes, events, habits, checks, { tasks, taskLogs }, freeDays, finance, notes, blockLinks] = await Promise.all([
     getBlockTypes(sb, userId, { includeDeleted: true }),
     getSlots(sb, userId, from, to),
     getOccurrences(sb, userId, from, to),
@@ -40,6 +40,7 @@ export async function loadCalendar(
     getFreeDays(sb, userId, from, to),
     getFinanceOptions(sb, userId),
     getBlockNotes(sb, userId),
+    getBlockLinkedNotes(sb, userId),
   ]);
   // A day renamed on its own keeps its slot (so the slot does not create it again) but is no longer that block
   const slotType = new Map(slots.map((s) => [s.id, s.block_type_id]));
@@ -69,5 +70,6 @@ export async function loadCalendar(
     pastEditUntil,
     readOnly: Boolean(opts.readOnly),
     blockNotes,
+    blockLinks,
   };
 }

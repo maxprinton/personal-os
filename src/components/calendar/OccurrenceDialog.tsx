@@ -18,6 +18,7 @@ import HabitControls from "@/components/HabitControls";
 import TaskList from "@/components/calendar/TaskList";
 import { formatMinutes, timeToMinutes } from "@/lib/time";
 import BlockNoteEditor from "@/components/BlockNoteEditor";
+import BlockRelatedNotes from "@/components/calendar/BlockRelatedNotes";
 import { ChangeBlockNote } from "@/components/notes-db/NoteLinkMenu";
 import type { CalendarData, CalResult, EditScope, Occurrence } from "@/lib/calendar/types";
 import Modal, { btnSecondary, inputCls } from "@/components/calendar/Modal";
@@ -151,6 +152,8 @@ export default function OccurrenceDialog({
           />
         </section>
       )}
+
+      {type && <BlockRelatedNotes data={data} blockTypeId={type.id} variant="card" />}
 
       <section className="space-y-2 rounded-lg border border-line p-3">
         <div className="flex items-center justify-between">

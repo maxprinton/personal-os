@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toggleOccurrenceDone } from "@/app/calendar-actions";
 import BlockNoteEditor from "@/components/BlockNoteEditor";
+import BlockRelatedNotes from "@/components/calendar/BlockRelatedNotes";
 import HabitControls from "@/components/HabitControls";
 import TaskList from "@/components/calendar/TaskList";
 import { useCalendarData } from "@/components/calendar/useCalendarData";
@@ -160,6 +161,7 @@ export default function FocusPanel({ variant }: { variant: "today" | "side" }) {
           run={run}
         />
       </div>
+      {type && <BlockRelatedNotes data={data} blockTypeId={type.id} variant="plain" />}
     </div>
   );
 

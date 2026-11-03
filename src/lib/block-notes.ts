@@ -29,6 +29,53 @@ export async function getBlockNotes(sb: SupabaseClient, userId: string): Promise
   }));
 }
 
+/** A normal note (not a block note) linked to a block: from its "Events & blocks" property or "Link to…". */
+export type BlockLinkedNote = { id: string; title: string; icon: string | null; sub: boolean };
+
+/**
+ * The normal notes linked to each block, by block_type id (what the block window and the Focus panel list as
+ * "Related notes"). The block's own note is not here: it is the shared note found by name. Never throws: the calendar
+ * must load even if this fails.
+ */
+export async function getBlockLinkedNotes(sb: SupabaseClient, userId: string): Promise<Record<string, BlockLinkedNote[]>> {
+  try {
+    const { data: rels, error } = await sb
+      .from("entity_relations")
+      .select("source_id,target_id")
+      .eq("user_id", userId)
+      .eq("source_type", "note")
+      .eq("target_type", "block_type")
+      .is("deleted_at", null);
+    if (error || !rels?.length) return {};
+    const links = rels as { source_id: string; target_id: string }[];
+    const ids = [...new Set(links.map((r) => r.source_id))];
+    const notes = new Map<string, BlockLinkedNote>();
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data } = await sb
+        .from("notes")
+        .select("id,title,page,parent_id,block_name,is_template")
+        .eq("user_id", userId)
+        .is("deleted_at", null)
+        .in("id", ids.slice(i, i + 200));
+      for (const n of (data ?? []) as { id: string; title: string; page: { icon?: string | null } | null; parent_id: string | null; block_name: string | null; is_template: boolean }[]) {
+        if (n.block_name || n.is_template) continue;
+        notes.set(n.id, { id: n.id, title: (n.title ?? "").trim() || "Untitled", icon: n.page?.icon ?? null, sub: !!n.parent_id });
+      }
+    }
+    const out: Record<string, BlockLinkedNote[]> = {};
+    for (const r of links) {
+      const n = notes.get(r.source_id);
+      if (!n) continue;
+      const list = (out[r.target_id] ??= []);
+      if (!list.some((x) => x.id === n.id)) list.push(n);
+    }
+    for (const list of Object.values(out)) list.sort((a, b) => a.title.localeCompare(b.title));
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 /** key (lower-case name) → note. */
 export async function blockNotesByKey(sb: SupabaseClient, userId: string) {
   return new Map((await getBlockNotes(sb, userId)).map((n) => [noteKey(n.name), n]));
