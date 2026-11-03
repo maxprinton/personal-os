@@ -26,6 +26,7 @@ function fake(tables: Record<string, Row[]>, fail = false) {
         eq: (k: string, v: unknown) => ((rows = rows.filter((r) => r[k] === v)), q),
         is: (k: string, v: unknown) => ((rows = rows.filter((r) => (r[k] ?? null) === v)), q),
         in: (k: string, v: unknown[]) => ((rows = rows.filter((r) => v.includes(r[k]))), q),
+        not: (k: string, _op: string, v: unknown) => ((rows = rows.filter((r) => (r[k] ?? null) !== v)), q),
         then: (ok: (v: unknown) => unknown) => ok(fail ? { data: null, error: { message: "boom" } } : { data: rows, error: null }),
       };
       return q;
@@ -85,6 +86,27 @@ await test("a note linked twice appears once; sub-pages are marked; empty titles
 await test("nothing linked, or a database error → empty (the calendar still loads)", async () => {
   assert.deepEqual(await getBlockLinkedNotes(fake({}), U), {});
   assert.deepEqual(await getBlockLinkedNotes(fake({ entity_relations: [rel("a", "gym")] }, true), U), {});
+});
+
+await test("notes related to the block's own note (either direction) show up under that block, matched by name", async () => {
+  const nn = (source: string, target: string, over: Row = {}): Row => ({ user_id: U, source_type: "note", source_id: source, target_type: "note", target_id: target, deleted_at: null, ...over });
+  const sb = fake({
+    block_types: [{ id: "gym", user_id: U, name: "Gym" }, { id: "work", user_id: U, name: "Work" }],
+    entity_relations: [nn("gymnote", "out"), nn("inc", "gymnote"), nn("gymnote", "gone", { deleted_at: "2026-11-01" }), nn("gymnote", "worknote"), nn("a", "b"), rel("direct", "gym")],
+    notes: [
+      note("gymnote", "Gym", { block_name: "gym" }),
+      note("worknote", "Work", { block_name: "Work" }),
+      note("out", "Outgoing"),
+      note("inc", "Incoming"),
+      note("gone", "Removed link"),
+      note("a", "Unrelated A"),
+      note("b", "Unrelated B"),
+      note("direct", "Direct"),
+    ],
+  });
+  const out = await getBlockLinkedNotes(sb, U);
+  assert.deepEqual(out.gym.map((n) => n.id).sort(), ["direct", "inc", "out"]);
+  assert.deepEqual(out.work ?? [], []); // the Work note links to nothing, and Gym's link to the Work block note is not listed
 });
 
 console.log(`${passed} passed, ${failed} failed`);

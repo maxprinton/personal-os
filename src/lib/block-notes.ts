@@ -33,21 +33,49 @@ export async function getBlockNotes(sb: SupabaseClient, userId: string): Promise
 export type BlockLinkedNote = { id: string; title: string; icon: string | null; sub: boolean };
 
 /**
- * The normal notes linked to each block, by block_type id (what the block window and the Focus panel list as
- * "Related notes"). The block's own note is not here: it is the shared note found by name. Never throws: the calendar
+ * The normal notes related to each block, by block_type id (what the block window and the Focus panel list as
+ * "Related notes"). Two kinds of link count: a note linked to the block itself (its "Events & blocks" property or
+ * "Link to…"), and a note related (either direction) to the block's own shared note, e.g. through that note's
+ * "Related notes" property. The block's own note is not listed: it is shown separately. Never throws: the calendar
  * must load even if this fails.
  */
 export async function getBlockLinkedNotes(sb: SupabaseClient, userId: string): Promise<Record<string, BlockLinkedNote[]>> {
   try {
-    const { data: rels, error } = await sb
+    const { data: rels } = await sb
       .from("entity_relations")
       .select("source_id,target_id")
       .eq("user_id", userId)
       .eq("source_type", "note")
       .eq("target_type", "block_type")
       .is("deleted_at", null);
-    if (error || !rels?.length) return {};
-    const links = rels as { source_id: string; target_id: string }[];
+    const links = ((rels ?? []) as { source_id: string; target_id: string }[]).map((r) => ({ source_id: r.source_id, target_id: r.target_id }));
+
+    // Notes related to the block's own note (note ↔ note), matched to the block by name
+    const blockNotes = await getBlockNotes(sb, userId);
+    if (blockNotes.length) {
+      const { data: types } = await sb.from("block_types").select("id,name").eq("user_id", userId);
+      const typesByKey = new Map<string, string[]>();
+      for (const t of (types ?? []) as { id: string; name: string }[]) {
+        const k = noteKey(t.name ?? "");
+        typesByKey.set(k, [...(typesByKey.get(k) ?? []), t.id]);
+      }
+      const typesOfNote = new Map(blockNotes.map((n) => [n.id, typesByKey.get(noteKey(n.name)) ?? []]));
+      const ids = blockNotes.map((n) => n.id);
+      for (let i = 0; i < ids.length; i += 200) {
+        const chunk = ids.slice(i, i + 200);
+        const [out, inc] = await Promise.all([
+          sb.from("entity_relations").select("source_id,target_id").eq("user_id", userId).eq("source_type", "note").eq("target_type", "note").is("deleted_at", null).in("source_id", chunk),
+          sb.from("entity_relations").select("source_id,target_id").eq("user_id", userId).eq("source_type", "note").eq("target_type", "note").is("deleted_at", null).in("target_id", chunk),
+        ]);
+        for (const r of (out.data ?? []) as { source_id: string; target_id: string }[]) {
+          for (const t of typesOfNote.get(r.source_id) ?? []) links.push({ source_id: r.target_id, target_id: t });
+        }
+        for (const r of (inc.data ?? []) as { source_id: string; target_id: string }[]) {
+          for (const t of typesOfNote.get(r.target_id) ?? []) links.push({ source_id: r.source_id, target_id: t });
+        }
+      }
+    }
+    if (!links.length) return {};
     const ids = [...new Set(links.map((r) => r.source_id))];
     const notes = new Map<string, BlockLinkedNote>();
     for (let i = 0; i < ids.length; i += 200) {
