@@ -323,6 +323,28 @@ export function teacherMap(
   return out;
 }
 
+export type ClassSchedule = { start: string; end: string };
+
+/**
+ * Class code (`groupKey`) → the start / end time ("HH:MM") of the LATEST class given with that code, so a new class with a code
+ * you have used before comes with its usual schedule (still editable). Newest day wins; on the same day the later start.
+ */
+export function scheduleMap(
+  classes: { class_date: string; group_name: string; start_time: string; end_time: string }[],
+): Record<string, ClassSchedule> {
+  const out: Record<string, ClassSchedule> = {};
+  const newestFirst = [...classes].sort((a, b) => (a.class_date < b.class_date ? 1 : a.class_date > b.class_date ? -1 : String(b.start_time).localeCompare(String(a.start_time))));
+  for (const c of newestFirst) {
+    const k = groupKey(c.group_name);
+    if (!k || out[k]) continue;
+    const start = String(c.start_time ?? "").slice(0, 5);
+    const end = String(c.end_time ?? "").slice(0, 5);
+    if (Number.isNaN(toMinutes(start)) || Number.isNaN(toMinutes(end))) continue;
+    out[k] = { start, end };
+  }
+  return out;
+}
+
 /**
  * The classes exactly as the report will list them: only taught ones; the teacher is the class's own, otherwise the one its code
  * belongs to (`map`); a class with no Sheet type counts as Hora Extra when `includeUnreported` (your usual class); and Hora Extra /

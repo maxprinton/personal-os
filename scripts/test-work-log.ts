@@ -1,7 +1,7 @@
 // Work log: hours and pay, the company Sheet's formats (date, time range, month), month totals and the paste-ready text.
 import {
   byTime, calcAmount, calcHours, classEnded, detailRows, fmtHours, fmtMoney, hasEvidence, hhmm, isOrigin, reportClasses, parseVideoCmd, ruleError, isHttpUrl, isValidForReport, missingEvidence, needsEvidence, isMonthKey, monthBounds, monthKey, monthLabelEn,
-  monthLabelEs, groupKey, teacherMap, rateFor, sheetDate, sheetRange, shiftMonth, shortDay, summarize, summaryRow, toMinutes, toTsv, type WorkClass,
+  monthLabelEs, groupKey, scheduleMap, teacherMap, rateFor, sheetDate, sheetRange, shiftMonth, shortDay, summarize, summaryRow, toMinutes, toTsv, type WorkClass,
 } from "@/lib/work-log";
 
 let pass = 0;
@@ -159,6 +159,19 @@ ok("groupKey: case and spaces", groupKey("  KIDS-7 ") === "kids-7" && groupKey("
     { class_date: "2026-08-01", group_name: "Kids-7", requested_by: "Luis" },
     { class_date: "2026-10-02", group_name: "C1-1", requested_by: "Academia" },
   ];
+  {
+    const sc = scheduleMap([
+      { class_date: "2026-09-01", group_name: "B2-5", start_time: "18:00:00", end_time: "19:00:00" },
+      { class_date: "2026-10-05", group_name: "b2-5", start_time: "20:00:00", end_time: "21:30:00" },
+      { class_date: "2026-10-05", group_name: "B2-5", start_time: "07:00", end_time: "08:00" },
+      { class_date: "2026-10-01", group_name: "KIDS-7", start_time: "bad", end_time: "10:00" },
+      { class_date: "2026-08-01", group_name: "Kids-7", start_time: "15:30", end_time: "16:30" },
+      { class_date: "2026-10-02", group_name: "  ", start_time: "10:00", end_time: "11:00" },
+    ]);
+    ok("scheduleMap: latest day wins, case-insensitive code, seconds dropped", sc["b2-5"]?.start === "20:00" && sc["b2-5"]?.end === "21:30", JSON.stringify(sc));
+    ok("scheduleMap: an invalid latest time falls back to an older class", sc["kids-7"]?.start === "15:30" && sc["kids-7"]?.end === "16:30");
+    ok("scheduleMap: empty codes are ignored", Object.keys(sc).length === 2);
+  }
   const m = teacherMap(cl);
   ok("teacherMap: latest teacher wins, case-insensitive code", m["b2-5"] === "Ana", JSON.stringify(m));
   ok("teacherMap: 'Propia' is never remembered", m["b2-5"] !== "Propia");

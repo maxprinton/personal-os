@@ -4,7 +4,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createWorkClass, saveWorkSettings } from "@/app/work-actions";
 import type { ActionState } from "@/app/actions";
-import { detailRows, fmtHours, groupKey, hasEvidence, needsEvidence, reportClasses, SHEET_TYPE_LABEL, shortDay, summarize, toTsv, type WorkClass } from "@/lib/work-log";
+import { detailRows, fmtHours, groupKey, hasEvidence, type ClassSchedule, needsEvidence, reportClasses, SHEET_TYPE_LABEL, shortDay, summarize, toTsv, type WorkClass } from "@/lib/work-log";
 
 const INPUT = "rounded-md border border-line-strong px-2 py-1.5 text-sm";
 const PRIMARY =
@@ -25,19 +25,29 @@ export type ClassDefaults = {
   status?: "taught" | "cancelled_early" | "cancelled_late";
 };
 
-/** groupTeachers: class code (lower-case key) → the teacher it belongs to now. */
-export type Suggestions = { groups: string[]; people: string[]; groupTeachers?: Record<string, string> };
+/** groupTeachers: class code (lower-case key) → the teacher it belongs to now. groupSchedules: class code → start / end of its latest class. */
+export type Suggestions = { groups: string[]; people: string[]; groupTeachers?: Record<string, string>; groupSchedules?: Record<string, ClassSchedule> };
 
 /** The fields of a class, shared by "Add a class" and "Edit". */
 export function ClassFields({ d, s, idp }: { d: ClassDefaults; s: Suggestions; idp: string }) {
   const [group, setGroup] = useState(d.group_name ?? "");
   const [who, setWho] = useState(d.requested_by ?? "");
   const [touched, setTouched] = useState(false);
+  const [start, setStart] = useState(d.start_time?.slice(0, 5) ?? "");
+  const [end, setEnd] = useState(d.end_time?.slice(0, 5) ?? "");
+  const [timeTouched, setTimeTouched] = useState(false);
   const known = s.groupTeachers?.[groupKey(group)] ?? "";
+  const usual = s.groupSchedules?.[groupKey(group)];
   function pickGroup(v: string) {
     setGroup(v);
     const t = s.groupTeachers?.[groupKey(v)];
     if (t && !d.id && !touched) setWho(t); // new class: its code remembers the teacher
+    const sch = s.groupSchedules?.[groupKey(v)];
+    if (sch && !d.id && !timeTouched) {
+      // ...and the schedule of the last class given with that code (you can still change it)
+      setStart(sch.start);
+      setEnd(sch.end);
+    }
   }
   return (
     <>
@@ -48,11 +58,31 @@ export function ClassFields({ d, s, idp }: { d: ClassDefaults; s: Suggestions; i
       </label>
       <label className="space-y-1 text-xs text-muted">
         Start
-        <input type="time" name="start_time" required defaultValue={d.start_time?.slice(0, 5)} className={`${INPUT} w-full text-fg`} />
+        <input
+          type="time"
+          name="start_time"
+          required
+          value={start}
+          onChange={(e) => {
+            setTimeTouched(true);
+            setStart(e.target.value);
+          }}
+          className={`${INPUT} w-full text-fg`}
+        />
       </label>
       <label className="space-y-1 text-xs text-muted">
         End
-        <input type="time" name="end_time" required defaultValue={d.end_time?.slice(0, 5)} className={`${INPUT} w-full text-fg`} />
+        <input
+          type="time"
+          name="end_time"
+          required
+          value={end}
+          onChange={(e) => {
+            setTimeTouched(true);
+            setEnd(e.target.value);
+          }}
+          className={`${INPUT} w-full text-fg`}
+        />
       </label>
       <label className="space-y-1 text-xs text-muted">
         Class
@@ -71,6 +101,19 @@ export function ClassFields({ d, s, idp }: { d: ClassDefaults; s: Suggestions; i
             <option key={g} value={g} />
           ))}
         </datalist>
+        {usual && (usual.start !== start || usual.end !== end) && (
+          <button
+            type="button"
+            onClick={() => {
+              setStart(usual.start);
+              setEnd(usual.end);
+            }}
+            className="block text-left text-accent underline"
+          >
+            Last {group.trim()} class: {usual.start}–{usual.end} — use it
+          </button>
+        )}
+        {usual && usual.start === start && usual.end === end && <span className="block text-faint">{group.trim()} → {usual.start}–{usual.end} (last time)</span>}
       </label>
       <label className="space-y-1 text-xs text-muted">
         Type in the Sheet

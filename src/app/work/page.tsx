@@ -10,7 +10,7 @@ import WorkImport from "@/components/WorkImport";
 import WorkTable from "@/components/WorkTable";
 import WorkGroups, { type GroupRow, type TeacherRow } from "@/components/WorkGroups";
 import {
-  byTime, classEnded, groupKey, isOrigin, teacherMap, missingEvidence, DETAIL_HEADERS, detailRows, fmtHours, fmtMoney, isMonthKey, monthBounds, monthKey, monthLabelEn, monthLabelEs,
+  byTime, classEnded, groupKey, isOrigin, scheduleMap, teacherMap, missingEvidence, DETAIL_HEADERS, detailRows, fmtHours, fmtMoney, isMonthKey, monthBounds, monthKey, monthLabelEn, monthLabelEs,
   shiftMonth, shortDay, SUMMARY_HEADERS, summarize, toWorkClass,
 } from "@/lib/work-log";
 
@@ -40,7 +40,7 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
     supabase.from("work_settings").select("*").maybeSingle(),
     supabase.from("work_classes").select("*").gte("class_date", from).lte("class_date", to).order("class_date").order("start_time"),
     supabase.from("work_classes").select("*").eq("video_posted", false).lte("class_date", now.date).order("class_date", { ascending: false }).limit(200),
-    supabase.from("work_classes").select("class_date,group_name,requested_by").order("class_date", { ascending: false }).limit(3000),
+    supabase.from("work_classes").select("class_date,group_name,requested_by,start_time,end_time").order("class_date", { ascending: false }).limit(3000),
     supabase.from("work_groups").select("code,code_key,teacher,effective_from"),
   ]);
 
@@ -48,7 +48,7 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
   const tableMissing = monthRes.error?.code === "42P01" || monthRes.error?.message?.includes("work_classes");
   const classes = ((monthRes.data ?? []) as Record<string, unknown>[]).map(toWorkClass).sort(byTime);
   const toPost = ((pendingRes.data ?? []) as Record<string, unknown>[]).map(toWorkClass).filter((c) => c.status === "taught" && classEnded(c, now));
-  const hist = (histRes.data ?? []) as { class_date: string; group_name: string; requested_by: string | null }[];
+  const hist = (histRes.data ?? []) as { class_date: string; group_name: string; requested_by: string | null; start_time: string; end_time: string }[];
   const saved = (savedRes.error ? [] : savedRes.data ?? []) as { code: string; code_key: string; teacher: string; effective_from: string | null }[];
   const map = teacherMap(hist, saved);
 
@@ -79,6 +79,7 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
     groups: [...codes.values()].map((c) => c.code).slice(0, 60),
     people: teacherRows.map((t) => t.name).slice(0, 60),
     groupTeachers: map,
+    groupSchedules: scheduleMap(hist),
   };
 
   // Months for the Excel picker: every month that has classes, plus the one on screen and the current one.
