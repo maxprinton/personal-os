@@ -166,13 +166,14 @@ export default async function NotesPage({
 /** A selected note's card is tinted (its checkbox is inside). */
 const SELECTED = "has-[input:checked]:border-accent/60 has-[input:checked]:bg-accent-soft/40";
 
-function Tabs({ current }: { current: "all" | "blocks" }) {
+function Tabs({ current }: { current: "all" | "blocks" | "trash" }) {
   const cls = (on: boolean) =>
     `rounded-md px-3 py-1.5 text-sm ${on ? "bg-accent-soft font-medium text-accent" : "text-muted hover:bg-subtle hover:text-fg"}`;
   return (
     <nav className="flex gap-1" aria-label="Notes views">
       <Link href="/notes" className={cls(current === "all")}>All notes</Link>
       <Link href="/notes?view=blocks" className={cls(current === "blocks")}>✏️ Block notes</Link>
+      <Link href="/notes/trash" className={cls(current === "trash")}>🗑 Trash</Link>
     </nav>
   );
 }

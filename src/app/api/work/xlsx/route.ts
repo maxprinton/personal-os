@@ -52,6 +52,14 @@ export async function GET(req: Request) {
     info: c.notes ?? "",
   }));
 
+  // Never hand over an empty file: say what is missing instead.
+  if (!rows.length) {
+    return NextResponse.json(
+      { error: `No class would go in the Excel for ${monthLabelEs(month)} with these options (${monthClasses.length} classes that month). Tick the “Include…” boxes or check the teacher and type of each class.` },
+      { status: 400 },
+    );
+  }
+
   try {
     const { bytes } = fillWorkbook(templateBytes(), rows, {
       teacher: settingsRes.data?.teacher_name ?? "",
@@ -66,6 +74,7 @@ export async function GET(req: Request) {
         "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "content-disposition": `attachment; filename="Reporte-de-horas-${month}.xlsx"`,
         "cache-control": "no-store",
+        "x-report-rows": String(rows.length),
       },
     });
   } catch (e) {

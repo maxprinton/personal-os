@@ -29,6 +29,7 @@ import { savePendingTransaction } from "@/lib/capture";
 import { describe, type Parsed } from "@/lib/parse";
 import { startOfDay, usageReport, usageSummary } from "@/lib/ai-usage";
 import { runNightly } from "@/lib/auto-categorize";
+import { purgeExpired } from "@/lib/notes-trash";
 import { listProposals } from "@/lib/category-proposals";
 import { proposalsReply } from "@/lib/bot/categorize";
 import { localNow } from "@/lib/time";
@@ -267,6 +268,16 @@ export async function POST(req: Request) {
       if (await claim(admin, u.user_id, "autocat", now.date)) await runNightly(admin, u.user_id, 30_000);
     } catch (e) {
       console.error("nightly auto-categorize", e);
+    }
+  }
+  // 🗑 Nightly (about 03:00 local): notes that have been in the trash for 30 days are deleted for good
+  for (const u of (everyone ?? []) as { user_id: string; timezone: string | null }[]) {
+    try {
+      const now = localNow(u.timezone ?? "America/Guayaquil");
+      if (now.minutes < 180 || now.minutes >= 300) continue;
+      if (await claim(admin, u.user_id, "trashpurge", now.date)) await purgeExpired(admin, u.user_id);
+    } catch (e) {
+      console.error("nightly trash purge", e);
     }
   }
   // Scheduled note templates (Diario every day at 21:00…), with their Telegram notice

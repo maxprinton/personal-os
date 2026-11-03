@@ -264,6 +264,7 @@ export function ExportPanel({
   const [copied, setCopied] = useState<"" | "detail" | "summary" | "failed">("");
   const [busy, setBusy] = useState(false);
   const [dlError, setDlError] = useState("");
+  const [dlInfo, setDlInfo] = useState("");
   const lostN = Number(lost.replace(",", "."));
   const summary = [teacher || "(your name)", monthEs, String(Number.isFinite(lostN) ? lostN : 0), recoveryHours, extraHours, String(collaborationCount)];
 
@@ -281,6 +282,7 @@ export function ExportPanel({
   async function download() {
     setBusy(true);
     setDlError("");
+    setDlInfo("");
     try {
       const res = await fetch(`/api/work/xlsx?month=${encodeURIComponent(month)}&lost=${encodeURIComponent(lost)}&all=${include ? 1 : 0}&unrep=${incUnrep ? 1 : 0}`);
       if (!res.ok) {
@@ -291,7 +293,11 @@ export function ExportPanel({
       const blob = await res.blob();
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `Reporte-de-horas-${month}.xlsx`;
+      const t = new Date();
+      const stamp = `${String(t.getHours()).padStart(2, "0")}${String(t.getMinutes()).padStart(2, "0")}${String(t.getSeconds()).padStart(2, "0")}`;
+      const name = `Reporte-de-horas-${month}-${stamp}.xlsx`; // a new name each time, so you never open an old download by mistake
+      a.download = name;
+      setDlInfo(`Downloaded “${name}” with ${res.headers.get("x-report-rows") ?? "?"} classes. Open that newest file.`);
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -369,6 +375,7 @@ export function ExportPanel({
         </button>
       </div>
       {dlError && <p className="text-sm text-danger">{dlError}</p>}
+      {dlInfo && !dlError && <p className="text-sm text-success">{dlInfo}</p>}
 
       <details className="rounded-md border border-line p-3">
         <summary className="cursor-pointer text-sm font-medium">Or copy the rows to paste into the company’s own file</summary>

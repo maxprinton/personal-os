@@ -374,7 +374,7 @@ export function NoteCheckbox({ id, title }: { id: string; title: string }) {
 }
 
 /** Select all · count · Copy · Export (sticks to the top while scrolling). */
-export function NotesExportBar() {
+export function NotesExportBar({ extra }: { extra?: (ids: string[]) => ReactNode } = {}) {
   const ctx = useContext(SelCtx);
   const allRef = useRef<HTMLInputElement>(null);
   const n = ctx?.selected.size ?? 0;
@@ -410,6 +410,7 @@ export function NotesExportBar() {
         </button>
       )}
       <div className="ml-auto flex items-center gap-2">
+        {extra && n > 0 && extra([...ctx.selected])}
         <CoverArtButton getIds={() => [...ctx.selected]} count={n} />
         <SummarizeNotes getNotes={getNotes} count={n} />
         <ExportMenu getNotes={getNotes} count={n} />

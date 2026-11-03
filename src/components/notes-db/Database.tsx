@@ -9,7 +9,9 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { loadNotesDatabase, reorderProperties } from "@/app/notes-db-actions";
 import { NoteSelection, NotesExportBar } from "@/components/NotesExport";
+import BulkEdit from "@/components/notes-db/BulkEdit";
 import NewNoteButton from "@/components/notes-db/NewNoteButton";
+import { BulkProvider } from "@/components/notes-db/db-bulk";
 import { PropEnvContext, errorText, toast, type PropEnv } from "@/components/notes-db/prop-ui";
 import { BoardView } from "@/components/notes-db/db-board";
 import { GalleryView } from "@/components/notes-db/db-gallery";
@@ -352,10 +354,12 @@ export default function Database({ data }: { data: DbData }) {
             hideEmpty={extras.hideEmpty}
             setHideEmpty={setHideEmpty}
           />
-          <NoteSelection notes={exportNotes}>
-            <NotesExportBar />
-            <div className="db-view">{body}</div>
-          </NoteSelection>
+          <BulkProvider notes={notes} tags={tags}>
+            <NoteSelection notes={exportNotes}>
+              <NotesExportBar extra={(ids) => <BulkEdit ids={ids} />} />
+              <div className="db-view">{body}</div>
+            </NoteSelection>
+          </BulkProvider>
         </div>
       </DbEnvContext.Provider>
     </PropEnvContext.Provider>

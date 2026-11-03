@@ -91,7 +91,41 @@ export async function setNoteValue(noteId: string, propId: string, value: unknow
   const { sb, userId } = await ctx();
   if (!userId) return { error: "Sign in again." };
   if (!noteId) return { error: "Missing note." };
+  const props = propId === "title" ? [] : await getProperties(sb, userId);
+  return setOne(sb, userId, props, noteId, propId, value);
+}
 
+/** Many notes, one property (fill down, bulk edit): one property lookup, a few writes at a time. */
+export async function setNoteValues(propId: string, changes: { noteId: string; value: unknown }[]): Promise<Result<{ failed: { noteId: string; error: string }[]; templateApplied?: boolean }>> {
+  const { sb, userId } = await ctx();
+  if (!userId) return { error: "Sign in again." };
+  if (!Array.isArray(changes) || !changes.length) return { ok: true, failed: [] };
+  if (changes.length > 500) return { error: "That's too many notes at once (500 at most)." };
+  const props = await getProperties(sb, userId);
+  if (!props.some((p) => p.id === propId)) return { error: "That property no longer exists." };
+  const failed: { noteId: string; error: string }[] = [];
+  let templateApplied = false;
+  let next = 0;
+  const worker = async () => {
+    while (next < changes.length) {
+      const c = changes[next++];
+      try {
+        const r = await setOne(sb, userId, props, String(c.noteId ?? ""), propId, c.value);
+        if (!r.ok) failed.push({ noteId: c.noteId, error: r.error });
+        else if (r.templateApplied) templateApplied = true;
+      } catch (e) {
+        failed.push({ noteId: c.noteId, error: e instanceof Error ? e.message : "Couldn't save." });
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(5, changes.length) }, worker));
+  return { ok: true, failed, templateApplied };
+}
+
+type SB = Awaited<ReturnType<typeof createClient>>;
+
+async function setOne(sb: SB, userId: string, props: NoteProperty[], noteId: string, propId: string, value: unknown): Promise<Result<{ templateApplied?: boolean }>> {
+  if (!noteId) return { error: "Missing note." };
   if (propId === "title") {
     const { error } = await sb.from("notes").update({ title: String(value ?? "").trim().slice(0, 500) || "Untitled" }).eq("id", noteId);
     if (error) return { error: error.message };
@@ -99,7 +133,6 @@ export async function setNoteValue(noteId: string, propId: string, value: unknow
     return { ok: true };
   }
 
-  const props = await getProperties(sb, userId);
   const prop = props.find((p) => p.id === propId);
   if (!prop) return { error: "That property no longer exists." };
   if (READONLY_TYPES.includes(prop.type) || prop.type === "ai_summary") return { error: `${prop.name} fills itself.` };

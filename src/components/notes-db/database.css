@@ -240,3 +240,13 @@ body.db-resizing { cursor: col-resize; user-select: none; }
   .db-segs .db-seg { min-height: 0; height: 34px; }
   .db-bcard-move { min-height: 0; }
 }
+
+/* ---------- Cell selection + fill handle (drag the dot down to copy the value) ---------- */
+.db-td:focus { outline: none; }
+.db-td.is-sel { z-index: 1; outline: 2px solid var(--n-blue-accent); outline-offset: -2px; }
+.db-td.is-fillrange { background: color-mix(in srgb, var(--n-blue-accent) 10%, transparent); outline: 1.5px dashed var(--n-blue-accent); outline-offset: -2px; }
+.db-td.is-sel.is-fillrange { outline: 2px solid var(--n-blue-accent); }
+.db-fill-handle { position: absolute; right: -4px; bottom: -4px; z-index: 4; width: 9px; height: 9px; border-radius: 50%; background: var(--n-blue-accent); border: 2px solid var(--app); cursor: crosshair; touch-action: none; box-sizing: content-box; }
+body.db-filling { cursor: crosshair; user-select: none; }
+/* The phone is read-only for the table: no handle */
+@media (max-width: 640px), (pointer: coarse) { .db-fill-handle { display: none; } }
