@@ -1,4 +1,5 @@
 import type { createClient } from "@/lib/supabase/server";
+import { nextColor } from "@/lib/notes-db/tag-ops";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 export type EntityType = "time_block" | "block_type" | "event" | "task" | "note";
@@ -36,7 +37,8 @@ export async function setTags(supabase: Supabase, entityType: EntityType, entity
   for (const name of names) {
     let id = byName.get(name.toLowerCase());
     if (!id) {
-      const { data, error } = await supabase.from("tags").insert({ name }).select("id").single();
+      // A new tag gets the next color of the palette (change it any time from the tag picker)
+      const { data, error } = await supabase.from("tags").insert({ name, color: nextColor(byName.size) }).select("id").single();
       if (error || !data) continue;
       id = data.id as string;
       byName.set(name.toLowerCase(), id);

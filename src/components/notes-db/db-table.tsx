@@ -66,13 +66,15 @@ type RowProps = {
   /** Pointer down on a cell: selects it (Shift extends the range → returns true). */
   onSelect: (noteId: string, propId: string, shift: boolean) => boolean;
   onHandle: (e: React.PointerEvent, noteId: string, propId: string) => void;
+  /** Ids of the columns whose content wraps ("title" for the name); null = none. */
+  wrapped: ReadonlySet<string> | null;
 };
 
-const TableRow = memo(function TableRow({ note, cols, properties, parent, onNote, onProps, selProp, rangeProp, onSelect, onHandle }: RowProps) {
+const TableRow = memo(function TableRow({ note, cols, properties, parent, onNote, onProps, selProp, rangeProp, onSelect, onHandle, wrapped }: RowProps) {
   const ranged = useRef(false);
   return (
     <div className="db-tr" role="row" data-row={note.id}>
-      <div className="db-td db-td-title" role="cell" style={{ width: `var(${widthVar("title")})` }}>
+      <div className={`db-td db-td-title${wrapped?.has("title") ? " is-wrap" : ""}`} role="cell" style={{ width: `var(${widthVar("title")})` }}>
         <NoteCheckbox id={note.id} title={displayTitle(note)} />
         <NoteTitle note={note} parent={parent} onNote={onNote} rename />
       </div>
@@ -81,7 +83,7 @@ const TableRow = memo(function TableRow({ note, cols, properties, parent, onNote
           key={p.id}
           data-pid={p.id}
           tabIndex={-1}
-          className={`db-td${selProp === p.id ? " is-sel" : ""}${rangeProp === p.id ? " is-fillrange" : ""}`}
+          className={`db-td${selProp === p.id ? " is-sel" : ""}${rangeProp === p.id ? " is-fillrange" : ""}${wrapped?.has(p.id) ? " is-wrap" : ""}`}
           role="cell"
           style={{ width: `var(${widthVar(p.id)})` }}
           onPointerDown={(e) => {
@@ -116,6 +118,9 @@ export function TableView({
   onFilter,
   onHide,
   onReorder,
+  wrap: wrapIds,
+  wrapAll,
+  onWrap,
 }: {
   notes: DbNote[];
   cols: NoteProperty[];
@@ -128,8 +133,13 @@ export function TableView({
   onHide: (prop: string) => void;
   /** Column dragged to a new place: `id` goes before `beforeId` (null = to the end). */
   onReorder: (id: string, beforeId: string | null) => void;
+  /** Columns that wrap ("title" = the name) and "wrap all columns". */
+  wrap?: string[];
+  wrapAll: boolean;
+  onWrap: (id: string, on: boolean) => void;
 }) {
   const env = useDb();
+  const wrapped = useMemo<ReadonlySet<string> | null>(() => (wrapAll ? new Set(["title", ...cols.map((c) => c.id)]) : wrapIds?.length ? new Set(wrapIds) : null), [wrapIds, wrapAll, cols]);
   const wrap = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ id: string; rect: Rect } | null>(null);
   const [adding, setAdding] = useState<Rect | null>(null);
@@ -377,6 +387,9 @@ export function TableView({
       <MenuItem icon="↓" label="Sort descending" onClick={() => (onSort(id, "desc"), close())} />
       <MenuItem icon="⚲" label="Filter" onClick={() => (close(), onFilter(id))} />
       {hide && <MenuItem icon="◌" label="Hide in view" onClick={() => (onHide(id), close())} />}
+      <div className="db-menu-sep" />
+      <MenuItem icon="↵" label="Wrap column" right={<span className={`np-switch ${wrapped?.has(id) ? "is-on" : ""}`} aria-hidden />} onClick={() => onWrap(id, !wrapped?.has(id))} />
+      <MenuItem icon="↵" label="Wrap all columns" right={<span className={`np-switch ${wrapAll ? "is-on" : ""}`} aria-hidden />} onClick={() => onWrap("all", !wrapAll)} />
     </>
   );
 
@@ -433,6 +446,7 @@ export function TableView({
             rangeProp={cell && rangeIds?.has(n.id) ? cell.propId : null}
             onSelect={selectCell}
             onHandle={startFill}
+            wrapped={wrapped}
           />
         ))}
         {sentinel}

@@ -3,6 +3,7 @@
 // tags / options / links without erasing what each note already has, duplicate, or move to the trash.
 // Pickers are the same ones the cells use; nothing is saved until you press Apply. See db-bulk.tsx.
 import { useState } from "react";
+import type { ColorName } from "@/lib/editor/colors";
 import { addOption } from "@/app/notes-db-actions";
 import { MenuItem, Popover } from "@/components/editor/ui";
 import { useBulk } from "@/components/notes-db/db-bulk";
@@ -133,9 +134,9 @@ function EditDialog({ ids, onClose }: { ids: string[]; onClose: () => void }) {
     onClose();
   };
 
-  const createOption = async (name: string) => {
+  const createOption = async (name: string, color?: ColorName) => {
     try {
-      const r = await addOption(prop.id, name, undefined, type === "status" ? "todo" : undefined);
+      const r = await addOption(prop.id, name, color, type === "status" ? "todo" : undefined);
       if (!r.ok) return toast(errorText(r));
       env.onProps(env.properties.map((p) => (p.id === r.property.id ? r.property : p)));
       setOptIds((cur) => (type === "multi_select" ? [...cur, r.option.id] : [r.option.id]));
@@ -272,7 +273,7 @@ function EditDialog({ ids, onClose }: { ids: string[]; onClose: () => void }) {
       {picker && (type === "select" || type === "status" || type === "multi_select") && (
         <OptionPicker prop={prop} selected={optIds} multi={type === "multi_select"} anchor={picker} onClose={() => setPicker(null)} onChange={setOptIds} onCreate={createOption} />
       )}
-      {picker && type === "tags" && <TagPicker names={tagNames} known={pe.tags} anchor={picker} onClose={() => setPicker(null)} onChange={setTagNames} />}
+      {picker && type === "tags" && <TagPicker names={tagNames} known={pe.tags} anchor={picker} onClose={() => setPicker(null)} onChange={(names) => setTagNames(names)} colorNew={false} />}
       {picker && type === "date" && <DatePicker value={date} includeTime={!!prop.config.includeTime} timezone={env.timezone} anchor={picker} onClose={() => setPicker(null)} onSave={setDate} />}
       {picker && type === "relation" && <RelationPicker target={relationTarget(prop)} items={items} noteId="" anchor={picker} onClose={() => setPicker(null)} onChange={setItems} />}
     </div>

@@ -654,7 +654,9 @@ export function sanitizeView(raw: unknown, properties: NoteProperty[]): ViewStat
   const widths: Record<string, number> = {};
   if (isObj(raw.widths))
     for (const [k, w] of Object.entries(raw.widths)) if ((k === "title" || byId.has(k)) && typeof w === "number" && Number.isFinite(w)) widths[k] = Math.round(Math.min(1000, Math.max(60, w)));
-  return { layout, search, quick, advanced, sorts, groupBy, visible, widths, seen: properties.map((p) => p.id) };
+  const wrap = Array.isArray(raw.wrap) ? [...new Set(raw.wrap.filter((k): k is string => typeof k === "string" && (k === "title" || byId.has(k))))] : [];
+  const wrapAll = raw.wrapAll === true;
+  return { layout, search, quick, advanced, sorts, groupBy, visible, widths, ...(wrap.length ? { wrap } : {}), ...(wrapAll ? { wrapAll } : {}), seen: properties.map((p) => p.id) };
 }
 
 // ---- Small helpers for the screens ----------------------------------------------------------------

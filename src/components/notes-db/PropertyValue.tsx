@@ -14,11 +14,15 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { addOption, setNoteValue } from "@/app/notes-db-actions";
+import { addOption, setNoteValue, updateOption } from "@/app/notes-db-actions";
+import { deleteTagByName, mergeTag, updateTag } from "@/app/notes-tags-actions";
 import { summarizeNote } from "@/app/notes-ai-actions";
 import { isBuiltinRelation } from "@/lib/notes-db/builtins";
 import { displayText, formatDate, formatNumber, rawValue } from "@/lib/notes-db/values";
 import { READONLY_TYPES, optionById, type DateValue, type DbNote, type FileValue, type NoteProperty, type PropValue, type RelatedItem, type RelationTarget, type SelectOption } from "@/lib/notes-db/types";
+import { applyTagChangeToAll, TAGS_CHANGED, type TagChange } from "@/lib/notes-db/tag-ops";
+import { broadcastTagChange, type EditResult, type TagActions } from "./item-editor";
+import type { ColorName } from "@/lib/editor/colors";
 import { AiSummaryPopover, DatePicker, FilesEditor, OptionPicker, RelationPicker, TagPicker, TextPopover, TextEditor, relatedIcon } from "./prop-pickers";
 import { OptionPill, anchorOf, errorText, okColor, relationHref, toast, usePropEnv, type Anchor } from "./prop-ui";
 import NoteLinkButton from "./NoteLinkMenu";
@@ -110,11 +114,69 @@ export default function PropertyValue({ note: noteIn, prop: propIn, properties, 
     } else values[prop.id] = v;
     void commit({ ...n, values }, () => setNoteValue(n.id, prop.id, v));
   };
-  const setTagNames = (names: string[]) => {
+  const setTagNames = (names: string[], created?: { name: string; color: ColorName }) => {
     const n = latest.current;
     const colors = new Map([...env.tags, ...n.tags].map((t) => [t.name.toLowerCase(), t.color]));
-    void commit({ ...n, tags: names.map((name) => ({ name, color: colors.get(name.toLowerCase()) ?? null })) }, () => setNoteValue(n.id, prop.id, names));
+    if (created) colors.set(created.name.toLowerCase(), created.color);
+    void commit({ ...n, tags: names.map((name) => ({ name, color: colors.get(name.toLowerCase()) ?? null })) }, async () => {
+      const r = await setNoteValue(n.id, prop.id, names);
+      // A tag made here gets the color picked for it (the server gave it the next palette color first)
+      if (r && r.ok && created) await updateTag(created.name, { color: created.color }).catch(() => null);
+      return r;
+    });
   };
+  // Tags are edited from the picker: rename / recolor / merge / delete, then every list on screen is told
+  const tagActions: TagActions = {
+    update: async (name, patch) => {
+      const r = await updateTag(name, patch);
+      if (r.ok) {
+        broadcastTagChange({ kind: "update", name, to: patch.name !== undefined ? r.name : undefined, color: patch.color });
+        return;
+      }
+      return r.conflict ? { conflict: r.conflict.name } : { error: r.error };
+    },
+    merge: async (from, into) => {
+      const r = await mergeTag(from, into);
+      if (r.ok) {
+        broadcastTagChange({ kind: "merge", name: from, into: r.name });
+        return;
+      }
+      return { error: r.error };
+    },
+    remove: async (name) => {
+      const r = await deleteTagByName(name);
+      if (r.ok) {
+        broadcastTagChange({ kind: "delete", name });
+        return;
+      }
+      return { error: r.error };
+    },
+  };
+  // Options (select / multi-select / status): rename, recolor, regroup, delete
+  const editOption = async (optionId: string, patch: { name?: string; color?: ColorName; group?: SelectOption["group"] } | null): Promise<EditResult> => {
+    try {
+      const r = await updateOption(prop.id, optionId, patch);
+      if (!r.ok) return { error: errorText(r) };
+      updateProp(r.property);
+    } catch (e) {
+      return { error: errorText(e) };
+    }
+  };
+  // The same tag changed somewhere else on the page (another note's picker): show it here too
+  useEffect(() => {
+    if (type !== "tags") return;
+    const onTags = (e: Event) => {
+      const change = (e as CustomEvent<TagChange>).detail;
+      if (!change) return;
+      setLocalNote((cur) => {
+        const base = cur ?? latest.current;
+        const next = applyTagChangeToAll([base], change)[0];
+        return next === base ? cur : next;
+      });
+    };
+    window.addEventListener(TAGS_CHANGED, onTags);
+    return () => window.removeEventListener(TAGS_CHANGED, onTags);
+  }, [type]);
   const setRelation = (items: RelatedItem[]) => {
     const n = latest.current;
     const refs = items.map(({ type: t, id }) => ({ type: t, id }));
@@ -126,9 +188,9 @@ export default function PropertyValue({ note: noteIn, prop: propIn, properties, 
     setLocalProp(p);
     onPropertiesChange?.(properties.some((x) => x.id === p.id) ? properties.map((x) => (x.id === p.id ? p : x)) : [...properties, p]);
   };
-  const createOption = async (name: string, select: (o: SelectOption) => void) => {
+  const createOption = async (name: string, select: (o: SelectOption) => void, color?: ColorName) => {
     try {
-      const r = await addOption(prop.id, name, undefined, type === "status" ? "todo" : undefined);
+      const r = await addOption(prop.id, name, color, type === "status" ? "todo" : undefined);
       if (!r.ok) {
         toast(errorText(r));
         return;
@@ -406,19 +468,24 @@ export default function PropertyValue({ note: noteIn, prop: propIn, properties, 
             anchor={open}
             onClose={close}
             onChange={pick}
-            onCreate={(name) =>
-              createOption(name, (o) => {
-                if (multi) {
-                  const cur = asArray<string>(rawValue(latest.current, prop, properties));
-                  setValue(cur.includes(o.id) ? cur : [...cur, o.id]);
-                } else setValue(o.id);
-              })
+            onCreate={(name, color) =>
+              createOption(
+                name,
+                (o) => {
+                  if (multi) {
+                    const cur = asArray<string>(rawValue(latest.current, prop, properties));
+                    setValue(cur.includes(o.id) ? cur : [...cur, o.id]);
+                  } else setValue(o.id);
+                },
+                color,
+              )
             }
+            onEdit={editOption}
           />
         );
       }
       case "tags":
-        return <TagPicker names={(note.tags ?? []).map((t) => t.name)} known={env.tags} anchor={open} onClose={close} onChange={setTagNames} />;
+        return <TagPicker names={(note.tags ?? []).map((t) => t.name)} known={env.tags} anchor={open} onClose={close} onChange={setTagNames} actions={tagActions} />;
       case "relation":
         return <RelationPicker target={relationTarget(prop)} items={asArray<RelatedItem>(value)} noteId={note.id} anchor={open} onClose={close} onChange={setRelation} />;
       case "date":

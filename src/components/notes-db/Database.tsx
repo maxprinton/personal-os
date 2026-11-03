@@ -19,6 +19,7 @@ import { ListView } from "@/components/notes-db/db-list";
 import { DbEnvContext, NOTES_DB_CHANGED, displayTitle, exportOf, type DbEnv } from "@/components/notes-db/db-shared";
 import { TableView } from "@/components/notes-db/db-table";
 import { HIDE_BLOCKS_ID, Toolbar, type CardSize } from "@/components/notes-db/db-toolbar";
+import { applyTagChangeToAll, TAGS_CHANGED, type TagChange } from "@/lib/notes-db/tag-ops";
 import { applyView, canGroupBy, defaultGroupBy, defaultView, isFiltering, newRule, sanitizeView, valuesFromView } from "@/lib/notes-db/query";
 import type { DbData, DbNote, NoteProperty, RelatedItem, TemplateInfo, ViewState } from "@/lib/notes-db/types";
 
@@ -105,6 +106,18 @@ export default function Database({ data }: { data: DbData }) {
   useEffect(() => {
     if (ready) writeJson(EXTRAS_KEY, extras);
   }, [extras, ready]);
+
+  // A tag was renamed / recolored / merged / deleted from a picker: update every note on screen at once
+  useEffect(() => {
+    const onTags = (e: Event) => {
+      const change = (e as CustomEvent<TagChange>).detail;
+      if (!change) return;
+      lastLocal.current = Date.now();
+      setNotes((list) => applyTagChangeToAll(list, change));
+    };
+    window.addEventListener(TAGS_CHANGED, onTags);
+    return () => window.removeEventListener(TAGS_CHANGED, onTags);
+  }, []);
 
   // Properties deleted / changed type since: clean the view (filters, sorts, columns, board)
   const propsKey = useMemo(() => properties.map((p) => `${p.id}:${p.type}`).join(","), [properties]);
@@ -242,6 +255,16 @@ export default function Database({ data }: { data: DbData }) {
     setView((v) => ({ ...v, search: "", quick: [], advanced: null }));
   }, []);
   const onSort = useCallback((prop: string, dir: "asc" | "desc") => setView((v) => ({ ...v, sorts: [{ prop, dir }, ...v.sorts.filter((s) => s.prop !== prop)] })), []);
+  /** "Wrap column" of one column ("title" = the name), or "all" = "Wrap all columns". */
+  const onWrap = useCallback((id: string, on: boolean) => {
+    setView((v) => {
+      if (id === "all") return { ...v, wrapAll: on, wrap: on ? v.wrap : [] };
+      const all = ["title", ...v.visible];
+      const current = v.wrapAll ? all : v.wrap ?? [];
+      // Turning one column off while "wrap all" is on: the others stay wrapped one by one
+      return { ...v, wrapAll: false, wrap: on ? [...new Set([...current, id])] : current.filter((x) => x !== id) };
+    });
+  }, []);
   const onHide = useCallback((prop: string) => setView((v) => ({ ...v, visible: v.visible.filter((id) => id !== prop) })), []);
   // Shows / hides / moves columns. `ids` = the visible columns in their new order. A pure move is saved
   // in the database: the visible columns swap places among the slots they already had (hidden ones stay put).
@@ -324,7 +347,7 @@ export default function Database({ data }: { data: DbData }) {
       </div>
     );
   } else if (view.layout === "table") {
-    body = <TableView notes={shown} cols={cols} widths={view.widths} sorts={view.sorts} titles={titles} onWidth={onWidth} onSort={onSort} onFilter={onAddFilter} onHide={onHide} onReorder={onReorder} />;
+    body = <TableView notes={shown} cols={cols} widths={view.widths} sorts={view.sorts} titles={titles} onWidth={onWidth} onSort={onSort} onFilter={onAddFilter} onHide={onHide} onReorder={onReorder} wrap={view.wrap} wrapAll={view.wrapAll === true} onWrap={onWrap} />;
   } else if (view.layout === "list") {
     body = <ListView notes={shown} cols={cols} titles={titles} />;
   } else if (view.layout === "gallery") {

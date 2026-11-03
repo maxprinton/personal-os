@@ -207,7 +207,7 @@ export function Toolbar({
       )}
       {menu?.kind === "advanced" && <AdvancedFilter rect={menu.rect} value={view.advanced} onChange={(g) => set({ advanced: g })} onClose={() => setMenu(null)} />}
       {menu?.kind === "sort" && <SortMenu rect={menu.rect} sorts={view.sorts} onChange={(s) => set({ sorts: s })} onClose={() => setMenu(null)} />}
-      {menu?.kind === "props" && <PropertiesMenu rect={menu.rect} visible={view.visible} onChange={setVisible} onClose={() => setMenu(null)} />}
+      {menu?.kind === "props" && <PropertiesMenu rect={menu.rect} visible={view.visible} onChange={setVisible} onClose={() => setMenu(null)} wrapAll={view.layout === "table" ? view.wrapAll === true : undefined} onWrapAll={(on) => setView((v) => ({ ...v, wrapAll: on, wrap: on ? v.wrap : [] }))} />}
     </div>
   );
 }

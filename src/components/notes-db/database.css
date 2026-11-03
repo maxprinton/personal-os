@@ -250,3 +250,20 @@ body.db-resizing { cursor: col-resize; user-select: none; }
 body.db-filling { cursor: crosshair; user-select: none; }
 /* The phone is read-only for the table: no handle */
 @media (max-width: 640px), (pointer: coarse) { .db-fill-handle { display: none; } }
+
+/* ---- Wrap: a wrapped column shows all its content on more lines, so the row grows to fit ---- */
+.db-menu-sep { height: 1px; margin: 4px 6px; background: var(--n-divider); }
+.db-wrap-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 6px; margin-bottom: 4px; border-bottom: 1px solid var(--n-divider); font-size: 14px; }
+.db-wrap-row:hover { background: var(--n-hover); }
+.db-td.is-wrap .np-val.is-cell { height: auto; flex-wrap: wrap; align-content: flex-start; align-items: flex-start; gap: 4px; overflow: visible; white-space: normal; }
+.db-td.is-wrap .np-val.is-cell > .np-text,
+.db-td.is-wrap .np-val.is-cell .np-text { overflow: visible; text-overflow: clip; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; min-width: 0; max-width: 100%; }
+.db-td.is-wrap .np-val.is-cell .np-link { overflow-wrap: anywhere; word-break: break-all; white-space: normal; }
+.db-td.is-wrap .np-val.is-cell .np-pill { height: auto; min-height: 20px; white-space: normal; }
+.db-td.is-wrap .np-val.is-cell .np-pill > .np-pill-name { overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+.db-td.is-wrap .np-val.is-cell .np-chip { flex-shrink: 1; }
+.db-td.is-wrap .np-val.is-cell .np-chip-title { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
+.db-td-title.is-wrap { align-items: flex-start; padding-top: 6px; padding-bottom: 6px; }
+.db-td-title.is-wrap .db-title-text { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
+.db-td-title.is-wrap .db-parent { white-space: normal; max-width: 45%; }
+.db-td-title.is-wrap > :first-child { margin-top: 2px; }

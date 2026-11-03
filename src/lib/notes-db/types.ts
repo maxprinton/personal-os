@@ -223,6 +223,10 @@ export type ViewState = {
   /** Property ids shown (table columns, list/gallery/board lines), in order. */
   visible: string[];
   widths: Record<string, number>;
+  /** Table: ids of the columns ("title" for the name) whose long content wraps onto more lines instead of being cut. */
+  wrap?: string[];
+  /** Table: every column wraps ("Wrap all columns"). */
+  wrapAll?: boolean;
   /** Property ids this view already knows: a property not in it (new, or added before this list existed) shows as a column once. */
   seen?: string[];
   showTemplates?: false;

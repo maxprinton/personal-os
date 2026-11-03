@@ -7,8 +7,11 @@ import Link from "next/link";
 import { Popover, useListKeys } from "@/components/editor/ui";
 import { searchRelationTargets } from "@/app/notes-db-actions";
 import { uploadNoteFile } from "@/lib/note-files";
+import type { ColorName } from "@/lib/editor/colors";
+import { cleanTagName, nextColor } from "@/lib/notes-db/tag-ops";
 import { statusGroups, type DateValue, type FileValue, type NoteProperty, type RelatedItem, type RelationTarget, type SelectOption, type StatusGroup } from "@/lib/notes-db/types";
-import { OptionPill, Switch, addDays, errorText, fileSize, fitWidth, isYmd, okColor, relationHref, toast, todayIn, useEscape, type Anchor } from "./prop-ui";
+import { ColorGrid, ItemEditor, type EditResult, type TagActions } from "./item-editor";
+import { OptionPill, Switch, addDays, anchorOf, errorText, fileSize, fitWidth, isYmd, okColor, relationHref, toast, todayIn, useEscape, type Anchor } from "./prop-ui";
 
 export const GROUP_LABEL: Record<StatusGroup, string> = { todo: "To-do", in_progress: "In progress", done: "Done" };
 
@@ -24,6 +27,7 @@ export function OptionPicker({
   onClose,
   onChange,
   onCreate,
+  onEdit,
 }: {
   prop: NoteProperty;
   selected: string[];
@@ -31,11 +35,17 @@ export function OptionPicker({
   anchor: Anchor;
   onClose: () => void;
   onChange: (ids: string[]) => void;
-  /** Creates the option and selects it. */
-  onCreate: (name: string) => Promise<void>;
+  /** Creates the option (with the color picked for it) and selects it. */
+  onCreate: (name: string, color?: ColorName) => Promise<void>;
+  /** Rename / recolor / regroup an option, or delete it (null). Without it the "⋯" buttons are not shown. */
+  onEdit?: (optionId: string, patch: { name?: string; color?: ColorName; group?: StatusGroup } | null) => Promise<EditResult>;
 }) {
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<{ id: string; anchor: Anchor } | null>(null);
+  // Color of the option about to be created: the next one of the palette unless you pick another
+  const [pickedColor, setPickedColor] = useState<ColorName | null>(null);
+  const newColor = pickedColor ?? nextColor(prop.config.options?.length ?? 0);
   const isStatus = prop.type === "status";
   const options = prop.config.options ?? [];
   const term = q.trim().toLowerCase();
@@ -51,11 +61,12 @@ export function OptionPicker({
       if (creating) return;
       setCreating(true);
       try {
-        await onCreate(it.name);
+        await onCreate(it.name, newColor);
       } finally {
         setCreating(false);
       }
       setQ("");
+      setPickedColor(null);
       if (!multi) onClose();
       return;
     }
@@ -76,13 +87,27 @@ export function OptionPicker({
     const i = n;
     const on = selected.includes(o.id);
     return (
-      <button key={o.id} type="button" className={`np-row-btn ${index === i ? "is-active" : ""}`} onMouseMove={() => setIndex(i)} onClick={() => void pick({ kind: "opt", o })}>
-        <OptionPill option={o} status={isStatus} />
-        {prop.config.defaultOptionId === o.id && isStatus && <span className="np-tag-default">Default</span>}
-        <span className="np-right">{on ? "✓" : ""}</span>
-      </button>
+      <div key={o.id} className={`np-row-wrap ${index === i ? "is-active" : ""}`}>
+        <button type="button" className="np-row-btn" onMouseMove={() => setIndex(i)} onClick={() => void pick({ kind: "opt", o })}>
+          <OptionPill option={o} status={isStatus} />
+          {prop.config.defaultOptionId === o.id && isStatus && <span className="np-tag-default">Default</span>}
+          <span className="np-right">{on ? "✓" : ""}</span>
+        </button>
+        {onEdit && (
+          <button
+            type="button"
+            className="np-row-edit"
+            aria-label={`Edit ${o.name}`}
+            title="Rename, color, delete"
+            onClick={(e) => setEditing({ id: o.id, anchor: anchorOf(e.currentTarget) })}
+          >
+            ⋯
+          </button>
+        )}
+      </div>
     );
   };
+  const editingOption = editing ? options.find((o) => o.id === editing.id) ?? null : null;
 
   return (
     <Popover rect={anchor} onClose={onClose} width={fitWidth(Math.max(anchor.width, 280))} className="np-menu">
@@ -121,12 +146,33 @@ export function OptionPicker({
           )
         : flat.map(row)}
       {items.length > 0 && items[items.length - 1].kind === "create" && (
-        <button type="button" className={`np-row-btn ${index === items.length - 1 ? "is-active" : ""}`} onMouseMove={() => setIndex(items.length - 1)} onClick={() => void pick(items[items.length - 1])} disabled={creating}>
-          <span className="np-faint">{creating ? "Creating…" : "Create"}</span>
-          <OptionPill option={{ name: q.trim(), color: "default", group: isStatus ? "todo" : undefined }} status={isStatus} />
-        </button>
+        <>
+          <button type="button" className={`np-row-btn ${index === items.length - 1 ? "is-active" : ""}`} onMouseMove={() => setIndex(items.length - 1)} onClick={() => void pick(items[items.length - 1])} disabled={creating}>
+            <span className="np-faint">{creating ? "Creating…" : "Create"}</span>
+            <OptionPill option={{ name: q.trim(), color: newColor, group: isStatus ? "todo" : undefined }} status={isStatus} />
+          </button>
+          <div className="np-newcolor">
+            <span className="np-faint">Color</span>
+            <ColorGrid value={newColor} onPick={setPickedColor} />
+          </div>
+        </>
       )}
       {!items.length && <p className="np-hint">No options yet. Type a name to create one.</p>}
+      {editing && editingOption && onEdit && (
+        <ItemEditor
+          anchor={editing.anchor}
+          kind="option"
+          name={editingOption.name}
+          color={editingOption.color}
+          group={isStatus ? editingOption.group ?? "todo" : undefined}
+          isDefault={prop.config.defaultOptionId === editingOption.id}
+          onClose={() => setEditing(null)}
+          onRename={(name) => onEdit(editingOption.id, { name })}
+          onColor={(color) => onEdit(editingOption.id, { color })}
+          onGroup={(group) => onEdit(editingOption.id, { group })}
+          onDelete={() => onEdit(editingOption.id, null)}
+        />
+      )}
     </Popover>
   );
 }
@@ -141,34 +187,53 @@ export function TagPicker({
   anchor,
   onClose,
   onChange,
+  actions,
+  colorNew = true,
 }: {
   names: string[];
   known: { name: string; color: string | null }[];
   anchor: Anchor;
   onClose: () => void;
-  onChange: (names: string[]) => void;
+  /** `created` = the tag that was just made, with the color picked for it. */
+  onChange: (names: string[], created?: { name: string; color: ColorName }) => void;
+  /** Rename / recolor / merge / delete a tag. Without it the "⋯" buttons are not shown. */
+  actions?: TagActions;
+  /** Show the color choice when creating a tag (off where the tag is only created later, e.g. bulk edit). */
+  colorNew?: boolean;
 }) {
   const [q, setQ] = useState("");
+  const [editing, setEditing] = useState<{ name: string; anchor: Anchor } | null>(null);
+  const [pickedColor, setPickedColor] = useState<ColorName | null>(null);
   const term = q.trim().replace(/^#/, "").trim();
   const low = term.toLowerCase();
   const has = (n: string) => names.some((x) => x.toLowerCase() === n.toLowerCase());
   const pool = useMemo(() => {
     const m = new Map<string, { name: string; color: string | null }>();
     for (const t of known) if (t?.name && !m.has(t.name.toLowerCase())) m.set(t.name.toLowerCase(), t);
+    for (const n of names) if (!m.has(n.toLowerCase())) m.set(n.toLowerCase(), { name: n, color: null });
     return [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [known]);
-  const list = pool.filter((t) => !has(t.name) && (!low || t.name.toLowerCase().includes(low))).slice(0, 50);
+  }, [known, names]);
+  // Every tag, with a ✓ on the ones this note has (like the options), so any of them can be edited with its ⋯
+  const list = pool.filter((t) => !low || t.name.toLowerCase().includes(low)).slice(0, 50);
   const exists = pool.some((t) => t.name.toLowerCase() === low) || has(term);
   const items: TagItem[] = [...list.map((t) => ({ kind: "tag" as const, ...t })), ...(term && !exists ? [{ kind: "create" as const, name: term }] : [])];
+  // Color of the tag about to be created: the next one of the palette unless you pick another
+  const newColor = pickedColor ?? nextColor(pool.length);
   const add = (name: string) => {
     const clean = name.trim().replace(/^#/, "").trim().slice(0, 60);
     if (!clean || has(clean)) return;
-    onChange([...names, clean]);
+    const isNew = !pool.some((t) => t.name.toLowerCase() === clean.toLowerCase());
+    onChange([...names, clean], isNew ? { name: clean, color: newColor } : undefined);
     setQ("");
+    setPickedColor(null);
+  };
+  const toggle = (name: string) => {
+    if (has(name)) onChange(names.filter((x) => x.toLowerCase() !== name.toLowerCase()));
+    else add(name);
   };
   const [index, setIndex] = useListKeys(items.length, (i) => {
     const it = items[i];
-    if (it) add(it.name);
+    if (it) toggle(it.name);
   });
   const colorOf = (n: string) => pool.find((t) => t.name.toLowerCase() === n.toLowerCase())?.color ?? null;
   return (
@@ -201,12 +266,47 @@ export function TagPicker({
       </div>
       <p className="np-hint">Select a tag or create one</p>
       {items.map((it, i) => (
-        <button key={`${it.kind}:${it.name}`} type="button" className={`np-row-btn ${index === i ? "is-active" : ""}`} onMouseMove={() => setIndex(i)} onClick={() => add(it.name)}>
-          {it.kind === "create" && <span className="np-faint">Create</span>}
-          <OptionPill option={{ name: `#${it.name}`, color: it.kind === "tag" ? okColor(it.color) : "default" }} status={false} />
-        </button>
+        <div key={`${it.kind}:${it.name}`}>
+          <div className={`np-row-wrap ${index === i ? "is-active" : ""}`}>
+            <button type="button" className="np-row-btn" onMouseMove={() => setIndex(i)} onClick={() => toggle(it.name)}>
+              {it.kind === "create" && <span className="np-faint">Create</span>}
+              <OptionPill option={{ name: `#${it.name}`, color: it.kind === "tag" ? okColor(it.color) : newColor }} status={false} />
+              <span className="np-right">{it.kind === "tag" && has(it.name) ? "✓" : ""}</span>
+            </button>
+            {actions && it.kind === "tag" && (
+              <button type="button" className="np-row-edit" aria-label={`Edit #${it.name}`} title="Rename, color, delete" onClick={(e) => setEditing({ name: it.name, anchor: anchorOf(e.currentTarget) })}>
+                ⋯
+              </button>
+            )}
+          </div>
+          {it.kind === "create" && colorNew && (
+            <div className="np-newcolor">
+              <span className="np-faint">Color</span>
+              <ColorGrid value={newColor} onPick={setPickedColor} />
+            </div>
+          )}
+        </div>
       ))}
       {!items.length && <p className="np-hint">{pool.length ? "No more tags. Type to create one." : "Type to create a tag."}</p>}
+      {editing && actions && (
+        <ItemEditor
+          anchor={editing.anchor}
+          kind="tag"
+          prefix="#"
+          name={pool.find((t) => t.name.toLowerCase() === editing.name.toLowerCase())?.name ?? editing.name}
+          color={colorOf(editing.name)}
+          note="Tags are shared by notes, tasks and events."
+          onClose={() => setEditing(null)}
+          onRename={async (next) => {
+            const r = await actions.update(editing.name, { name: next });
+            if (!r) setEditing({ ...editing, name: cleanTagName(next) });
+            return r;
+          }}
+          onMerge={(into) => actions.merge(editing.name, into)}
+          onColor={(color) => actions.update(editing.name, { color })}
+          onDelete={() => actions.remove(editing.name)}
+        />
+      )}
     </Popover>
   );
 }

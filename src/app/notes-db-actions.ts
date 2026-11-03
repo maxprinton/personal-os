@@ -327,6 +327,14 @@ export async function updateOption(propId: string, optionId: string, patch: { na
   const props = await getProperties(sb, userId);
   const prop = props.find((p) => p.id === propId);
   if (!prop) return { error: "That property no longer exists." };
+  if (!(prop.config.options ?? []).some((o) => o.id === optionId)) return { error: "That option no longer exists." };
+  if (patch && patch.color !== undefined && !(COLOR_NAMES as readonly string[]).includes(patch.color)) return { error: "That color doesn't exist." };
+  if (patch?.name !== undefined) {
+    const name = patch.name.trim().slice(0, 100);
+    if (!name) return { error: "Write a name." };
+    if ((prop.config.options ?? []).some((o) => o.id !== optionId && o.name.toLowerCase() === name.toLowerCase())) return { error: `There is already an option called "${name}".` };
+    patch = { ...patch, name };
+  }
   const options = (prop.config.options ?? []).flatMap((o) => (o.id !== optionId ? [o] : patch === null ? [] : [{ ...o, ...patch, name: (patch.name ?? o.name).trim() || o.name }]));
   if (patch === null && prop.config.defaultOptionId === optionId) return { error: "That's the default option: pick another default first." };
   return updateProperty(propId, { config: { ...prop.config, options } });

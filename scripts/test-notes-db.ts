@@ -126,6 +126,17 @@ test("an old saved view (no seen) shows every property once; hiding then sticks"
   const withNew = sanitizeView(hidden, [...props, fresh]);
   assert.deepEqual(withNew.visible, ["pText", "pFav", "pNew"]);
 });
+test("wrap: saved per column (name included) and for all; unknown columns are dropped; default is no wrap", () => {
+  assert.equal(defaultView(props).wrap, undefined);
+  assert.equal(defaultView(props).wrapAll, undefined);
+  const v = sanitizeView({ wrap: ["title", "pText", "gone", "pText", 5], wrapAll: false }, props);
+  assert.deepEqual(v.wrap, ["title", "pText"]);
+  assert.equal(v.wrapAll, undefined);
+  assert.equal(sanitizeView({ wrapAll: true }, props).wrapAll, true);
+  assert.equal(sanitizeView({ wrapAll: "yes" }, props).wrapAll, undefined);
+  // a view saved by an older version (no wrap fields) still loads
+  assert.equal(sanitizeView({ visible: ["pText"] }, props).wrap, undefined);
+});
 test("sort number asc, empties last", () => assert.deepEqual(ids({ sorts: [{ prop: "pScore", dir: "asc" }] }), ["n3", "n1", "n2", "n4", "n5"]));
 test("sort number desc, empties still last", () => assert.deepEqual(ids({ sorts: [{ prop: "pScore", dir: "desc" }] }), ["n2", "n1", "n3", "n4", "n5"]));
 test("sort title asc (accent-insensitive, empty title last)", () => assert.deepEqual(ids({ sorts: [{ prop: "title", dir: "asc" }] }), ["n4", "n2", "n3", "n1", "n5"]));

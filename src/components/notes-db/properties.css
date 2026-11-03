@@ -151,3 +151,29 @@
 /* Tiny error toast */
 .np-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 120; max-width: calc(100vw - 32px); padding: 8px 14px; border-radius: 8px; background: rgb(47, 47, 47); color: white; font-size: 13px; box-shadow: var(--n-shadow); font-family: var(--n-font); transition: opacity 0.2s; }
 .np-toast.is-error::before { content: "⚠ "; color: #ff8a80; }
+
+/* ---- Editing tags / options from the picker: the "⋯" on each row, the color choices, merge / delete notices ---- */
+.np-row-wrap { display: flex; align-items: center; border-radius: 6px; }
+.np-row-wrap:hover, .np-row-wrap.is-active { background: var(--n-hover); }
+.np-row-wrap > .np-row-btn { flex: 1; width: auto; min-width: 0; background: transparent; }
+.np-row-edit { display: grid; place-items: center; flex-shrink: 0; width: 26px; height: 26px; margin-right: 2px; border-radius: 5px; color: var(--n-muted); font-size: 16px; line-height: 1; opacity: 0; transition: opacity 0.1s; }
+.np-row-wrap:hover .np-row-edit, .np-row-wrap.is-active .np-row-edit, .np-row-edit:focus-visible { opacity: 1; }
+.np-row-edit:hover { background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg); }
+@media (pointer: coarse) { .np-row-edit { opacity: 1; width: 34px; height: 34px; } }
+.np-swatches { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; padding: 2px 4px 6px; }
+.np-swatch { display: grid; place-items: center; padding: 2px; border: 1px solid transparent; border-radius: 6px; }
+.np-swatch:hover { background: var(--n-hover); }
+.np-swatch.is-on { border-color: var(--n-blue-accent); }
+.np-swatch .np-pill { justify-content: center; min-width: 36px; padding: 0 4px; }
+.np-newcolor { display: flex; align-items: flex-start; gap: 8px; padding: 2px 4px 4px 8px; font-size: 12px; }
+.np-newcolor > .np-faint { padding-top: 6px; }
+.np-newcolor > .np-swatches { flex: 1; padding: 0; }
+.np-edit-preview { padding: 0 8px 6px; }
+.np-clash { margin: 2px 4px 6px; padding: 8px; border: 1px solid var(--n-divider); border-radius: 6px; background: var(--n-hover); font-size: 13px; line-height: 1.4; }
+.np-clash p { margin: 0 0 6px; }
+.np-clash-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.np-btn { padding: 4px 10px; border: 1px solid var(--n-divider); border-radius: 6px; font-size: 13px; background: var(--surface); color: var(--fg); }
+.np-btn:hover { background: var(--n-hover); }
+.np-btn.is-primary { background: var(--n-blue-accent); border-color: var(--n-blue-accent); color: white; }
+.np-btn.is-danger { background: var(--n-red); border-color: var(--n-red); color: white; }
+.np-btn:disabled { opacity: 0.6; }

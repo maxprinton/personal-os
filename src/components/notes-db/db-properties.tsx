@@ -7,7 +7,7 @@ import { fit, useDb, type Rect } from "@/components/notes-db/db-shared";
 import { fold } from "@/lib/notes-db/query";
 import { TYPE_ICON, type NoteProperty } from "@/lib/notes-db/types";
 
-export function PropertiesMenu({ rect, visible, onChange, onClose }: { rect: Rect; visible: string[]; onChange: (ids: string[]) => void; onClose: () => void }) {
+export function PropertiesMenu({ rect, visible, onChange, onClose, wrapAll, onWrapAll }: { rect: Rect; visible: string[]; onChange: (ids: string[]) => void; onClose: () => void; wrapAll?: boolean; onWrapAll?: (on: boolean) => void }) {
   const { properties } = useDb();
   const [q, setQ] = useState("");
   const [drag, setDrag] = useState<string | null>(null);
@@ -88,6 +88,12 @@ export function PropertiesMenu({ rect, visible, onChange, onClose }: { rect: Rec
     <Popover rect={rect} onClose={onClose} width={fit(320)} className="n-menu">
       <div className="p-1.5">
         <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search for a property…" className="n-input mb-1 w-full" />
+        {wrapAll !== undefined && onWrapAll && (
+          <button type="button" role="switch" aria-checked={wrapAll} className="db-wrap-row" onClick={() => onWrapAll(!wrapAll)}>
+            <span className="min-w-0 flex-1 text-left">Wrap all columns</span>
+            <span className={`np-switch ${wrapAll ? "is-on" : ""}`} aria-hidden />
+          </button>
+        )}
         <div className="max-h-[min(60vh,440px)] overflow-y-auto">
           <div className="flex items-center justify-between pr-1">
             <MenuLabel>Shown in this view</MenuLabel>
