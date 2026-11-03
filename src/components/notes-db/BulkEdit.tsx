@@ -232,9 +232,9 @@ function EditDialog({ ids, onClose }: { ids: string[]; onClose: () => void }) {
         <label className="mt-3 block text-xs font-medium text-muted" htmlFor="bulk-prop">
           Property
         </label>
-        <select id="bulk-prop" value={prop.id} onChange={(e) => reset(e.target.value)} className="mt-1 w-full rounded-lg border border-line bg-transparent px-2 py-1.5 text-sm">
+        <select id="bulk-prop" value={prop.id} onChange={(e) => reset(e.target.value)} className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-fg">
           {editable.map((p) => (
-            <option key={p.id} value={p.id}>
+            <option key={p.id} value={p.id} className="bg-surface text-fg">
               {TYPE_ICON[p.type]} {p.name} · {TYPE_LABEL[p.type]}
             </option>
           ))}
