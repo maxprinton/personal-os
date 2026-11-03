@@ -78,7 +78,8 @@ export function OptionPicker({
     }
     setQ("");
   };
-  const [index, setIndex] = useListKeys(items.length, (i) => void pick(items[i]));
+  // While the ⋯ editor is open the keyboard belongs to it (otherwise Enter would pick / create an item of the list)
+  const [index, setIndex] = useListKeys(items.length, (i) => void pick(items[i]), !editing);
 
   const chosen = selected.map((id) => options.find((o) => o.id === id)).filter((o): o is SelectOption => !!o);
   let n = -1;
@@ -231,10 +232,14 @@ export function TagPicker({
     if (has(name)) onChange(names.filter((x) => x.toLowerCase() !== name.toLowerCase()));
     else add(name);
   };
-  const [index, setIndex] = useListKeys(items.length, (i) => {
-    const it = items[i];
-    if (it) toggle(it.name);
-  });
+  const [index, setIndex] = useListKeys(
+    items.length,
+    (i) => {
+      const it = items[i];
+      if (it) toggle(it.name);
+    },
+    !editing,
+  );
   const colorOf = (n: string) => pool.find((t) => t.name.toLowerCase() === n.toLowerCase())?.color ?? null;
   return (
     <Popover rect={anchor} onClose={onClose} width={fitWidth(Math.max(anchor.width, 280))} className="np-menu">

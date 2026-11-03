@@ -1,7 +1,7 @@
 "use client";
 // The small editor behind the "⋯" of a tag or an option (select / multi-select / status) in a picker:
 // rename, pick the color, (status) change the group, delete. Used by OptionPicker and TagPicker.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Popover } from "@/components/editor/ui";
 import { COLOR_LABEL, COLOR_NAMES, type ColorName } from "@/lib/editor/colors";
 import { TAGS_CHANGED, type TagChange } from "@/lib/notes-db/tag-ops";
@@ -90,6 +90,18 @@ export function ItemEditor({
   const [sure, setSure] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => setText(name), [name]);
+
+  // A name typed but not confirmed (clicked outside, pressed Esc) is still saved when the editor closes
+  const live = useRef({ text, name, clash, onRename });
+  live.current = { text, name, clash, onRename };
+  useEffect(
+    () => () => {
+      const { text: t, name: n, clash: c, onRename: rename } = live.current;
+      const next = t.trim();
+      if (next && next !== n && !c) void Promise.resolve(rename(next)).catch(() => null);
+    },
+    [],
+  );
 
   const run = async (fn: () => Promise<EditResult>, onOk?: () => void) => {
     if (busy) return;
