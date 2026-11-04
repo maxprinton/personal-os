@@ -399,7 +399,7 @@ export function ExportPanel({
           Month
           <select
             value={month}
-            onChange={(e) => router.replace(`/work?month=${e.target.value}`, { scroll: false })}
+            onChange={(e) => router.replace(`/teaching?month=${e.target.value}`, { scroll: false })}
             className={`${INPUT} block min-w-44 text-fg`}
           >
             {months.map((m) => (

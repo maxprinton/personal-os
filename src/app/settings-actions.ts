@@ -70,6 +70,7 @@ export async function connectBot(_prev: ActionState): Promise<ActionState> {
       { command: "tasks", description: "All open tasks, with buttons" },
       { command: "payments", description: "What to pay now and next" },
       { command: "balance", description: "Money in each account" },
+      { command: "teaching", description: "Teaching: classes, hours, pay, videos to post" },
       { command: "budget", description: "Budgets: spent, left" },
       { command: "movements", description: "Latest transactions (delete, account, receipt)" },
       { command: "unassigned", description: "Transactions without an account" },

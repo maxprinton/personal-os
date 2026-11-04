@@ -60,7 +60,7 @@ const W = {
   settings: ["/ajustes", "ajustes", "/settings", "settings", "/config", "config", "configuracion"],
   ai: ["/ai"],
   usage: ["/usage", "/uso", "usage", "uso"],
-  work: ["/work", "work", "/trabajo", "trabajo", "/horas", "horas", "/clases", "clases", "/videos", "videos"],
+  work: ["/teaching", "teaching", "/work", "work", "/trabajo", "trabajo", "/horas", "horas", "/clases", "clases", "/videos", "videos"],
   undo: ["/undo", "/deshacer", "deshacer", "undo"],
 };
 

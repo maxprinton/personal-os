@@ -24,6 +24,7 @@
     "test:work": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-work-log.ts && node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-work-import.ts && node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-xlsx-fill.ts",
     "test:ai-usage": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-ai-usage.ts",
     "test:writing": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-writing.ts && node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-writing-editor.ts && node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-predict.ts",
+    "test:addons": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-addons.ts",
     "test:tag-ops": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-tag-ops.ts"
   },
   "dependencies": {

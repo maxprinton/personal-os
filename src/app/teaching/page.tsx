@@ -26,7 +26,7 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
   );
 }
 
-export default async function WorkPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
+export default async function TeachingPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   const supabase = await createClient();
   const userId = await currentUserId(supabase);
   if (!userId) return null;
@@ -97,7 +97,7 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
   if (tableMissing) {
     return (
       <main className="mx-auto w-full max-w-3xl space-y-4 px-4 py-6 sm:px-6 lg:py-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Work</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Teaching</h1>
         <p className="rounded-lg border border-warning p-4 text-sm">
           The work log tables don’t exist yet. Open Supabase → SQL Editor, paste the contents of <b>MIGRACION-0027-registro-de-horas.sql</b> and run it,
           then reload this page.
@@ -111,19 +111,19 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
       <section className="space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Work</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Teaching</h1>
             <p className="text-sm text-muted">Your classes, hours and pay, plus the videos you owe the company’s Drive.</p>
           </div>
           <div className="flex items-center gap-1 text-sm">
-            <Link href={`/work?month=${shiftMonth(month, -1)}`} className="rounded-md border border-line-strong px-2.5 py-1 hover:bg-subtle" aria-label="Previous month">
+            <Link href={`/teaching?month=${shiftMonth(month, -1)}`} className="rounded-md border border-line-strong px-2.5 py-1 hover:bg-subtle" aria-label="Previous month">
               ←
             </Link>
             <span className="min-w-36 px-2 text-center font-medium">{monthLabelEn(month)}</span>
-            <Link href={`/work?month=${shiftMonth(month, 1)}`} className="rounded-md border border-line-strong px-2.5 py-1 hover:bg-subtle" aria-label="Next month">
+            <Link href={`/teaching?month=${shiftMonth(month, 1)}`} className="rounded-md border border-line-strong px-2.5 py-1 hover:bg-subtle" aria-label="Next month">
               →
             </Link>
             {!isCurrent && (
-              <Link href="/work" className="ml-1 rounded-md px-2 py-1 text-xs text-muted underline">
+              <Link href="/teaching" className="ml-1 rounded-md px-2 py-1 text-xs text-muted underline">
                 This month
               </Link>
             )}

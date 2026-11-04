@@ -55,7 +55,7 @@ export const HELP = [
   "/categorize → the AI categorizes your uncategorized transactions · /proposals → new categories it suggests (✓ create · ✕ skip)",
   "/search word /notes /habits /metrics /insights /settings /menu",
   "/usage → how much of the free AI you used today and what's left",
-  "/work → your classes, hours and pay this month + the videos you still owe · video B2-5 <Drive link> marks one as posted",
+  "/teaching (or /work) → your classes, hours and pay this month + the videos you still owe · video B2-5 <Drive link> marks one as posted",
   "",
   "ASK YOUR NOTES",
   "• @os what did I write about the trip? (also /os …, or by voice: “OS, …”)",

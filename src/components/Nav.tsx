@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import Icon, { type IconName } from "@/components/ui/Icon";
 import ThemeToggle from "@/components/ui/ThemeToggle";
+import { addonById } from "@/lib/addons/registry";
 
 type NavItem = { href: string; label: string; icon: IconName; key?: string };
 
@@ -31,8 +32,11 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/habits", label: "Habits", icon: "habits", key: "a" },
       { href: "/notes", label: "Notes", icon: "notes", key: "n" },
       { href: "/finance", label: "Finance", icon: "finance", key: "f" },
-      { href: "/work", label: "Work", icon: "work", key: "w" },
     ],
+  },
+  {
+    label: "Add-ons",
+    items: [{ href: "/addons", label: "All add-ons", icon: "addons", key: "o" }],
   },
   {
     label: "System",
@@ -44,6 +48,15 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
 ];
 
 export const NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
+
+/** The menu with the pinned add-ons (favorites) listed above "All add-ons", in pin order. */
+export function navGroupsWith(favorites: string[]) {
+  const pinned: NavItem[] = favorites.flatMap((id) => {
+    const a = addonById(id);
+    return a ? [{ href: a.href, label: a.name, icon: a.icon, key: a.key }] : [];
+  });
+  return NAV_GROUPS.map((g) => (g.label === "Add-ons" ? { ...g, items: [...pinned, ...g.items] } : g));
+}
 
 export function isActive(href: string, pathname: string) {
   return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
@@ -64,7 +77,18 @@ function SignOut({ collapsed = false }: { collapsed?: boolean }) {
 }
 
 /** Desktop sidebar (≥ lg). */
-export function Sidebar({ pathname, collapsed, onToggle }: { pathname: string; collapsed: boolean; onToggle: () => void }) {
+export function Sidebar({
+  pathname,
+  collapsed,
+  onToggle,
+  favorites,
+}: {
+  pathname: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  favorites: string[];
+}) {
+  const groups = navGroupsWith(favorites);
   return (
     <aside
       className={`sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-line bg-surface lg:flex ${
@@ -81,7 +105,7 @@ export function Sidebar({ pathname, collapsed, onToggle }: { pathname: string; c
         </Link>
       </div>
       <nav className="flex-1 space-y-5 overflow-y-auto px-2 py-3">
-        {NAV_GROUPS.map((g) => (
+        {groups.map((g) => (
           <div key={g.label}>
             {!collapsed && <p className="mb-1 px-2.5 text-[11px] font-semibold uppercase tracking-wider text-faint">{g.label}</p>}
             <ul className="space-y-0.5">
@@ -133,10 +157,13 @@ export function Sidebar({ pathname, collapsed, onToggle }: { pathname: string; c
 const TABS = ["/", "/tasks", "/calendar", "/finance"];
 
 /** Phone tab bar (< lg): 4 main sections + More. */
-export function MobileTabs({ pathname }: { pathname: string }) {
+export function MobileTabs({ pathname, favorites }: { pathname: string; favorites: string[] }) {
   const [more, setMore] = useState(false);
   useEffect(() => setMore(false), [pathname]);
   const tabs = TABS.map((h) => NAV_ITEMS.find((i) => i.href === h)!);
+  const sheet = navGroupsWith(favorites)
+    .flatMap((g) => g.items)
+    .filter((i) => !TABS.includes(i.href));
   const moreActive = !tabs.some((t) => isActive(t.href, pathname));
 
   return (
@@ -149,7 +176,7 @@ export function MobileTabs({ pathname }: { pathname: string }) {
           >
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-subtle-2" />
             <ul className="grid grid-cols-3 gap-2">
-              {NAV_ITEMS.filter((i) => !TABS.includes(i.href)).map((it) => (
+              {sheet.map((it) => (
                 <li key={it.href}>
                   <Link
                     href={it.href}

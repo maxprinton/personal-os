@@ -260,7 +260,7 @@ export function PendingVideos({ classes, folder }: { classes: WorkClass[]; folde
                   <input type="checkbox" className="h-4 w-4 accent-[var(--accent)]" checked={b.sel.has(c.id)} onChange={() => b.toggle(c.id)} aria-label={`Select ${c.group_name} ${shortDay(c.class_date)}`} />
                   <span className="font-medium">{c.group_name}</span>
                   <span className="text-muted">{shortDay(c.class_date)}</span>
-                  <Link href={`/work?month=${m}`} className="ml-auto text-xs text-muted underline">
+                  <Link href={`/teaching?month=${m}`} className="ml-auto text-xs text-muted underline">
                     open
                   </Link>
                 </li>

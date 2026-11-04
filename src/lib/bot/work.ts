@@ -1,4 +1,4 @@
-// Work log in Telegram (server only): /work (this month + videos still to post), "video B2-5 <Drive link>" to mark a video
+// Teaching add-on in Telegram (server only): /teaching (or /work) (this month + videos still to post), "video B2-5 <Drive link>" to mark a video
 // as posted, and the reminder sent after a class ends if its video is not posted yet. Every query filters by user_id.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Ctx } from "@/lib/bot/core";
@@ -38,7 +38,7 @@ export async function workView(c: Ctx): Promise<Reply> {
   const classes = ((data ?? []) as Record<string, unknown>[]).map(toWorkClass).sort(byTime);
   const sum = summarize(classes, { date: c.today, minutes: c.nowMin });
   const pending = (await toPost(c.admin, c.userId, c.today, c.nowMin)).list;
-  const L = [`💼 Work · ${monthLabelEn(month)}`, `${sum.classes} ${sum.classes === 1 ? "class" : "classes"} · ${fmtHours(sum.hours)} h · ${usd(sum.amount)}${sum.cancelled ? ` · ${sum.cancelled} cancelled by students` : ""}`];
+  const L = [`🎓 Teaching · ${monthLabelEn(month)}`, `${sum.classes} ${sum.classes === 1 ? "class" : "classes"} · ${fmtHours(sum.hours)} h · ${usd(sum.amount)}${sum.cancelled ? ` · ${sum.cancelled} cancelled by students` : ""}`];
   if (sum.recoveryHours || sum.extraHours || sum.collaborationCount) {
     L.push(`Extra ${fmtHours(sum.extraHours)} h · Recovered ${fmtHours(sum.recoveryHours)} h · Collaborations ${sum.collaborationCount}`);
   }

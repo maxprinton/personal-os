@@ -10,7 +10,7 @@ import { localNow } from "@/lib/time";
 import { getSettings } from "@/lib/agenda";
 
 function refresh() {
-  revalidatePath("/work");
+  revalidatePath("/teaching");
 }
 
 const SHEET_TYPES = ["recovery", "extra", "collaboration"];

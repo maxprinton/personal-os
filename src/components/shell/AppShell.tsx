@@ -6,6 +6,8 @@ import { MobileTabs, NAV_ITEMS, Sidebar } from "@/components/Nav";
 import CalendarPanel from "@/components/calendar/CalendarPanel";
 import { useSystemThemeSync } from "@/components/ui/ThemeToggle";
 import { readPref, writePref } from "@/components/calendar/util";
+import { useAddonFavorites } from "@/components/addons/useFavorites";
+import { ADDONS } from "@/lib/addons/registry";
 
 const BARE = ["/login", "/reset-password", "/auth"];
 
@@ -25,6 +27,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [calOpen, setCalOpen] = useState(false);
   const gPressed = useRef(0);
+  const { favorites } = useAddonFavorites();
   useSystemThemeSync();
 
   useEffect(() => {
@@ -57,7 +60,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         return;
       }
       if (Date.now() - gPressed.current < 1200) {
-        const item = NAV_ITEMS.find((i) => i.key === e.key.toLowerCase());
+        const k = e.key.toLowerCase();
+        // Sections first, then any add-on's own shortcut (pinned or not)
+        const item = NAV_ITEMS.find((i) => i.key === k) ?? ADDONS.find((a) => a.key === k);
         gPressed.current = 0;
         if (item) router.push(item.href);
       }
@@ -71,10 +76,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-dvh">
-      <Sidebar pathname={pathname} collapsed={collapsed} onToggle={toggleSidebar} />
+      <Sidebar pathname={pathname} collapsed={collapsed} onToggle={toggleSidebar} favorites={favorites} />
       <div className="min-w-0 flex-1 pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0">{children}</div>
       {showPanel && <CalendarPanel open={calOpen} onToggle={toggleCal} />}
-      <MobileTabs pathname={pathname} />
+      <MobileTabs pathname={pathname} favorites={favorites} />
     </div>
   );
 }
