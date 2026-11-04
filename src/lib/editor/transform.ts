@@ -196,6 +196,55 @@ export function turnInto(editor: Editor, pos: number, kind: Kind): boolean {
   return true;
 }
 
+const CODE_OK = new Set(["paragraph", "heading", "bulletList", "orderedList", "taskList", "blockquote", "details", "callout", "codeBlock"]);
+
+/**
+ * "Turn into" for everything that is selected, not just the block under the cursor.
+ * Code: all the selected text becomes ONE code block (one line per block). Other types: every selected block is converted.
+ * A caret without a selection behaves like `turnInto` on the current block.
+ */
+export function turnSelectionInto(editor: Editor, kind: Kind): boolean {
+  const { selection, doc } = editor.state;
+  if (selection instanceof NodeSelection || selection.empty) {
+    const b = currentBlock(editor);
+    return b ? turnInto(editor, b.pos, kind) : false;
+  }
+  if (kind === "code") {
+    const from = doc.resolve(selection.from).before(1);
+    const to = doc.resolve(selection.to).after(1);
+    const lines: string[] = [];
+    let ok = true;
+    doc.nodesBetween(from, to, (n, _p, parent) => {
+      if (parent === doc && !CODE_OK.has(n.type.name)) ok = false;
+      if (n.isTextblock) lines.push(n.textBetween(0, n.content.size, "", "\n"));
+      return ok;
+    });
+    if (!ok) return false;
+    const text = lines.join("\n");
+    const node = editor.schema.nodeFromJSON({ type: "codeBlock", attrs: { language: null }, ...(text ? { content: [{ type: "text", text }] } : {}) });
+    const tr = editor.state.tr.replaceWith(from, to, node);
+    tr.setSelection(TextSelection.create(tr.doc, from + 1 + node.content.size));
+    editor.view.dispatch(tr.scrollIntoView());
+    editor.view.focus();
+    return true;
+  }
+  const found = new Map<number, PMNode>();
+  doc.nodesBetween(selection.from, selection.to, (n, pos) => {
+    if (!n.isTextblock) return true;
+    const $p = doc.resolve(pos);
+    const parent = $p.parent;
+    const first = $p.index() === 0;
+    if (first && LIST_ITEMS.has(parent.type.name)) found.set($p.before(), parent);
+    else if (first && parent.type.name === "details") found.set($p.before(), parent);
+    else found.set(pos, n);
+    return false;
+  });
+  let any = false;
+  // From the end of the page upwards, so the positions still to do do not move
+  for (const pos of [...found.keys()].sort((a, b) => b - a)) if (turnInto(editor, pos, kind)) any = true;
+  return any;
+}
+
 /** Notion's block color: on the text block (list items: their first line; callouts/toggles: the box). */
 export function setBlockColor(editor: Editor, pos: number, color: string | null): boolean {
   const { state } = editor;

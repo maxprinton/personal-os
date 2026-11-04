@@ -32,7 +32,7 @@ import { NotionPaste, insertFiles } from "@/lib/editor/paste";
 import { SuggestMenus, type SuggestState } from "@/lib/editor/slash";
 import { filterBlocks, rememberBlock, TURN_INTO, createSubpageBlock, type BlockItem } from "@/lib/editor/blocks";
 import { searchEmoji } from "@/lib/editor/emoji";
-import { currentBlock, setBlockColor, turnInto } from "@/lib/editor/transform";
+import { currentBlock, setBlockColor, turnInto, turnSelectionInto } from "@/lib/editor/transform";
 import { isUiEvent, type UiRequest } from "@/lib/editor/ui-events";
 import BlockMenu, { blockTypeLabel } from "@/components/editor/BlockMenu";
 import ColorMenu from "@/components/editor/ColorMenu";
@@ -653,8 +653,7 @@ export default function RichEditor({
                 icon={<span className="n-type-icon">{i.icon}</span>}
                 label={i.label}
                 onClick={() => {
-                  const b = currentBlock(editor);
-                  if (b) turnInto(editor, b.pos, i.kind!);
+                  turnSelectionInto(editor, i.kind!);
                   setFmt(null);
                 }}
               />

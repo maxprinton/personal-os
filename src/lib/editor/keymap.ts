@@ -1,7 +1,7 @@
 // Notion's keyboard shortcuts and typing shortcuts (Windows keys; Mod = Ctrl, ⌘ on Mac).
 import { Extension, InputRule, markInputRule, textInputRule, wrappingInputRule } from "@tiptap/core";
 import { NodeSelection, TextSelection } from "@tiptap/pm/state";
-import { currentBlock, duplicateBlock, deleteBlock, moveBlock, setBlockColor, toggleAllToggles, turnInto, type Kind } from "@/lib/editor/transform";
+import { currentBlock, duplicateBlock, deleteBlock, moveBlock, setBlockColor, toggleAllToggles, turnInto, turnSelectionInto, type Kind } from "@/lib/editor/transform";
 import { createSubpageBlock } from "@/lib/editor/blocks";
 import { openSelectedMath } from "@/lib/editor/nodes/math";
 import { requestUi } from "@/lib/editor/ui-events";
@@ -36,7 +36,7 @@ export const NotionKeymap = Extension.create({
           void createSubpageBlock(e, undefined, title);
           return true;
         }
-        return turnInto(e, b.pos, kind);
+        return turnSelectionInto(e, kind);
       };
     }
     return {

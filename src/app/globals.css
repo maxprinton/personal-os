@@ -603,7 +603,7 @@
 @media (pointer: coarse) { .n-head-actions { opacity: 1; } }
 .n-head-actions button { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 6px; font-size: 14px; color: var(--n-faint); }
 .n-head-actions button:hover { background: var(--n-hover); color: var(--n-muted); }
-.n-title { display: block; width: 100%; resize: none; overflow: hidden; border: 0; outline: none; background: transparent; font-size: 40px; font-weight: 700; line-height: 1.2; padding: 3px 2px; margin: 4px 0 2px; color: var(--fg); font-family: var(--n-font); }
+.n-title { display: block; width: 100%; min-height: 1.3em; position: relative; z-index: 1; resize: none; overflow: hidden; border: 0; outline: none; background: transparent; font-size: 40px; font-weight: 700; line-height: 1.2; padding: 3px 2px; margin: 4px 0 2px; color: var(--fg); font-family: var(--n-font); }
 .n-title::placeholder { color: var(--n-placeholder); }
 @media (max-width: 640px) { .n-title { font-size: 32px; } .n-head-icon { font-size: 64px; width: 70px; height: 70px; } }
 .n-backlinks { display: inline-flex; align-items: center; gap: 4px; font-size: 14px; color: var(--n-muted); padding: 2px 6px; border-radius: 6px; margin-left: -6px; }

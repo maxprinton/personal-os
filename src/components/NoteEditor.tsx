@@ -150,12 +150,20 @@ export default function NoteEditor({
   }, [status]);
 
   // Title grows with its text
+  // (never collapses to 0: a title that measures 0 tall could not be clicked or typed in)
   useEffect(() => {
     const el = titleRef.current;
     if (!el) return;
-    el.style.height = "0px";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [t]);
+    const fit = () => {
+      el.style.height = "auto";
+      const h = el.scrollHeight;
+      el.style.height = h > 0 ? `${h}px` : "";
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    void document.fonts?.ready.then(fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [t, page.font, page.small]);
 
   const setting = useCallback(
     async (patch: PageSettings) => {
