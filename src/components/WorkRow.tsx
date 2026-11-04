@@ -46,8 +46,10 @@ function VideoCell({ c, ended }: { c: WorkClass; ended: boolean }) {
 }
 
 /** One click copies "Teacher - date - course" to paste at the start of the video's name or description. */
-function CopyLabel({ c, teacher }: { c: WorkClass; teacher: string }) {
+function CopyLabel({ c, suggestions }: { c: WorkClass; suggestions: Suggestions }) {
   const [done, setDone] = useState(false);
+  // The teacher being replaced: the one who asked for this class, or else the code's teacher.
+  const teacher = (c.requested_by && !isOrigin(c.requested_by) ? c.requested_by : suggestions.groupTeachers?.[groupKey(c.group_name)] ?? "").trim();
   const text = videoLabel(teacher, c);
   async function copy() {
     try {
@@ -69,7 +71,7 @@ function CopyLabel({ c, teacher }: { c: WorkClass; teacher: string }) {
         {done ? "✓ Copied" : "📋 Copy title"}
       </button>
       <span className="min-w-0 truncate text-xs text-muted">{text}</span>
-      {!teacher.trim() && <span className="text-xs text-warning">Add your name in Settings</span>}
+      {!teacher.trim() && <span className="text-xs text-warning">Set the teacher above first</span>}
     </div>
   );
 }
@@ -252,7 +254,7 @@ export default function WorkRow({ c, ended, suggestions }: { c: WorkClass; ended
       ) : (
         <>
           <TeacherCell c={c} suggestions={suggestions} />
-          <CopyLabel c={c} teacher={suggestions.teacher ?? ""} />
+          <CopyLabel c={c} suggestions={suggestions} />
           <VideoCell c={c} ended={ended} />
           <Attendance c={c} />
         </>
