@@ -26,7 +26,7 @@ export type ClassDefaults = {
 };
 
 /** groupTeachers: class code (lower-case key) → the teacher it belongs to now. groupSchedules: class code → start / end of its latest class. */
-export type Suggestions = { groups: string[]; people: string[]; groupTeachers?: Record<string, string>; groupSchedules?: Record<string, ClassSchedule> };
+export type Suggestions = { groups: string[]; people: string[]; groupTeachers?: Record<string, string>; groupSchedules?: Record<string, ClassSchedule>; teacher?: string };
 
 /** The fields of a class, shared by "Add a class" and "Edit". */
 export function ClassFields({ d, s, idp }: { d: ClassDefaults; s: Suggestions; idp: string }) {

@@ -1,7 +1,7 @@
 // Work log: hours and pay, the company Sheet's formats (date, time range, month), month totals and the paste-ready text.
 import {
   byTime, calcAmount, calcHours, classEnded, detailRows, fmtHours, fmtMoney, hasEvidence, hhmm, isOrigin, reportClasses, parseVideoCmd, ruleError, isHttpUrl, isValidForReport, missingEvidence, needsEvidence, isMonthKey, monthBounds, monthKey, monthLabelEn,
-  monthLabelEs, groupKey, scheduleMap, teacherMap, rateFor, sheetDate, sheetRange, shiftMonth, shortDay, summarize, summaryRow, toMinutes, toTsv, type WorkClass,
+  monthLabelEs, groupKey, scheduleMap, teacherMap, rateFor, sheetDate, sheetRange, shiftMonth, shortDay, videoLabel, summarize, summaryRow, toMinutes, toTsv, type WorkClass,
 } from "@/lib/work-log";
 
 let pass = 0;
@@ -39,6 +39,9 @@ ok("range accepts HH:MM:SS from the database", sheetRange("21:00:00", "22:00:00"
 ok("month label ES", monthLabelEs("2026-01") === "Enero-2026" && monthLabelEs("2026-09") === "Septiembre-2026");
 ok("month label EN", monthLabelEn("2026-10") === "October 2026");
 
+ok("video label: Teacher - date - course", videoLabel("Max Printon", { class_date: "2026-11-03", group_name: "B2-5" }) === "Max Printon - 2026-11-03 - B2-5");
+ok("video label: no name → date - course", videoLabel("", { class_date: "2026-11-03", group_name: "B2-5" }) === "2026-11-03 - B2-5");
+ok("video label: strips characters Drive/Windows reject", videoLabel("Max", { class_date: "2026-11-03", group_name: "A1/2: Kids" }) === "Max - 2026-11-03 - A1 2 Kids", videoLabel("Max", { class_date: "2026-11-03", group_name: "A1/2: Kids" }));
 ok("short day: Tue, Oct 27", shortDay("2026-10-27") === "Tue, Oct 27", shortDay("2026-10-27"));
 ok("short day: Sun, Jan 4", shortDay("2026-01-04") === "Sun, Jan 4", shortDay("2026-01-04"));
 ok("url check", isHttpUrl("https://drive.google.com/file/d/1/view") && isHttpUrl("http://a.co") && !isHttpUrl("drive.google.com") && !isHttpUrl("javascript:alert(1)") && !isHttpUrl("https://a b"));

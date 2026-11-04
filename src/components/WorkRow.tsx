@@ -6,7 +6,7 @@ import { readClipboardImage, uploadNoteFile } from "@/lib/note-files";
 import type { ActionState } from "@/app/actions";
 import { ClassFields, type Suggestions } from "@/components/WorkForms";
 import { formatMinutes } from "@/lib/time";
-import { fmtHours, fmtMoney, groupKey, isOrigin, needsEvidence, ROLE_LABEL, SHEET_TYPE_LABEL, shortDay, STATUS_LABEL, toMinutes, type WorkClass } from "@/lib/work-log";
+import { fmtHours, fmtMoney, groupKey, isOrigin, needsEvidence, ROLE_LABEL, SHEET_TYPE_LABEL, shortDay, STATUS_LABEL, toMinutes, videoLabel, type WorkClass } from "@/lib/work-log";
 
 const INPUT = "rounded-md border border-line-strong px-2 py-1.5 text-sm";
 const PRIMARY = "rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-1.5 text-sm text-accent-fg disabled:opacity-50";
@@ -42,6 +42,35 @@ function VideoCell({ c, ended }: { c: WorkClass; ended: boolean }) {
       </button>
       {state.error && <span className="basis-full text-xs text-danger">{state.error}</span>}
     </form>
+  );
+}
+
+/** One click copies "Teacher - date - course" to paste at the start of the video's name or description. */
+function CopyLabel({ c, teacher }: { c: WorkClass; teacher: string }) {
+  const [done, setDone] = useState(false);
+  const text = videoLabel(teacher, c);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const t = document.createElement("textarea");
+      t.value = text;
+      document.body.appendChild(t);
+      t.select();
+      document.execCommand("copy");
+      t.remove();
+    }
+    setDone(true);
+    setTimeout(() => setDone(false), 1800);
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <button type="button" onClick={copy} className={GHOST} title="Copy the video title">
+        {done ? "✓ Copied" : "📋 Copy title"}
+      </button>
+      <span className="min-w-0 truncate text-xs text-muted">{text}</span>
+      {!teacher.trim() && <span className="text-xs text-warning">Add your name in Settings</span>}
+    </div>
   );
 }
 
@@ -223,6 +252,7 @@ export default function WorkRow({ c, ended, suggestions }: { c: WorkClass; ended
       ) : (
         <>
           <TeacherCell c={c} suggestions={suggestions} />
+          <CopyLabel c={c} teacher={suggestions.teacher ?? ""} />
           <VideoCell c={c} ended={ended} />
           <Attendance c={c} />
         </>

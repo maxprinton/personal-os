@@ -80,6 +80,7 @@ export default async function WorkPage({ searchParams }: { searchParams: Promise
     people: teacherRows.map((t) => t.name).slice(0, 60),
     groupTeachers: map,
     groupSchedules: scheduleMap(hist),
+    teacher: settings?.teacher_name ?? "",
   };
 
   // Months for the Excel picker: every month that has classes, plus the one on screen and the current one.

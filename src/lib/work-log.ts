@@ -282,6 +282,12 @@ export function rateFor(role: WorkRole, rates: { substitute_rate: number | null;
 
 const DAYS_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** "2026-10-27" → "Tue, Oct 27" */
+/** One short line to paste at the start of the class video: "Teacher - 2026-11-03 - B2-5" (no characters Drive/Windows reject). */
+export function videoLabel(teacher: string | null | undefined, c: Pick<WorkClass, "class_date" | "group_name">) {
+  const clean = (t: string) => t.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
+  return [teacher ?? "", c.class_date, c.group_name].map((p) => clean(p)).filter(Boolean).join(" - ");
+}
+
 export function shortDay(date: string) {
   const [y, m, d] = date.split("-").map(Number);
   return `${DAYS_EN[new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()]}, ${MONTHS_EN[m - 1]} ${d}`;
