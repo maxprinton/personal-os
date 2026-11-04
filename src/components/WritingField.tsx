@@ -24,7 +24,7 @@ function setNativeValue(el: El, value: string, caret?: number) {
   if (caret !== undefined) el.setSelectionRange(caret, caret);
 }
 
-function useWriting(ref: React.RefObject<El | null>, area: WritingArea, multiline: boolean) {
+function useWriting(ref: React.RefObject<El | null>, area: WritingArea, multiline: boolean, noPredict = false) {
   const [, force] = useState(0);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [pred, setPred] = useState<Prediction | null>(null);
@@ -39,7 +39,7 @@ function useWriting(ref: React.RefObject<El | null>, area: WritingArea, multilin
     return onWritingChange(() => force((n) => n + 1));
   }, []);
   const spell = spellOn(writingSettings(), area);
-  const predicting = predictOn(writingSettings(), area);
+  const predicting = !noPredict && predictOn(writingSettings(), area);
 
   const place = useCallback(() => {
     const el = ref.current;
@@ -51,6 +51,7 @@ function useWriting(ref: React.RefObject<El | null>, area: WritingArea, multilin
   const refresh = useCallback(() => {
     const el = ref.current;
     if (!el) return;
+    place();
     const v = el.value;
     const end = el.selectionStart === el.selectionEnd && el.selectionEnd === v.length;
     setPred(predicting && end ? predictNext(v) : null);
@@ -65,7 +66,7 @@ function useWriting(ref: React.RefObject<El | null>, area: WritingArea, multilin
         noteUnknown(list.filter((i) => i.kind === "spelling").map((i) => i.word));
       });
     }, DELAY);
-  }, [ref, spell, predicting, multiline]);
+  }, [ref, spell, predicting, multiline, place]);
 
   useEffect(() => {
     const el = ref.current;
@@ -209,11 +210,11 @@ function IssueRow({ issue, onReplace, onIgnore, onAdd }: { issue: Issue; onRepla
   );
 }
 
-type InputProps = InputHTMLAttributes<HTMLInputElement> & { area: WritingArea };
-export const WritingInput = forwardRef<HTMLInputElement, InputProps>(function WritingInput({ area, onKeyDown, spellCheck, ...rest }, outer) {
+type InputProps = InputHTMLAttributes<HTMLInputElement> & { area: WritingArea; noPredict?: boolean };
+export const WritingInput = forwardRef<HTMLInputElement, InputProps>(function WritingInput({ area, noPredict, onKeyDown, spellCheck, ...rest }, outer) {
   const ref = useRef<HTMLInputElement>(null);
   useImperativeHandle(outer, () => ref.current as HTMLInputElement);
-  const w = useWriting(ref, area, false);
+  const w = useWriting(ref, area, false, noPredict);
   return (
     <>
       <input
@@ -230,11 +231,11 @@ export const WritingInput = forwardRef<HTMLInputElement, InputProps>(function Wr
   );
 });
 
-type AreaProps = TextareaHTMLAttributes<HTMLTextAreaElement> & { area: WritingArea };
-export const WritingTextarea = forwardRef<HTMLTextAreaElement, AreaProps>(function WritingTextarea({ area, onKeyDown, spellCheck, ...rest }, outer) {
+type AreaProps = TextareaHTMLAttributes<HTMLTextAreaElement> & { area: WritingArea; noPredict?: boolean };
+export const WritingTextarea = forwardRef<HTMLTextAreaElement, AreaProps>(function WritingTextarea({ area, noPredict, onKeyDown, spellCheck, ...rest }, outer) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useImperativeHandle(outer, () => ref.current as HTMLTextAreaElement);
-  const w = useWriting(ref, area, true);
+  const w = useWriting(ref, area, true, noPredict);
   return (
     <>
       <textarea

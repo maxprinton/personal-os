@@ -376,7 +376,7 @@ export default function NoteEditor({
               )}
             </div>
           )}
-          <WritingTextarea area="titles"
+          <WritingTextarea area="titles" noPredict
             ref={titleRef}
             rows={1}
             value={t}

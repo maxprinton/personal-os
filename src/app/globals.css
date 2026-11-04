@@ -676,7 +676,8 @@
 .n-ai-foot { padding: 4px 12px 8px; font-size: 11px; color: var(--n-faint); }
 
 /* Writing assistant in plain fields (src/components/WritingField.tsx) */
-.wf-bar { position: fixed; z-index: 80; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; font-size: 12px; pointer-events: auto; }
+.wf-bar { position: fixed; z-index: 80; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; font-size: 12px; pointer-events: none; }
+.wf-bar > * { pointer-events: auto; }
 .wf-pred, .wf-issues { border: 1px solid var(--line, rgba(127,127,127,.3)); background: var(--surface, #fff); color: var(--fg); border-radius: 999px; padding: 2px 9px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
 .wf-pred { color: var(--muted, inherit); }
 .wf-pred:hover, .wf-issues:hover { background: var(--subtle, rgba(127,127,127,.12)); }
