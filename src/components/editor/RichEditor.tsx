@@ -21,6 +21,7 @@ import { BlockAttrs, NHeading, NParagraph, TextColor } from "@/lib/editor/nodes/
 import { Callout } from "@/lib/editor/nodes/callout";
 import { Column, ColumnList } from "@/lib/editor/nodes/columns";
 import { ColumnsDrop } from "@/lib/editor/columns-drop";
+import { DragAssist } from "@/lib/editor/drag-assist";
 import { TableOfContents, scrollToPos } from "@/lib/editor/nodes/toc";
 import { BlockMath, InlineMath } from "@/lib/editor/nodes/math";
 import { Breadcrumb, LinkMention, MentionDate, MentionPage, PageLink, dateLabel, parseDateQuery, refreshPageTitles } from "@/lib/editor/nodes/page";
@@ -175,6 +176,7 @@ export default function RichEditor({
       ColumnList,
       Column,
       ColumnsDrop,
+      DragAssist,
       TableOfContents,
       InlineMath,
       BlockMath,
