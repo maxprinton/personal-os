@@ -26,7 +26,6 @@ type Rect = { left: number; top: number; bottom: number; right?: number };
 export { COVERS, coverStyle } from "@/lib/covers";
 import { COVERS, coverStyle } from "@/lib/covers";
 
-import { WritingTextarea } from "@/components/WritingField";
 import { showAiUsage } from "@/lib/ai-usage-client";
 import { coverBg } from "@/lib/cover-art";
 export default function NoteEditor({
@@ -376,7 +375,7 @@ export default function NoteEditor({
               )}
             </div>
           )}
-          <WritingTextarea area="titles" noPredict
+          <textarea
             ref={titleRef}
             rows={1}
             value={t}
