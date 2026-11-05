@@ -74,6 +74,10 @@ export default function NoteEditor({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
   const again = useRef(false);
+  /** When you last typed / pasted / deleted (ms). */
+  const lastEdit = useRef(0);
+  /** What the editor shows. Starts as the server's copy; later server copies only replace it when they are really newer. */
+  const [editorValue, setEditorValue] = useState(content);
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const dupForm = useRef<HTMLFormElement>(null);
   const delForm = useRef<HTMLFormElement>(null);
@@ -128,7 +132,66 @@ export default function NoteEditor({
 
   useEffect(() => setLiveNote(id, { title, content }), [id, title, content]);
 
+  // A new copy of the note from the server (router.refresh after a property edit, another device…).
+  // Ignore it while you have unsaved changes, a save is on its way, or you edited in the last 15 s:
+  // that copy can be OLDER than what you see (it was read before your last save), and taking it would
+  // bring back text you just deleted. Your version is saved instead and wins.
+  useEffect(() => {
+    if (content === latest.current.content) return;
+    const pending = latest.current.content !== saved.current.content || inFlight.current || !!timer.current;
+    if (pending || Date.now() - lastEdit.current < 15_000) return;
+    latest.current = { ...latest.current, content };
+    saved.current = { ...saved.current, content };
+    setEditorValue(content);
+  }, [content]);
+
+  // Leaving or reloading the page with unsaved changes: save right away (small notes), and ask the
+  // browser to warn you if something is still unsaved (a long paste can take a moment to save).
+  useEffect(() => {
+    const unsaved = () => latest.current.title !== saved.current.title || latest.current.content !== saved.current.content || inFlight.current;
+    const freshContent = () => {
+      try {
+        if (editor && !editor.isDestroyed) latest.current = { ...latest.current, content: editor.getMarkdown() };
+      } catch {
+        // keep the last known copy
+      }
+    };
+    const beacon = () => {
+      freshContent();
+      const v = latest.current;
+      if (v.title === saved.current.title && v.content === saved.current.content) return;
+      const body = JSON.stringify({ id, title: v.title, content: v.content });
+      // keepalive requests are limited to 64 KB; bigger notes rely on the warning below
+      if (body.length < 60_000) {
+        try {
+          void fetch("/api/notes/autosave", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true });
+        } catch {
+          // the warning below still protects you
+        }
+      }
+    };
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      freshContent();
+      if (!unsaved()) return;
+      beacon();
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    const onHide = () => {
+      if (document.visibilityState === "hidden") beacon();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("pagehide", beacon);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("pagehide", beacon);
+      document.removeEventListener("visibilitychange", onHide);
+    };
+  }, [id, editor]);
+
   function schedule() {
+    lastEdit.current = Date.now();
     setLiveNote(id, latest.current);
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => void flush(), 1000);
@@ -407,7 +470,7 @@ export default function NoteEditor({
         <div className="pt-1 pb-24">
           {empty && !locked && whenEmpty}
           <RichEditor
-            value={content}
+            value={editorValue}
             onChange={(md) => {
               setEmpty(!md.trim());
               latest.current = { ...latest.current, content: md };

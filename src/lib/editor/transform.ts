@@ -1,5 +1,6 @@
 // Block operations shared by the "/" menu, the ⋮⋮ menu and the Notion shortcuts:
 // turn into, color, duplicate, move up/down, find the block under the cursor.
+import { requestUi } from "@/lib/editor/ui-events";
 import type { Editor, JSONContent } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { NodeSelection, TextSelection } from "@tiptap/pm/state";
@@ -138,7 +139,7 @@ function caretInto(tr: import("@tiptap/pm/state").Transaction, pos: number) {
 }
 
 /** Notion's "Turn into" for the block at pos. */
-export function turnInto(editor: Editor, pos: number, kind: Kind): boolean {
+function turnIntoInner(editor: Editor, pos: number, kind: Kind): boolean {
   const { state } = editor;
   const node = state.doc.nodeAt(pos);
   if (!node) return false;
@@ -196,28 +197,37 @@ export function turnInto(editor: Editor, pos: number, kind: Kind): boolean {
   return true;
 }
 
-const CODE_OK = new Set(["paragraph", "heading", "bulletList", "orderedList", "taskList", "blockquote", "details", "callout", "codeBlock"]);
+const MEDIA_TYPES = new Set(["image", "video", "audio", "pdf", "file", "embed", "bookmark", "pageLink", "blockMath", "linkMention", "mention"]);
 
 /**
  * "Turn into" for everything that is selected, not just the block under the cursor.
  * Code: all the selected text becomes ONE code block (one line per block). Other types: every selected block is converted.
  * A caret without a selection behaves like `turnInto` on the current block.
  */
-export function turnSelectionInto(editor: Editor, kind: Kind): boolean {
+function turnSelectionIntoInner(editor: Editor, kind: Kind): boolean {
   const { selection, doc } = editor.state;
   if (selection instanceof NodeSelection || selection.empty) {
     const b = currentBlock(editor);
-    return b ? turnInto(editor, b.pos, kind) : false;
+    return b ? turnIntoInner(editor, b.pos, kind) : false;
   }
   if (kind === "code") {
     const from = doc.resolve(selection.from).before(1);
     const to = doc.resolve(selection.to).after(1);
     const lines: string[] = [];
     let ok = true;
-    doc.nodesBetween(from, to, (n, _p, parent) => {
-      if (parent === doc && !CODE_OK.has(n.type.name)) ok = false;
-      if (n.isTextblock) lines.push(n.textBetween(0, n.content.size, "", "\n"));
-      return ok;
+    doc.nodesBetween(from, to, (n) => {
+      if (!ok) return false;
+      if (n.isTextblock) {
+        lines.push(n.textBetween(0, n.content.size, "", "\n"));
+        return false;
+      }
+      if (n.type.name === "horizontalRule") {
+        lines.push("---");
+        return false;
+      }
+      // Pictures, files, embeds… can't become text: stop instead of losing them
+      if (n.isAtom || n.isLeaf) ok = !MEDIA_TYPES.has(n.type.name);
+      return ok; // other containers (lists, quotes, tables, columns…): take the text inside
     });
     if (!ok) return false;
     const text = lines.join("\n");
@@ -241,7 +251,7 @@ export function turnSelectionInto(editor: Editor, kind: Kind): boolean {
   });
   let any = false;
   // From the end of the page upwards, so the positions still to do do not move
-  for (const pos of [...found.keys()].sort((a, b) => b - a)) if (turnInto(editor, pos, kind)) any = true;
+  for (const pos of [...found.keys()].sort((a, b) => b - a)) if (turnIntoInner(editor, pos, kind)) any = true;
   return any;
 }
 
@@ -349,4 +359,27 @@ export const newBlockId = () => Math.random().toString(36).slice(2, 8);
 export function countWords(text: string) {
   const words = text.trim() ? text.trim().split(/\s+/).length : 0;
   return { words, chars: text.length };
+}
+
+
+/** Tells you when "Turn into" could not change the block (instead of silently doing nothing). */
+function cantTurn(editor: Editor, kind: Kind) {
+  const what = kind === "code" ? "a code block" : "that type";
+  requestUi(editor.view, { kind: "toast", text: `Couldn't turn this into ${what}. If it has pictures or files, select only the text.` });
+}
+
+/** Notion's "Turn into" for the block at pos. */
+export function turnInto(editor: Editor, pos: number, kind: Kind): boolean {
+  const ok = turnIntoInner(editor, pos, kind);
+  if (!ok) cantTurn(editor, kind);
+  return ok;
+}
+
+/**
+ * "Turn into" for everything that is selected (see turnSelectionIntoInner). Shows a message when nothing changed.
+ */
+export function turnSelectionInto(editor: Editor, kind: Kind): boolean {
+  const ok = turnSelectionIntoInner(editor, kind);
+  if (!ok) cantTurn(editor, kind);
+  return ok;
 }

@@ -41,7 +41,7 @@ import EmojiPicker from "@/components/editor/EmojiPicker";
 import MediaView from "@/components/editor/MediaView";
 import CodeBlockView from "@/components/editor/CodeBlockView";
 import { PageIcon } from "@/components/editor/PagePicker";
-import { DatePopover, LinkPopover, MathPopover, PasteUrlMenu } from "@/components/editor/Popovers";
+import { DatePopover, LinkPopover, MathPopover, PasteLongMenu, PasteUrlMenu } from "@/components/editor/Popovers";
 import { MenuItem, MenuLabel, Popover, Swatch } from "@/components/editor/ui";
 import { uploadNoteFile } from "@/lib/note-files";
 import AiPanel, { AiMenu, type AiSession } from "@/components/editor/AiPanel";
@@ -127,6 +127,19 @@ export default function RichEditor({
 }: RichEditorProps) {
   const section = mode === "section";
   const lastMd = useRef(value);
+  const emitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Sends the page's Markdown to the parent (only when it changed). */
+  const emitNow = (e: Editor) => {
+    if (emitTimer.current) {
+      clearTimeout(emitTimer.current);
+      emitTimer.current = null;
+    }
+    if (e.isDestroyed) return;
+    const md = e.getMarkdown();
+    if (md === lastMd.current) return;
+    lastMd.current = md;
+    onChangeRef.current(md);
+  };
   const onChangeRef = useRef(onChange);
   const onBlurRef = useRef(onBlur);
   onChangeRef.current = onChange;
@@ -260,13 +273,17 @@ export default function RichEditor({
         return false;
       },
     },
+    // Turning the whole page into Markdown on every keystroke is slow in very long notes (a pasted
+    // transcript): long pages send it after a short pause instead; leaving the editor always sends it first.
     onUpdate: ({ editor: e }) => {
-      const md = e.getMarkdown();
-      if (md === lastMd.current) return;
-      lastMd.current = md;
-      onChangeRef.current(md);
+      if (emitTimer.current) clearTimeout(emitTimer.current);
+      if (e.state.doc.content.size < 20_000) return emitNow(e);
+      emitTimer.current = setTimeout(() => emitNow(e), 300);
     },
-    onBlur: () => onBlurRef.current?.(),
+    onBlur: ({ editor: e }) => {
+      emitNow(e);
+      onBlurRef.current?.();
+    },
   });
 
   // Hand the app's context to the editor (notes, sub-pages, uploads…)
@@ -326,9 +343,19 @@ export default function RichEditor({
     if (editor) editor.storage.notion.menuOpen = !!suggest;
   }, [editor, suggest]);
 
-  // New content from outside (another device, another block) while you are not writing
+  // Leaving the page with a change still waiting (long notes): send it before the editor goes away
   useEffect(() => {
-    if (!editor || editor.isFocused || value === lastMd.current) return;
+    if (!editor) return;
+    return () => {
+      if (emitTimer.current && !editor.isDestroyed) emitNow(editor);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
+
+  // New content from outside (another device, another block) while you are not writing.
+  // Never while a change of yours is still waiting to be sent, or it would undo what you just did.
+  useEffect(() => {
+    if (!editor || editor.isFocused || emitTimer.current || value === lastMd.current) return;
     lastMd.current = value;
     editor.commands.setContent(value, { contentType: "markdown", emitUpdate: false });
   }, [editor, value]);
@@ -824,6 +851,9 @@ export default function RichEditor({
         </Popover>
       )}
       {ui?.kind === "pasteUrl" && <PasteUrlMenu editor={editor} url={ui.url} from={ui.from} to={ui.to} rect={toRect(ui.rect)} onClose={() => setUi(null)} />}
+      {ui?.kind === "pasteLong" && (
+        <PasteLongMenu editor={editor} text={ui.text} from={ui.from} to={ui.to} snapshot={ui.snapshot} rect={toRect(ui.rect)} onClose={() => setUi(null)} />
+      )}
 
       {editable && <MobileToolbar editor={editor} onAi={(rect) => {
         const { from, to } = editor.state.selection;

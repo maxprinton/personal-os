@@ -237,3 +237,59 @@ export function PasteUrlMenu({ editor, url, from, to, rect, onClose }: { editor:
     </Popover>
   );
 }
+
+/**
+ * After a long paste on an empty line (a transcript, a log…): keep it as normal text, or turn everything
+ * that was pasted into ONE code block with the exact original text (no lost line breaks, no markdown parsing).
+ */
+export function PasteLongMenu({
+  editor,
+  text,
+  from,
+  to,
+  snapshot,
+  rect,
+  onClose,
+}: {
+  editor: Editor;
+  text: string;
+  from: number;
+  to: number;
+  snapshot: string;
+  rect: Rect;
+  onClose: () => void;
+}) {
+  const stillThere = () => to <= editor.state.doc.content.size && editor.state.doc.textBetween(from, to, "\n", "\n") === snapshot;
+  const toCode = () => {
+    if (!stillThere()) return onClose();
+    const node = editor.schema.nodes.codeBlock?.create({ language: null }, text ? editor.schema.text(text) : undefined);
+    if (!node) return onClose();
+    const tr = editor.state.tr.replaceWith(from, to, node);
+    editor.view.dispatch(tr.scrollIntoView());
+    editor.commands.focus();
+    onClose();
+  };
+  const lines = text.split("\n").length;
+  const options = [
+    { key: "text", icon: "¶", label: "Keep as text", hint: "Leave it as it is", run: () => onClose() },
+    { key: "code", icon: "</>", label: "Code block", hint: `All ${lines} lines in one code block, exactly as pasted`, run: toCode },
+  ];
+  const [index, setIndex] = useListKeys(options.length, (i) => void options[i].run());
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!["ArrowUp", "ArrowDown", "Enter", "Escape", "Shift", "Control", "Alt", "Meta"].includes(e.key)) onClose();
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [onClose]);
+  return (
+    <Popover rect={rect} onClose={onClose} width={270} className="n-menu">
+      <div className="p-1">
+        <MenuLabel>Long paste — keep it as</MenuLabel>
+        {options.map((o, i) => (
+          <MenuItem key={o.key} icon={o.icon} label={o.label} hint={o.hint} active={i === index} onHover={() => setIndex(i)} onClick={() => void o.run()} />
+        ))}
+      </div>
+    </Popover>
+  );
+}

@@ -17,6 +17,8 @@ export type UiRequest =
     }
   | { kind: "link" }
   | { kind: "pasteUrl"; url: string; from: number; to: number; rect: DOMRect }
+  /** A long text was pasted on an empty line: offer to keep it as text or make it one code block. */
+  | { kind: "pasteLong"; text: string; from: number; to: number; snapshot: string; rect: DOMRect }
   | { kind: "toast"; text: string }
   /** ✨ AI: at = where the result goes (default: the selection or the cursor). */
   | { kind: "ai"; mode: AiMode; prompt?: string; at?: "cursor" | "top" | "end"; rect?: DOMRect }

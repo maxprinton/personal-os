@@ -60,6 +60,36 @@ export function insertFiles(editor: Editor, files: File[], pos?: number) {
   }
 }
 
+/** A paste this long (characters or lines) on an empty line gets the "Keep as text / Code block" menu. */
+export const LONG_PASTE_CHARS = 1200;
+export const LONG_PASTE_LINES = 12;
+export const isLongPaste = (t: string) => t.length >= LONG_PASTE_CHARS || t.split("\n").length >= LONG_PASTE_LINES;
+
+/**
+ * After a long paste on an empty top-level line: find the blocks it became (by counting top-level blocks)
+ * and offer the menu. `idx` = index of the empty line, `oldCount` = number of top-level blocks before.
+ */
+function offerLongPaste(view: import("@tiptap/pm/view").EditorView, raw: string, idx: number, oldCount: number) {
+  setTimeout(() => {
+    const doc = view.state.doc;
+    const added = doc.childCount - oldCount;
+    if (added < 0 || idx >= doc.childCount) return;
+    let from = 0;
+    for (let i = 0; i < idx; i++) from += doc.child(i).nodeSize;
+    let to = from;
+    for (let i = idx; i <= idx + added && i < doc.childCount; i++) to += doc.child(i).nodeSize;
+    const snapshot = doc.textBetween(from, to, "\n", "\n");
+    if (!snapshot.trim()) return;
+    let c: { left: number; top: number; bottom: number };
+    try {
+      c = view.coordsAtPos(view.state.selection.from);
+    } catch {
+      return;
+    }
+    requestUi(view, { kind: "pasteLong", text: raw, from, to, snapshot, rect: new DOMRect(c.left, c.top, 1, c.bottom - c.top) });
+  }, 0);
+}
+
 const looksLikeMarkdown = (t: string) => /(^|\n)(#{1,4} |[-*+] |\d+\. |- \[[ x]\] |> |```|\|.+\|)/.test(t) || /\*\*[^*]+\*\*/.test(t);
 
 export const NotionPaste = Extension.create({
@@ -78,9 +108,15 @@ export const NotionPaste = Extension.create({
               insertFiles(editor, files);
               return true;
             }
-            const text = dt.getData("text/plain").trim();
+            const raw = dt.getData("text/plain").replace(/\r\n?/g, "\n");
+            const text = raw.trim();
             const html = dt.getData("text/html");
             if (editor.isActive("codeBlock")) return false;
+            // Long text on an empty line (a transcript…): paste it normally, then offer "Code block"
+            const sel = view.state.selection;
+            const $f = sel.$from;
+            const onEmptyLine = sel.empty && $f.depth === 1 && $f.parent.type.name === "paragraph" && $f.parent.content.size === 0;
+            if (onEmptyLine && text && !URL_RE.test(text) && isLongPaste(text)) offerLongPaste(view, raw.replace(/^\n+|\s+$/g, ""), $f.index(0), view.state.doc.childCount);
             if (URL_RE.test(text)) {
               const { from, to, empty } = view.state.selection;
               if (!empty) {
