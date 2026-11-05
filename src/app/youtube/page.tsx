@@ -65,6 +65,10 @@ export default async function YoutubeBoard({ searchParams }: { searchParams: Pro
     }
   }
 
+  // Shorts made from each long video (children by parent_id), shown on the parent's card.
+  const shortsOf = new Map<string, number>();
+  for (const v of all) if (v.kind === "short" && v.parent_id && v.stage !== "archived") shortsOf.set(v.parent_id, (shortsOf.get(v.parent_id) ?? 0) + 1);
+
   const wip = wipStatus(all.map((v) => v.stage), settings?.wip_limit);
   const shown = all.filter((v) => filter === "all" || v.kind === filter);
   const bank = sortBank(shown.filter((v) => v.stage === "bank" || v.stage === "idea"));
@@ -162,6 +166,16 @@ export default async function YoutubeBoard({ searchParams }: { searchParams: Pro
                           <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-faint">
                             <KindBadge v={v} />
                             <span title="Time in this stage">{daysSince(v.stage_changed_at)}</span>
+                            {v.kind === "long" && (shortsOf.get(v.id) ?? 0) > 0 && (
+                              <span className="rounded-full border border-line px-1.5" title="Shorts made from this video">
+                                {shortsOf.get(v.id)} Short{shortsOf.get(v.id) === 1 ? "" : "s"}
+                              </span>
+                            )}
+                            {v.kind === "long" && (v.stage === "publish" || v.stage === "published") && (
+                              <Link href={`${videoHref(v.id, "publish")}#shorts`} className="rounded-full border border-line px-1.5 text-accent hover:bg-accent-soft" title="Make a Short from this video (Publish → Shorts from this video)">
+                                + Short
+                              </Link>
+                            )}
                           </div>
                           <MoveMenu id={v.id} stage={v.stage} />
                         </li>

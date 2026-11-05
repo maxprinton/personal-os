@@ -232,7 +232,7 @@ export async function moveVideo(id: string, to: string, reason?: string | null):
   if (!isStage(to)) return { error: "Unknown stage." };
   const { sb, userId } = await ctx();
   if (!userId) return { error: "Sign in again." };
-  const { data: v, error: e0 } = await sb.from("yt_videos").select("id,stage,gates,idea_name,approved_at,code").eq("id", id).maybeSingle();
+  const { data: v, error: e0 } = await sb.from("yt_videos").select("id,kind,stage,gates,idea_name,approved_at,code").eq("id", id).maybeSingle();
   if (e0 || !v) return { error: fail(e0, "Video not found.") };
   const from = v.stage as YtStage;
   if (from === to) return { ok: true };
@@ -242,11 +242,13 @@ export async function moveVideo(id: string, to: string, reason?: string | null):
     return { error: "Hard gate: answer Feasibility, Brand and Packageability with “yes” in Criteria first." };
   }
   const order = ["outline", "script", "shots", "filming", "edit", "publish", "published"];
-  if (order.indexOf(target) >= 1 && order.indexOf(from as string) < 1) {
+  // Gates (b) and (c) are for long videos: Shorts have no climax and their Hook is not an intro.
+  const isLong = v.kind !== "short";
+  if (isLong && order.indexOf(target) >= 1 && order.indexOf(from as string) < 1) {
     const { data: climax, error } = await sb.from("yt_sections").select("id").eq("video_id", id).eq("is_climax", true).limit(1);
     if (!error && !(climax ?? []).length) return { error: "Hard gate: mark the climax in the outline before the script." };
   }
-  if (target === "published") {
+  if (isLong && target === "published") {
     const { data: intro, error } = await sb.from("yt_sections").select("intro_status").eq("video_id", id).eq("kind", "intro").maybeSingle();
     if (!error && intro?.intro_status !== "filmed") return { error: "Hard gate: the intro must be Final + Filmed before publishing." };
   }

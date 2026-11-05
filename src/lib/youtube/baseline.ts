@@ -194,3 +194,86 @@ export function metricsLine(m: VideoMetrics | null | undefined) {
   if (m.comments !== undefined) parts.push(`${m.comments} comments`);
   return parts.join(" · ");
 }
+
+// ----- Section start times for retention (round 3) ---------------------------------------------------
+export type SectionForMarks = { id: string; kind: "intro" | "body" | "closing"; title: string; num?: number | null; position?: number | null; start_s: number | null; words: number | null };
+
+/**
+ * Start time of every section: the real start_s (saved by the Edit page) when ALL sections have one;
+ * otherwise an estimate from the words (cumulative words ÷ speaking speed), stretched to the real video
+ * length when it is known. `estimated` tells the page to say so.
+ */
+export function sectionMarks(sections: SectionForMarks[], opts: { wpm?: number | null; durationS?: number | null } = {}): { marks: SectionMark[]; estimated: boolean } {
+  const order = (s: SectionForMarks) => (s.kind === "intro" ? -1 : s.kind === "closing" ? 1e9 : s.position ?? s.num ?? 0);
+  const list = [...sections].sort((a, b) => order(a) - order(b));
+  const code = (s: SectionForMarks) => (s.num === null || s.num === undefined ? undefined : `S${String(s.num).padStart(2, "0")}`);
+  if (list.length && list.every((s) => s.start_s !== null && s.start_s !== undefined)) {
+    return { marks: list.map((s) => ({ id: s.id, title: s.title, code: code(s), start_s: s.start_s })), estimated: false };
+  }
+  const wpm = opts.wpm && opts.wpm > 0 ? opts.wpm : 150;
+  const total = list.reduce((a, s) => a + Math.max(0, s.words ?? 0), 0);
+  const spoken = (total / wpm) * 60;
+  const k = opts.durationS && spoken > 0 ? opts.durationS / spoken : 1;
+  let acc = 0;
+  const marks = list.map((s) => {
+    const start = Math.round(acc * k);
+    acc += (Math.max(0, s.words ?? 0) / wpm) * 60;
+    return { id: s.id, title: s.title, code: code(s), start_s: start };
+  });
+  return { marks, estimated: true };
+}
+
+// ----- Post-mortem input (compact, for src/lib/ai.ts) --------------------------------------------------
+export type PostmortemInput = {
+  video: string;
+  kind: YtKind;
+  title: string | null;
+  thumbnail: string | null;
+  angles: string[];
+  formats: string[];
+  checkins: { kind: CheckinKind; views: number | null; usual: number | null; verdict: CheckinVerdict | null; line: string }[];
+  retention: { title: string; startPct: number | null; endPct: number | null; worst: boolean }[];
+  tests: string[];
+  others: { video: string; views: number | null; verdict: CheckinVerdict | null }[];
+  comments: string[];
+};
+
+/** Short prompt text (well under AI_PROMPT_MAX): numbers, package, sections, tests, a few other videos. */
+export function postmortemPrompt(d: PostmortemInput, max = 6000): string {
+  const L: string[] = [];
+  L.push(`Video: ${d.video} (${d.kind === "short" ? "Short" : "long video"})`);
+  if (d.title) L.push(`Title: ${d.title}`);
+  if (d.thumbnail) L.push(`Thumbnail concept: ${d.thumbnail}`);
+  if (d.formats.length || d.angles.length) L.push(`Format: ${d.formats.join(", ") || "-"} · Angle: ${d.angles.join(", ") || "-"}`);
+  for (const c of d.checkins) L.push(`Check-in ${c.kind}: ${c.line || "no numbers"}${c.usual ? ` (usual ${c.usual})` : ""}${c.verdict ? ` → ${c.verdict}` : ""}`);
+  if (d.retention.length) {
+    L.push("Retention by section (share still watching at start → end):");
+    for (const r of d.retention) L.push(`- ${r.title}: ${pctTxt(r.startPct)} → ${pctTxt(r.endPct)}${r.worst ? " (biggest drop)" : ""}`);
+  }
+  if (d.tests.length) L.push(`A/B tests: ${d.tests.join(" | ")}`);
+  if (d.others.length) L.push(`Other recent videos: ${d.others.map((o) => `${o.video} ${o.views ?? "?"} views${o.verdict ? ` (${o.verdict})` : ""}`).join("; ")}`);
+  if (d.comments.length) L.push(`Some comments: ${d.comments.map((c) => `"${c.slice(0, 140)}"`).join(" ")}`);
+  const s = L.join("\n");
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+const pctTxt = (p: number | null) => (p === null ? "?" : `${Math.round(p * 100)} %`);
+
+/** Idea name from a viewer comment ("Video idea from a comment: …", ≤ 80 chars). */
+export function commentIdeaName(text: string) {
+  const t = text.replace(/\s+/g, " ").trim();
+  return t.length > 80 ? `${t.slice(0, 77).trimEnd()}…` : t || "Idea from a comment";
+}
+
+/** Which check-ins can be read now: due and not done (oldest first). */
+export function dueCheckins<T extends { due_at: string; done_at: string | null }>(rows: T[], now: Date): T[] {
+  return rows.filter((r) => !r.done_at && Date.parse(r.due_at) <= now.getTime()).sort((a, b) => Date.parse(a.due_at) - Date.parse(b.due_at));
+}
+
+/** Analytics window for a check-in: published day → min(today − 2 days, due day). Null if too early. */
+export function analyticsRange(publishedAt: string, dueAt: string, now: Date): { start: string; end: string } | null {
+  const start = publishedAt.slice(0, 10);
+  const lastFull = new Date(now.getTime() - 2 * 86_400_000).toISOString().slice(0, 10);
+  const due = dueAt.slice(0, 10);
+  const end = lastFull < due ? lastFull : due;
+  return end >= start ? { start, end } : null;
+}

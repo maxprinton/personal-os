@@ -16,6 +16,9 @@ import { clampWpm, prompterBlocks, scrollSpeed, secondsLeft } from "@/lib/youtub
 import {
   NO_SETUP, VERTICAL_SETUP, aiLinesText, cameraSummary, cleanSeconds, cleanText, distinctValues, filterBacklog, groupBySetup, isShotKind, nextShotNum, parseAiShots, setupKey, shotName, shotTag, sortShots,
 } from "@/components/youtube/shots/logic";
+import {
+  annotate, annotatedHtml, annotatedText, brollProgress, collectProgress, cueCounts, cueLabel, isFinalCut, isLink, paraKey, parseClock, passCheck, phoneOnly, sfxCount, shotLabel, shotStatus, sortNotes, startProblems, takesByShot,
+} from "@/components/youtube/edit/logic";
 import { chaptersForVideo, chaptersFromSections, chaptersText, formatTimestamp, parseChaptersText, parseTimestamp, validateChapters } from "@/lib/youtube/chapters";
 
 let pass = 0;
@@ -398,6 +401,65 @@ eq("backlog video+kind", filterBacklog(bl, { video: "v2", kind: "VT" }).map((s) 
 eq("backlog search", filterBacklog(bl, { q: "COFFEE" }).map((s) => s.id), ["2"]);
 eq("backlog vertical setup", filterBacklog(bl, { setup: VERTICAL_SETUP }).map((s) => s.id), ["3"]);
 eq("distinct values", distinctValues(["Desk", " desk ", null, "", "Kitchen"]), ["Desk", "Kitchen"]);
+
+
+// ----- Edit tab (round 3) -----
+eq("clock m:ss", parseClock("2:13"), 133);
+eq("clock h:mm:ss", parseClock("1:02:03"), 3723);
+eq("clock seconds", parseClock("75"), 75);
+eq("clock 75s", parseClock("75s"), 75);
+eq("clock 1m 5s", parseClock("1m 5s"), 65);
+eq("clock bad", parseClock("abc"), null);
+eq("clock empty", parseClock(""), null);
+type C = { shot_id: string | null; status: "missing" | "recorded" | "imported" | "in_timeline"; location: "drive" | "pc" | "phone" | "other"; take: number; is_best: boolean; file_name: string };
+const clipsT: C[] = [
+  { shot_id: "a", status: "recorded", location: "phone", take: 1, is_best: false, file_name: "x1" },
+  { shot_id: "a", status: "in_timeline", location: "pc", take: 3, is_best: true, file_name: "x2" },
+  { shot_id: "b", status: "imported", location: "phone", take: 1, is_best: false, file_name: "x3" },
+  { shot_id: null, status: "recorded", location: "phone", take: 1, is_best: false, file_name: "stock" },
+];
+const shotsT = [{ id: "a", kind: "BR" as const }, { id: "b", kind: "AR" as const }, { id: "c", kind: "SC" as const }];
+eq("shot status best", shotStatus("a", clipsT), "in_timeline");
+eq("shot status none", shotStatus("c", clipsT), "missing");
+eq("takes by shot", takesByShot(clipsT), { a: 3, b: 1 });
+eq("broll progress", brollProgress(shotsT, clipsT), { done: 1, total: 2 });
+eq("collect progress", collectProgress(shotsT, clipsT), { done: 2, total: 3 });
+eq("phone only", phoneOnly(clipsT).map((c) => c.file_name), ["x1", "stock"]);
+eq("rough cut needs link", typeof passCheck("rough_cut", ""), "string");
+eq("rough cut with link", passCheck("rough_cut", "https://youtu.be/abc"), null);
+eq("music pass no link", passCheck("music", null), null);
+eq("isLink", [isLink("https://drive.google.com/x"), isLink("drive"), isLink(null)], [true, false, false]);
+eq("final cut", [isFinalCut("Final"), isFinalCut("final v2"), isFinalCut("rough")], [true, true, false]);
+const cuesT = [
+  { id: "q1", kind: "sfx" as const, section_id: "s1", block_id: "b1", text: "whoosh" },
+  { id: "q2", kind: "music" as const, section_id: "s1", block_id: "h:" + hashText("Second line."), text: "starts", mood: "tense", energy: 4, at_s: 65 },
+  { id: "q3", kind: "zoom" as const, section_id: "s1", block_id: "gone", text: null },
+];
+eq("sfx count", sfxCount(cuesT), 1);
+eq("cue counts", cueCounts(cuesT), { music: 1, sfx: 1, cut: 0, zoom: 1 });
+eq("para key", [paraKey({ blockId: "b1", hash: "h" }), paraKey({ blockId: null, hash: "zz" })], ["b1", "h:zz"]);
+const secT = [{ id: "s1", num: 1, code: "S01", title: "Setup", paragraphs: [
+  { idx: 0, hash: hashText("First line."), blockId: "b1", text: "First line." },
+  { idx: 1, hash: hashText("Second line."), blockId: null, text: "Second line." },
+] }];
+const shT = [
+  { id: "x", kind: "AR" as const, num: 1, description: null, section_id: "s1", para_hash: hashText("First line."), block_id: "b1" },
+  { id: "y", kind: "BR" as const, num: 2, description: "pour coffee", section_id: "s1", para_hash: hashText("Second line."), block_id: null },
+  { id: "z", kind: "GR" as const, num: 3, description: "chart", section_id: "s1", para_hash: "old", block_id: null },
+];
+const ann = annotate(secT, shT, cuesT);
+eq("annotate shots per line", ann[0].paras.map((p) => p.shots.map((s) => s.id)), [["x"], ["y"]]);
+eq("annotate cues per line", ann[0].paras.map((p) => p.cues.map((c) => c.id)), [["q1"], ["q2"]]);
+eq("annotate loose", [ann[0].looseShots.map((s) => s.id), ann[0].looseCues.map((c) => c.id)], [["z"], ["q3"]]);
+eq("shot label", [shotLabel(shT[0]), shotLabel(shT[1]), shotLabel(shT[2])], ["[A-ROLL]", "[B-ROLL: pour coffee]", "[TEXT/GRAPHIC: chart]"]);
+eq("cue label", cueLabel(cuesT[1]), "🎵 MUSIC: starts · mood tense · energy 4 · @ 1:05");
+const txt = annotatedText(ann, "V012 test");
+eq("annotated text has shot + cue", [txt.includes("   [B-ROLL: pour coffee]"), txt.includes("🔊 SFX: whoosh"), txt.includes("## S01 · Setup")], [true, true, true]);
+eq("annotated html escapes", annotatedHtml(annotate([{ ...secT[0], paragraphs: [{ idx: 0, hash: "q", blockId: null, text: "a <b> & c" }] }], [], []), "T").includes("a &lt;b&gt; &amp; c"), true);
+eq("start problems ok", startProblems([0, 30, null, 90]), []);
+eq("start problems order", startProblems([0, 60, 40]).length, 1);
+eq("start problems first", startProblems([5, 60]).length, 1);
+eq("sort notes", sortNotes([{ at_seconds: 30, resolved: true }, { at_seconds: 10, resolved: false }, { at_seconds: 20, resolved: false }], true).map((n) => n.at_seconds), [10, 20, 30]);
 
 console.log(`\nyoutube-b: ${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

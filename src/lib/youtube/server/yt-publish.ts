@@ -49,6 +49,35 @@ function mimeOf(name: string) {
 /** YouTube takes JPG, PNG, GIF and BMP for custom thumbnails (WebP is refused). */
 export const THUMB_MIMES = ["image/jpeg", "image/png", "image/gif", "image/bmp"];
 
+export const SHARP_MISSING = "Could not convert the thumbnail to JPG on the server (the image tool “sharp” is not available). Download the thumbnail, save it as JPG (1280×720, under 2 MB) and upload it in YouTube Studio.";
+
+/**
+ * thumbnails.set does not take WebP (Package stores WebP) and refuses files over 2 MB. Anything that is not
+ * already a small JPG/PNG is converted here to JPEG 1280×720 (cover-cropped), lowering quality until it fits.
+ * sharp is loaded only when needed (like src/lib/cover-fit.ts).
+ */
+export async function thumbForYoutube(t: ThumbBytes): Promise<ThumbBytes | { error: string }> {
+  if ((t.mime === "image/jpeg" || t.mime === "image/png") && t.bytes <= YT_LIMITS.thumbnailMaxBytes) return t;
+  let sharp: typeof import("sharp").default;
+  try {
+    sharp = (await import("sharp")).default;
+  } catch {
+    return { error: SHARP_MISSING };
+  }
+  try {
+    for (const quality of [88, 80, 70, 60, 50]) {
+      const out = await sharp(Buffer.from(t.data)).rotate().resize(1280, 720, { fit: "cover", position: "attention" }).flatten({ background: "#ffffff" }).jpeg({ quality, mozjpeg: true }).toBuffer();
+      if (out.byteLength <= YT_LIMITS.thumbnailMaxBytes) {
+        const ab = out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength) as ArrayBuffer;
+        return { data: ab, mime: "image/jpeg", bytes: out.byteLength };
+      }
+    }
+    return { error: "The thumbnail is still over 2 MB after converting to JPG. Use a simpler image." };
+  } catch {
+    return { error: "Could not read the thumbnail image to convert it to JPG. Try uploading it again in Package." };
+  }
+}
+
 // ----- Push the package ----------------------------------------------------------------------------------
 export type PushInput = {
   ytId: string;
@@ -93,8 +122,15 @@ export async function pushPackage(ctx: YtCtx, token: string, p: PushInput): Prom
   }
 
   if (want.thumbnail) {
-    const t = p.thumbnail;
-    if (!t) log.push(step("Thumbnail", false, "No thumbnail image to send."));
+    let t = p.thumbnail ?? null;
+    let convErr: string | null = null;
+    if (t) {
+      const c = await thumbForYoutube(t);
+      if ("error" in c) convErr = c.error;
+      else t = c;
+    }
+    if (convErr) log.push(step("Thumbnail", false, convErr));
+    else if (!t) log.push(step("Thumbnail", false, "No thumbnail image to send."));
     else if (t.bytes > YT_LIMITS.thumbnailMaxBytes) log.push(step("Thumbnail", false, "The thumbnail is bigger than 2 MB."));
     else if (!THUMB_MIMES.includes(t.mime)) log.push(step("Thumbnail", false, `YouTube does not take ${t.mime} thumbnails: use JPG or PNG.`));
     else {

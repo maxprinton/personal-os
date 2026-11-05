@@ -147,3 +147,64 @@ export function topLessons(table: AttrScore[], n = 3): string[] {
     .slice(0, n)
     .map((s) => `${s.attr}: ${s.wins} win${s.wins === 1 ? "" : "s"}, ${s.losses} loss${s.losses === 1 ? "" : "es"}`);
 }
+
+// ----- Round 3: rows for the library from yt_tests + pairs + variants ---------------------------------
+export type PairInfo = { id: string; label: string; title: string | null; thumb: Pick<YtVariant, "gap_type" | "stoppers" | "thumb_text" | "composition" | "contrast" | "attrs" | "value"> | null };
+
+/** Attributes of one title + thumbnail pair (title style + thumbnail type, stoppers, face, text…). */
+export function pairAttrs(p: PairInfo): PairAttrs {
+  const attrs = [...(p.title ? titleAttrs(p.title).map((a) => `title: ${a}`) : []), ...(p.thumb ? thumbAttrs(p.thumb) : [])];
+  return { pairId: p.id, label: p.label, title: p.title ?? p.thumb?.value ?? p.label, attrs };
+}
+
+/** Decided tests → library rows (test_compare: winner vs the other pairs; swap: winner side vs the other). */
+export function learningRows(
+  tests: Pick<YtTest, "id" | "video_id" | "kind" | "pair_ids" | "from_pair_id" | "to_pair_id" | "winner_pair_id" | "verdict" | "ended_at" | "started_at">[],
+  pairs: Map<string, PairInfo>,
+  anglesOf: (videoId: string) => string[] = () => [],
+): LearningRow[] {
+  const out: LearningRow[] = [];
+  for (const t of tests) {
+    if (!t.verdict || !t.ended_at) continue;
+    const ids = t.kind === "swap" ? [t.from_pair_id, t.to_pair_id].filter((x): x is string => !!x) : t.pair_ids;
+    const all = ids.map((id) => pairs.get(id)).filter((p): p is PairInfo => !!p);
+    if (all.length < 2) continue;
+    const win = t.verdict === "winner" && t.winner_pair_id ? all.find((p) => p.id === t.winner_pair_id) ?? null : null;
+    const first = win ?? all[0];
+    const winner = pairAttrs(first);
+    const losers = all.filter((p) => p !== first).map(pairAttrs);
+    out.push({ testId: t.id, videoId: t.video_id, kind: t.kind, verdict: win ? "winner" : t.verdict === "winner" ? "inconclusive" : t.verdict, winner, losers, at: t.ended_at, angles: anglesOf(t.video_id) });
+  }
+  return out;
+}
+
+/** Angle results: how many videos per angle ended above / normal / below the usual (latest check-in). */
+export function angleTable(rows: { angles: string[]; verdict: string | null }[]): { angle: string; above: number; normal: number; below: number; n: number }[] {
+  const m = new Map<string, { angle: string; above: number; normal: number; below: number; n: number }>();
+  for (const r of rows) {
+    if (!r.verdict || r.verdict === "insufficient") continue;
+    for (const a of r.angles.length ? r.angles : ["(no angle)"]) {
+      const x = m.get(a) ?? { angle: a, above: 0, normal: 0, below: 0, n: 0 };
+      if (r.verdict === "above") x.above++;
+      else if (r.verdict === "below") x.below++;
+      else x.normal++;
+      x.n++;
+      m.set(a, x);
+    }
+  }
+  return [...m.values()].sort((a, b) => b.above - b.below - (a.above - a.below) || b.n - a.n);
+}
+
+/** Before/after window size for a swap: 7 days when the video is old enough to have 7 days before it, else 2. */
+export function swapDays(publishedAt: string | null, swapAt: string) {
+  if (!publishedAt) return SWAP_WINDOW_DAYS[0];
+  const age = (Date.parse(swapAt) - Date.parse(publishedAt)) / 86_400_000;
+  return age >= SWAP_WINDOW_DAYS[1] + 1 ? SWAP_WINDOW_DAYS[1] : SWAP_WINDOW_DAYS[0];
+}
+
+/** Manual verdicts for Test & compare (what Studio shows). */
+export const MANUAL_VERDICTS: { id: TestVerdict; label: string }[] = [
+  { id: "winner", label: "Winner" },
+  { id: "same", label: "Performed the same" },
+  { id: "inconclusive", label: "Inconclusive" },
+];

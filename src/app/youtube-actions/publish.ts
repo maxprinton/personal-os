@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache";
 import { aiChat } from "@/lib/ai";
 import { scopeUsageLine, withAiUsage } from "@/lib/ai-usage";
 import { localNow } from "@/lib/time";
-import { AI_PROMPT_MAX, MIGRATION_FILE, YT_LIMITS, videoHref } from "@/lib/youtube/constants";
+import { AI_PROMPT_MAX, MIGRATION_FILE, PUBLISH_INTRO_REQUIRED, YT_LIMITS, videoHref } from "@/lib/youtube/constants";
 import { isMissingTable, ytServer } from "@/lib/youtube/db";
 import { checkinsFor } from "@/lib/youtube/baseline";
 import { chaptersForVideo } from "@/lib/youtube/chapters";
@@ -268,6 +268,11 @@ export async function markPublished(videoId: string, publishedAtIso: string | nu
   const at = publishedAtIso ?? p?.fields?.publish_at ?? new Date().toISOString();
   const problems = publishedProblems({ ytId, publishedAt: at, now: new Date() });
   if (problems.length) return { error: problems.join(" ") };
+  // Hard gate (c): a long video needs its intro Final + Filmed before it counts as published.
+  if (v.kind === "long") {
+    const { data: intro } = await c.sb.from("yt_sections").select("intro_status").eq("video_id", videoId).eq("kind", "intro").maybeSingle();
+    if ((intro?.intro_status ?? null) !== PUBLISH_INTRO_REQUIRED) return { error: "Hard gate: the intro must be Final + Filmed before publishing (Script → Intro)." };
+  }
   const published = new Date(at).toISOString();
   const { error } = await c.sb.from("yt_videos").update({ stage: "published", published_at: published, youtube_video_id: ytId }).eq("id", videoId);
   if (error) return { error: dbFail(error) };

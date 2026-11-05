@@ -16,6 +16,9 @@ import {
   parseStamp, parseTags, publishAtUtc, requiredLangs, scriptToCaptionText, stamp, studioChecklist, tagsLength, type PublishCheckInput,
 } from "@/lib/youtube/publish-rules";
 import * as R2 from "@/lib/youtube/publish-rules";
+import * as B3 from "@/lib/youtube/baseline";
+import * as A3 from "@/lib/youtube/abtest";
+import { checkinText, reconnectText, watchText } from "@/lib/bot/youtube-nudges";
 import { jsWeekday, weekdayName, weeklyDue, weeklyText, weekRange, type WeeklyData } from "@/lib/youtube/weekly";
 import { decryptToken, encryptToken, tokenKey } from "@/lib/youtube/server/token-crypto";
 import { reportRows } from "@/lib/youtube/server/yt-analytics";
@@ -575,6 +578,84 @@ function import2() {
   eq("short path all done", R2.shortPath({ hook: true, source: true, script: true, captions: true, related: true, published: true }).next, null);
   eq("studio checklist short has related, no test&compare", R2.studioChecklist("short").map((x) => x.id), ["related_video", "pinned_comment"]);
   eq("urls", [R2.youtubeShortUrl("abcdefghijk"), R2.studioEditUrl("abcdefghijk")], ["https://www.youtube.com/shorts/abcdefghijk", "https://studio.youtube.com/video/abcdefghijk/edit"]);
+}
+
+// ===== round 3: follow-ups, A/B library, nudges =====================================================
+{
+  // sectionMarks: real start_s when all have one
+  const secs = [
+    { id: "c", kind: "closing" as const, title: "End", num: 99, position: 9, start_s: 500, words: 50 },
+    { id: "i", kind: "intro" as const, title: "Intro", num: 0, position: 0, start_s: 0, words: 100 },
+    { id: "b", kind: "body" as const, title: "Body", num: 1, position: 1, start_s: 60, words: 300 },
+  ];
+  const real = B3.sectionMarks(secs);
+  eq("marks real order", real.marks.map((m) => [m.id, m.start_s, m.code]), [["i", 0, "S00"], ["b", 60, "S01"], ["c", 500, "S99"]]);
+  eq("marks real not estimated", real.estimated, false);
+  const est = B3.sectionMarks(secs.map((x) => ({ ...x, start_s: x.id === "b" ? 60 : null })), { wpm: 150 });
+  eq("marks estimated by words", est.marks.map((m) => m.start_s), [0, 40, 160]);
+  eq("marks estimated flag", est.estimated, true);
+  const scaled = B3.sectionMarks(secs.map((x) => ({ ...x, start_s: null })), { wpm: 150, durationS: 360 });
+  eq("marks stretched to real length", scaled.marks.map((m) => m.start_s), [0, 80, 320]);
+  // retention with estimated marks
+  const curve = Array.from({ length: 100 }, (_, i) => ({ t: (i + 1) / 100, pct: 1 - (i + 1) / 200 }));
+  const rr = B3.retentionBySection(curve, 360, scaled.marks);
+  eq("retention rows", rr.length, 3);
+  eq("retention worst is body (longest)", rr.find((r) => r.worst)?.id, "b");
+
+  eq("dueCheckins", B3.dueCheckins([{ due_at: daysAgo(1), done_at: null, k: 1 }, { due_at: daysAgo(-1), done_at: null, k: 2 }, { due_at: daysAgo(3), done_at: daysAgo(2), k: 3 }, { due_at: daysAgo(2), done_at: null, k: 4 }], NOW).map((r) => r.k), [4, 1]);
+  eq("analyticsRange 7d", B3.analyticsRange("2026-10-20T15:00:00Z", "2026-10-27T15:00:00Z", NOW), { start: "2026-10-20", end: "2026-10-27" });
+  eq("analyticsRange recent → capped at today-2", B3.analyticsRange("2026-10-30T15:00:00Z", "2026-11-06T15:00:00Z", NOW), { start: "2026-10-30", end: "2026-11-02" });
+  eq("analyticsRange too early", B3.analyticsRange("2026-11-03T15:00:00Z", "2026-11-05T15:00:00Z", NOW), null);
+  eq("commentIdeaName short", B3.commentIdeaName("  Can you do  a video on phrasal verbs? "), "Can you do a video on phrasal verbs?");
+  eq("commentIdeaName long", B3.commentIdeaName("x".repeat(120)).length, 78);
+  const pm = B3.postmortemPrompt({
+    video: "V012 · Test", kind: "long", title: "How I learned", thumbnail: "face · result", angles: ["Beginner"], formats: ["tutorial"],
+    checkins: [{ kind: "7d", views: 900, usual: 600, verdict: "above", line: "900 views" }],
+    retention: [{ title: "Intro", startPct: 1, endPct: 0.6, worst: true }], tests: ["swap: winner"], others: [{ video: "V011", views: 500, verdict: "normal" }], comments: ["great"],
+  });
+  eq("postmortem prompt has check-in", pm.includes("Check-in 7d: 900 views (usual 600) → above"), true);
+  eq("postmortem prompt has worst", pm.includes("Intro: 100 % → 60 % (biggest drop)"), true);
+  eq("postmortem prompt capped", B3.postmortemPrompt({ video: "V", kind: "long", title: "t".repeat(9000), thumbnail: null, angles: [], formats: [], checkins: [], retention: [], tests: [], others: [], comments: [] }, 500).length, 500);
+
+  // A/B library rows
+  const pairs = new Map<string, A3.PairInfo>([
+    ["p1", { id: "p1", label: "A", title: "How I learned English", thumb: { value: "face", gap_type: "result", stoppers: ["faces"], thumb_text: "", composition: null, contrast: [], attrs: {} } }],
+    ["p2", { id: "p2", label: "B", title: "7 mistakes", thumb: { value: "text", gap_type: "result", stoppers: [], thumb_text: "STOP", composition: null, contrast: [], attrs: {} } }],
+  ]);
+  const base = { video_id: "v1", started_at: daysAgo(10), ended_at: daysAgo(1), from_pair_id: null, to_pair_id: null };
+  const rows = A3.learningRows([
+    { ...base, id: "t1", kind: "test_compare", pair_ids: ["p1", "p2"], winner_pair_id: "p2", verdict: "winner" },
+    { ...base, id: "t2", kind: "swap", pair_ids: ["p1", "p2"], from_pair_id: "p1", to_pair_id: "p2", winner_pair_id: null, verdict: "no_clear_difference" },
+    { ...base, id: "t3", kind: "test_compare", pair_ids: ["p1", "p2"], winner_pair_id: null, verdict: null, ended_at: null },
+  ], pairs, () => ["Beginner"]);
+  eq("learning rows (undecided skipped)", rows.map((r) => [r.testId, r.verdict, r.winner?.label, r.losers.map((l) => l.label)]), [["t1", "winner", "B", ["A"]], ["t2", "no_clear_difference", "A", ["B"]]]);
+  eq("pair attrs title style", A3.pairAttrs(pairs.get("p2")!).attrs.includes("title: number"), true);
+  eq("pair attrs face", A3.pairAttrs(pairs.get("p1")!).attrs.includes("face"), true);
+  const tbl = A3.learningTable(rows);
+  eq("library: text on thumbnail won once", [tbl.find((x) => x.attr === "text on thumbnail")?.wins, tbl.find((x) => x.attr === "face")?.losses], [1, 1]);
+  eq("library: gap same in both → no win/loss", [tbl.find((x) => x.attr === "gap: result")?.wins, tbl.find((x) => x.attr === "gap: result")?.losses], [0, 0]);
+  eq("winner without winner_pair_id → inconclusive", A3.learningRows([{ ...base, id: "t4", kind: "test_compare", pair_ids: ["p1", "p2"], winner_pair_id: null, verdict: "winner" }], pairs)[0].verdict, "inconclusive");
+  eq("angleTable", A3.angleTable([{ angles: ["Money"], verdict: "above" }, { angles: ["Money"], verdict: "below" }, { angles: [], verdict: "normal" }, { angles: ["X"], verdict: "insufficient" }]), [
+    { angle: "Money", above: 1, normal: 0, below: 1, n: 2 },
+    { angle: "(no angle)", above: 0, normal: 1, below: 0, n: 1 },
+  ]);
+  eq("swapDays young video", A3.swapDays(daysAgo(2), NOW.toISOString()), 2);
+  eq("swapDays old video", A3.swapDays(daysAgo(30), NOW.toISOString()), 7);
+  eq("swapDays no publish date", A3.swapDays(null, NOW.toISOString()), 2);
+  eq("manual verdicts", A3.MANUAL_VERDICTS.map((v) => v.id), ["winner", "same", "inconclusive"]);
+  // 48 h swap advice: insufficient data (< 5 videos) → no suggestion, shows view goal instead
+  const few = B3.baselineFor([{ ytId: "a", kind: "long", checkin: "48h", views: 100 }], { kind: "long", checkin: "48h", viewGoal: 1000 });
+  eq("swap advice insufficient", A3.swapAdvice({ kind: "long", views48h: 50, base: few, tests: [], alternatives: 2 }).suggest, false);
+  eq("ratio vs goal when insufficient", B3.ratioText(50, few)?.startsWith("5 % of your view goal"), true);
+  eq("no swap during Test & compare", (A3.swapAdvice({ kind: "long", views48h: 1, base: { views: 100, n: 5, source: "history" }, tests: [{ kind: "test_compare", ended_at: null }], alternatives: 2 }) as { blocked?: string }).blocked, "test_compare");
+  eq("swap suggested below usual", A3.swapAdvice({ kind: "long", views48h: 50, base: { views: 100, n: 5, source: "history" }, tests: [], alternatives: 1 }).suggest, true);
+
+  // nudges
+  const ct = checkinText({ video: "V012 · Test", checkin: "7 days", line: "900 views · 1.5× the usual", verdict: "above", videoId: "abc", extra: null }, "https://x.app");
+  eq("checkin nudge", ct, "🟢 YouTube check-in · V012 · Test — 7 days\n900 views · 1.5× the usual\nhttps://x.app/youtube/v/abc/follow-up");
+  eq("checkin nudge error", checkinText({ video: "V", checkin: "48 hours", line: null, verdict: null, videoId: "z", error: "quota" }, "").split("\n")[1], "Could not read the numbers: quota");
+  eq("reconnect soon mentions Reconnect", reconnectText("soon", "").includes("Reconnect Google"), true);
+  eq("watch text count", watchText([{ title: "A", score: 4.2 }], "").startsWith("👀 1 new outlier in"), true);
 }
 
 console.log(`\nyoutube-c: ${pass} passed, ${fail} failed`);

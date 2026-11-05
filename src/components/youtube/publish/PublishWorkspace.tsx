@@ -581,7 +581,7 @@ export default function PublishWorkspace(p: Props) {
               </label>
               {!isShort && (
                 <label className="flex items-center gap-1.5">
-                  <input type="checkbox" checked={parts.thumbnail} onChange={(e) => setParts({ ...parts, thumbnail: e.target.checked })} /> Thumbnail
+                  <input type="checkbox" checked={parts.thumbnail} onChange={(e) => setParts({ ...parts, thumbnail: e.target.checked })} /> Thumbnail <span className="text-faint">(sent as JPG 1280×720; custom thumbnails need a verified phone on the channel — youtube.com/verify)</span>
                 </label>
               )}
               <label className="flex items-center gap-1.5">
@@ -638,7 +638,7 @@ export default function PublishWorkspace(p: Props) {
                 )}
                 {item.id === "test_compare" && (
                   <div className="space-y-1">
-                    <p>Studio → the video → “Test & compare”: add these {testPairs.length} pairs. While the test runs, do NOT change the title or thumbnail (it stops the test) — the app won’t rotate anything either.</p>
+                    <p>Studio → the video → “Test & compare”: add these {testPairs.length} pairs. While the test runs, do NOT change the title or thumbnail (it stops the test) — the app won’t rotate anything either. After publishing, log the test (and later Studio’s verdict) in the Follow-up tab.</p>
                     <div className="grid gap-2 sm:grid-cols-3">
                       {testPairs.map((t) => (
                         <div key={t.id} className="space-y-1 rounded-md border border-line p-2">

@@ -76,7 +76,7 @@ export default function ShortsPanel(p: Props) {
     });
 
   return (
-    <section className={BOX}>
+    <section id="shorts" className={`${BOX} scroll-mt-20`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-sm font-semibold">Shorts from this video</h3>
         <span className="text-xs text-muted">
