@@ -51,7 +51,18 @@ export const ADDONS: Addon[] = [
     type: "creative",
     key: "y",
     keywords: ["youtube", "video", "videos", "channel", "canal", "script", "guion", "thumbnail", "miniatura", "shorts", "ideas", "content", "contenido", "publish", "music"],
-    connects: ["YouTube Data API", "Google sign-in (publishing, analytics)", "Telegram (yt: ideas, /youtube, check-ins)", "Notes", "AI (Groq)"],
+    connects: ["YouTube Data API", "Google sign-in (publishing, analytics)", "Telegram (yt: ideas, /youtube, check-ins)", "Notes", "AI (Groq)", "Music Lab"],
+  },
+  {
+    id: "music-lab",
+    name: "Music Lab",
+    description: "Make your own background music by rules (no AI): mood, key, tempo and an energy curve. Free tracks, or loaded from a YouTube video's outline.",
+    icon: "music",
+    href: "/music-lab",
+    type: "creative",
+    key: "m",
+    keywords: ["music", "musica", "música", "audio", "song", "track", "pista", "background", "fondo", "wav", "beat", "soundtrack"],
+    connects: ["YouTube Pipeline (video energy curves, music list)"],
   },
 ];
 

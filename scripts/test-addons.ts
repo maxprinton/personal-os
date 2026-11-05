@@ -25,10 +25,12 @@ eq("search name", searchAddons(ADDONS, "teach").map((a) => a.id), ["teaching"]);
 eq("search keyword accent-free", searchAddons(ADDONS, "CLÁSES").map((a) => a.id), ["teaching"]);
 eq("search keyword 'work' still finds Teaching", searchAddons(ADDONS, "work").map((a) => a.id), ["teaching"]);
 eq("search miss", searchAddons(ADDONS, "zzz"), []);
-eq("type filter creative", searchAddons(ADDONS, "", "creative").map((a) => a.id), ["youtube"]);
+eq("type filter creative", searchAddons(ADDONS, "", "creative").map((a) => a.id), ["youtube", "music-lab"]);
 eq("youtube exists", addonById("youtube")?.href, "/youtube");
 eq("youtube key y", addonById("youtube")?.key, "y");
 eq("search youtube", searchAddons(ADDONS, "guion").map((a) => a.id), ["youtube"]);
+eq("music lab exists", addonById("music-lab")?.href, "/music-lab");
+eq("search music lab", searchAddons(ADDONS, "música").map((a) => a.id), ["music-lab"]);
 eq("keys unique", new Set(ADDONS.filter((a) => a.key).map((a) => a.key)).size, ADDONS.filter((a) => a.key).length);
 eq("type filter work", searchAddons(ADDONS, "", "work").length, 1);
 

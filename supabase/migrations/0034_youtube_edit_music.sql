@@ -70,7 +70,7 @@ create index if not exists yt_review_notes_cut_idx on public.yt_review_notes (cu
 create table if not exists public.yt_music (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null default auth.uid() references auth.users(id) on delete cascade,
-  video_id    uuid not null references public.yt_videos(id) on delete cascade,
+  video_id    uuid references public.yt_videos(id) on delete cascade,
   section_id  uuid references public.yt_sections(id) on delete set null,
   track       text not null,
   source      text not null default 'music_lab' check (source in ('music_lab','library','other')),
@@ -84,6 +84,9 @@ create table if not exists public.yt_music (
   updated_at  timestamptz not null default now()
 );
 create index if not exists yt_music_video_idx on public.yt_music (video_id, position);
+-- Music Lab is its own add-on (Nov 2026): tracks without a video ("free tracks") have video_id null.
+alter table public.yt_music alter column video_id drop not null;
+create index if not exists yt_music_free_idx on public.yt_music (user_id, position) where video_id is null;
 drop trigger if exists yt_music_touch on public.yt_music;
 create trigger yt_music_touch before update on public.yt_music for each row execute function public.yt_touch();
 

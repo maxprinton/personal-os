@@ -51,6 +51,8 @@ export type ExtraKind = "MU" | "SFX" | "ST" | "VO" | "GR";
 export function extraFileName(code: string | null | undefined, kind: ExtraKind, desc: string, ext = ".wav"): string {
   return `${codeOf(code)}_X_${kind}_${safePart(desc) || "untitled"}${extOf(ext)}`;
 }
+/** Music Lab free track (no video): "ML_<name>.wav" / "ML_<name>_<stem>.wav" */
+export const labFileName = (name: string, stem?: string) => `ML_${safePart(stem ? `${name}_${stem}` : name) || "track"}.wav`;
 /** Music Lab track: "V012_X_MU_<part>.wav" */
 export const musicFileName = (code: string | null | undefined, part: string, stem?: string) =>
   extraFileName(code, "MU", stem ? `${part}_${stem}` : part, ".wav");

@@ -10,7 +10,7 @@ import {
   LAYERS, LAYER_LABELS, LAYER_MIN_ENERGY, MAX_DURATION, MIN_DURATION, MOODS, NOTE_NAMES, buildScore, defaultRecipe, encodeWav, keyName, moodById, newSeed,
   normalizeRecipe, recipeSummary, reroll, setLock, type Layer, type MoodId, type MusicRecipe,
 } from "@/lib/youtube/music";
-import { musicFileName } from "@/lib/youtube/naming";
+import { labFileName, musicFileName } from "@/lib/youtube/naming";
 import type { SonicIdentity, YtMusic } from "@/lib/youtube/types";
 import { BTN, BTN_SM, BOX, Chip, INPUT, Msg, PRIMARY } from "@/components/youtube/script/ui";
 import { clock } from "@/components/youtube/edit/logic";
@@ -20,7 +20,18 @@ import { renderMix, renderStemForMix, type Render } from "./synth";
 
 type Sec = EnergySection & { code: string };
 type Cue = { section_id: string; energy: number | null; at_s: number | null; mood: string | null };
-type Props = { video: { id: string; code: string | null; idea_name: string }; sections: Sec[]; cues: Cue[]; finalLength: number | null; wpm: number; sonic: SonicIdentity | null; saved: YtMusic[] };
+/** video = null → a free track in the Music Lab add-on (not tied to any video). */
+type Props = { video: { id: string; code: string | null; idea_name: string } | null; sections: Sec[]; cues: Cue[]; finalLength: number | null; wpm: number; sonic: SonicIdentity | null; saved: YtMusic[] };
+
+/** Energy shapes for free tracks (no video outline): [fraction of the length, energy 1–5]. */
+const FREE_SHAPES: { id: string; label: string; points: [number, number][] }[] = [
+  { id: "flat", label: "Steady", points: [[0, 3]] },
+  { id: "calm", label: "Calm", points: [[0, 1], [0.5, 2]] },
+  { id: "build", label: "Build up", points: [[0, 1], [0.25, 2], [0.5, 3], [0.75, 4]] },
+  { id: "arc", label: "Rise & fall", points: [[0, 2], [0.3, 3], [0.6, 5], [0.85, 3]] },
+];
+const shapeCurve = (points: [number, number][], duration: number) =>
+  points.map(([f, energy]) => ({ start_s: Math.round(f * duration * 10) / 10, energy }));
 
 const isMood = (m: unknown): m is MoodId => MOODS.some((x) => x.id === m);
 const ENERGY_COLOR = ["", "bg-accent/20", "bg-accent/35", "bg-accent/55", "bg-accent/75", "bg-accent"];
@@ -34,7 +45,7 @@ export default function MusicLab({ video, sections, cues, finalLength, wpm, soni
   }, [sections, cues, finalLength, wpm]);
   const total = curve.length ? curve[curve.length - 1].end_s : 60;
   const parts = useMemo(() => {
-    const list = [{ id: "full", label: `Whole video (${clock(total)})`, from: 0, to: total, file: "full", section_id: null as string | null }];
+    const list = [{ id: "full", label: video ? `Whole video (${clock(total)})` : `Whole track (${clock(total)})`, from: 0, to: total, file: "full", section_id: null as string | null }];
     for (const s of sections) {
       const segs = curve.filter((c) => c.sectionId === s.id);
       if (!segs.length) continue;
@@ -78,7 +89,8 @@ export default function MusicLab({ video, sections, cues, finalLength, wpm, soni
   const mood = moodById(recipe.mood);
   const score = useMemo(() => buildScore(recipe), [key]); // eslint-disable-line react-hooks/exhaustive-deps
   const part = parts.find((p) => p.id === partId) ?? parts[0];
-  const fileName = musicFileName(video.code, recipe.part);
+  const nameFor = (stem?: string) => (video ? musicFileName(video.code, recipe.part, stem) : labFileName(trackName.trim() || `${recipe.mood}_${recipe.seed}`, stem));
+  const fileName = nameFor();
 
   const stop = () => {
     try {
@@ -142,7 +154,7 @@ export default function MusicLab({ video, sections, cues, finalLength, wpm, soni
     setProgress(`Rendering the ${LAYER_LABELS[l]} stem…`);
     try {
       const stem = await renderStemForMix(r, recipe, l);
-      downloadBlob(musicFileName(video.code, recipe.part, l), wavBlob(stem, r.sampleRate));
+      downloadBlob(nameFor(l), wavBlob(stem, r.sampleRate));
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not render the stem.");
     } finally {
@@ -169,7 +181,7 @@ export default function MusicLab({ video, sections, cues, finalLength, wpm, soni
   };
   const save = (asNew: boolean) =>
     run(async () => {
-      const res = await saveLabTrack(video.id, {
+      const res = await saveLabTrack(video?.id ?? null, {
         id: asNew ? null : editingId,
         track: trackName.trim() || `${mood.label} · ${recipe.part}`,
         recipe,
@@ -180,7 +192,7 @@ export default function MusicLab({ video, sections, cues, finalLength, wpm, soni
       });
       if (res.id) setEditingId(res.id);
       return res;
-    }, "Recipe saved. It is in Edit → Music too.");
+    }, video ? "Recipe saved. It is in Edit → Music too." : "Recipe saved in your free tracks.");
 
   const curveEnd = recipe.duration_s;
   const sonicLine = [sonic?.style, sonic?.key, sonic?.bpm_min || sonic?.bpm_max ? `${sonic?.bpm_min ?? "?"}–${sonic?.bpm_max ?? "?"} BPM` : "", (sonic?.instruments ?? []).join(", ")].filter(Boolean).join(" · ");
@@ -260,11 +272,26 @@ export default function MusicLab({ video, sections, cues, finalLength, wpm, soni
       <div className={BOX}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-semibold">Energy curve</h3>
-          <button type="button" className={BTN_SM} onClick={() => change({ curve: recipeFor(partId, recipe.seed).curve })}>
-            Reset to the video&apos;s curve
-          </button>
+          {video ? (
+            <button type="button" className={BTN_SM} onClick={() => change({ curve: recipeFor(partId, recipe.seed).curve })}>
+              Reset to the video&apos;s curve
+            </button>
+          ) : (
+            <span className="flex flex-wrap gap-1">
+              {FREE_SHAPES.map((sh) => (
+                <button key={sh.id} type="button" className={BTN_SM} onClick={() => change({ curve: shapeCurve(sh.points, recipe.duration_s) })}>
+                  {sh.label}
+                </button>
+              ))}
+            </span>
+          )}
         </div>
-        <p className="text-xs text-muted">From the outline (intro high → context low → climax 5 → closing medium) and your 🎵 cues. 1 pad · 2 + bass · 3 + arpeggio · 4 + soft drums · 5 + full drums & melody.</p>
+        <p className="text-xs text-muted">
+          {video
+            ? "From the outline (intro high → context low → climax 5 → closing medium) and your 🎵 cues. "
+            : "Pick a shape, then adjust each part. "}
+          1 pad · 2 + bass · 3 + arpeggio · 4 + soft drums · 5 + full drums & melody.
+        </p>
         <div className="flex h-24 items-end gap-px overflow-hidden rounded-md border border-line bg-subtle">
           {recipe.curve.map((c, i) => {
             const end = recipe.curve[i + 1]?.start_s ?? curveEnd;
@@ -399,7 +426,7 @@ export default function MusicLab({ video, sections, cues, finalLength, wpm, soni
               <button type="button" className={BTN_SM} onClick={() => load(m)}>
                 Load
               </button>
-              <button type="button" className={BTN_SM} disabled={pending} onClick={() => confirm(`Delete "${m.track}"?`) && run(() => deleteLabTrack(video.id, m.id))}>
+              <button type="button" className={BTN_SM} disabled={pending} onClick={() => confirm(`Delete "${m.track}"?`) && run(() => deleteLabTrack(video?.id ?? null, m.id))}>
                 ✕
               </button>
             </div>
