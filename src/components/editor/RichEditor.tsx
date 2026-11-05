@@ -81,6 +81,15 @@ export type RichEditorProps = {
   writingCheck?: boolean;
   /** Which Settings → Writing area applies (default "notes"). */
   writingArea?: WritingArea;
+  /**
+   * "note" (default) = a note in Notes. "section" = text that lives outside Notes (e.g. a YouTube script
+   * section): no sub-pages, no "Move to" another note, no "Copy link to block"; uploads only when
+   * allowUploads is true (pass `upload` to store files somewhere else). @ mentions / [[ links to notes still
+   * work when `pages` is given. noteId, createSubpage and moveBlockTo are ignored in this mode.
+   */
+  mode?: "note" | "section";
+  /** Section mode only: allow pasting/uploading files (default false). */
+  allowUploads?: boolean;
 };
 
 type Rect = { left: number; top: number; bottom: number; right?: number };
@@ -113,7 +122,10 @@ export default function RichEditor({
   onSpellIgnore,
   writingCheck = true,
   writingArea = "notes",
+  mode = "note",
+  allowUploads = false,
 }: RichEditorProps) {
+  const section = mode === "section";
   const lastMd = useRef(value);
   const onChangeRef = useRef(onChange);
   const onBlurRef = useRef(onBlur);
@@ -261,12 +273,12 @@ export default function RichEditor({
   useEffect(() => {
     if (!editor) return;
     const s = editor.storage.notion;
-    s.noteId = noteId;
-    s.createSubpage = createSubpage ?? null;
-    s.upload = upload ?? uploadNoteFile;
-    s.moveBlockTo = moveBlockTo ?? null;
+    s.noteId = section ? null : noteId;
+    s.createSubpage = section ? null : createSubpage ?? null;
+    s.upload = section && !allowUploads ? null : upload ?? uploadNoteFile;
+    s.moveBlockTo = section ? null : moveBlockTo ?? null;
     if (navigate) s.navigate = navigate;
-  }, [editor, noteId, createSubpage, upload, moveBlockTo, navigate]);
+  }, [editor, noteId, createSubpage, upload, moveBlockTo, navigate, section, allowUploads]);
 
   useEffect(() => {
     if (editor) editor.storage.notion.title = pageTitle;

@@ -56,6 +56,7 @@ export const HELP = [
   "/search word /notes /habits /metrics /insights /settings /menu",
   "/usage → how much of the free AI you used today and what's left",
   "/teaching (or /work) → your classes, hours and pay this month + the videos you still owe · video B2-5 <Drive link> marks one as posted",
+  "/youtube → ideas in the bank, videos in progress, latest published · yt: <idea> saves a video idea (by voice too)",
   "",
   "ASK YOUR NOTES",
   "• @os what did I write about the trip? (also /os …, or by voice: “OS, …”)",

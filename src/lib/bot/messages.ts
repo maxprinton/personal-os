@@ -24,6 +24,7 @@ import { undoLast } from "@/lib/bot/undo";
 import { categorizeView, proposalsView } from "@/lib/bot/categorize";
 import { markVideo, workView } from "@/lib/bot/work";
 import { parseVideoCmd } from "@/lib/work-log";
+import { handleYoutubeCapture, isYoutubeSummary, parseYoutubeCapture, youtubeView } from "@/lib/bot/youtube-capture";
 import { markUsageReported, refreshFromGroq, scopeUsageLine, startOfDay, usageReport, usageSummary, withAiUsage } from "@/lib/ai-usage";
 import { addDays } from "@/lib/time";
 
@@ -177,6 +178,23 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage) {
   const view = await views(c, text);
   if (view) return;
 
+  // ---- YouTube add-on: "yt: idea" / "/yt idea" → idea bank (before the unknown-"/" check) ----------
+  const ytIdea = parseYoutubeCapture(text);
+  if (ytIdea !== null) {
+    if (await overLimit(c)) {
+      await sendMessage(chatId, `Daily limit of ${DAILY_LIMIT} messages reached. Try again tomorrow.`);
+      return;
+    }
+    try {
+      const r = await handleYoutubeCapture(c, ytIdea);
+      await send(chatId, r.text, r.kb);
+    } catch (e) {
+      console.error("youtube capture", e);
+      await sendMessage(chatId, "Sorry, I couldn't save that idea. Try again.");
+    }
+    return;
+  }
+
   // ---- Undo -------------------------------------------------------------------------------
   if (isOneOf(text, W.undo)) {
     const t = await undoLast(c);
@@ -275,6 +293,7 @@ async function views(c: Ctx, text: string): Promise<boolean> {
     if (isOneOf(text, W.notes)) return await hit(notesView(c));
     if (isOneOf(text, W.habits)) return await hit(habitsView(c));
     if (isOneOf(text, W.work)) return await hit(workView(c));
+    if (isYoutubeSummary(text)) return await hit(youtubeView(c));
     if (isOneOf(text, W.insights)) return await hit(insightsView(c));
     if (isOneOf(text, W.metrics)) return await hit(metricsView(c));
     if (isOneOf(text, W.settings)) return await hit(settingsView(c));

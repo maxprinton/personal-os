@@ -25,7 +25,12 @@
     "test:ai-usage": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-ai-usage.ts",
     "test:writing": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-writing.ts && node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-writing-editor.ts && node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-predict.ts",
     "test:addons": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-addons.ts",
-    "test:tag-ops": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-tag-ops.ts"
+    "test:tag-ops": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-tag-ops.ts",
+    "test:youtube-a": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-a.ts",
+    "test:youtube-b": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-b.ts",
+    "test:youtube-c": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-c.ts",
+    "test:youtube": "npm run -s test:youtube-lead && npm run -s test:youtube-a && npm run -s test:youtube-b && npm run -s test:youtube-c",
+    "test:youtube-lead": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-lead.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",

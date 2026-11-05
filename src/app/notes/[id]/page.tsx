@@ -19,6 +19,7 @@ import TemplateBar from "@/components/notes-db/TemplateBar";
 import SeriesNav from "@/components/notes-db/SeriesNav";
 import EmptyNoteTemplates from "@/components/notes-db/EmptyNoteTemplates";
 import NoteLinkButton from "@/components/notes-db/NoteLinkMenu";
+import TurnIntoVideoIdea from "@/components/youtube/idea/TurnIntoVideoIdea";
 
 export const dynamic = "force-dynamic";
 
@@ -130,7 +131,7 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
               updatedAt={note.updated_at}
               pages={pages}
               backlinks={backlinks}
-              actions={exportMenu}
+              actions={<>{exportMenu}<TurnIntoVideoIdea noteId={note.id} /></>}
               belowTitle={db && dbNote ? <NoteProperties data={db} noteId={note.id} /> : dbError ? <p className="mt-2 text-xs text-warning">{dbError}</p> : null}
               banner={db && db.template ? <TemplateBar template={db.template} data={db} /> : db && dbNote?.templateId ? <SeriesNav noteId={note.id} data={db} /> : null}
               whenEmpty={db && !isTemplate && !db.templateNotes?.some((n) => n.id === note.id) && db.templates.length ? <EmptyNoteTemplates noteId={note.id} templates={db.templates} /> : null}

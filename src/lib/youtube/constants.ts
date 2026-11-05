@@ -388,3 +388,26 @@ export const MUSIC_STYLES = ["lo-fi", "ambient", "soft electronic", "acoustic", 
 export function videoLabel(v: { code: string | null; idea_name: string }) {
   return v.code ? `${v.code} · ${v.idea_name}` : v.idea_name;
 }
+
+/** Reads a channel link: https://www.youtube.com/@name, /channel/UC…, /c/name, /user/name, or just "@name". null = not a channel link. */
+export function parseChannelUrl(input: string): { url: string; handle: string | null; channelId: string | null } | null {
+  const raw = input.trim();
+  if (!raw) return null;
+  const at = /^@([\w.-]{3,100})$/.exec(raw);
+  if (at) return { url: `https://www.youtube.com/@${at[1]}`, handle: `@${at[1]}`, channelId: null };
+  let u: URL;
+  try {
+    u = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+  } catch {
+    return null;
+  }
+  if (!/(^|\.)youtube\.com$/i.test(u.hostname)) return null;
+  const parts = u.pathname.split("/").filter(Boolean);
+  if (parts[0]?.startsWith("@") && parts[0].length > 1) {
+    const h = decodeURIComponent(parts[0]);
+    return { url: `https://www.youtube.com/${h}`, handle: h, channelId: null };
+  }
+  if (parts[0] === "channel" && /^UC[\w-]{22}$/.test(parts[1] ?? "")) return { url: `https://www.youtube.com/channel/${parts[1]}`, handle: null, channelId: parts[1] };
+  if ((parts[0] === "c" || parts[0] === "user") && parts[1]) return { url: `https://www.youtube.com/${parts[0]}/${parts[1]}`, handle: null, channelId: null };
+  return null;
+}

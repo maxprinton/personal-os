@@ -34,6 +34,7 @@ import { listProposals } from "@/lib/category-proposals";
 import { proposalsReply } from "@/lib/bot/categorize";
 import { localNow } from "@/lib/time";
 import { workVideoReminders } from "@/lib/bot/work";
+import { runYoutubeCron } from "@/lib/youtube/server/cron";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -287,7 +288,14 @@ export async function POST(req: Request) {
   } catch (e) {
     console.error("note templates", e);
   }
-  if (!botToken()) return NextResponse.json({ ok: true, sent: 0, notesMade });
+  // 🎬 YouTube add-on: check-ins, stats, watched channels, weekly review (optional — errors are ignored)
+  let youtube = { sent: 0, refreshed: 0 };
+  try {
+    youtube = await runYoutubeCron(admin, { botReady: !!botToken(), budgetMs: 15_000 });
+  } catch (e) {
+    console.error("youtube cron", e);
+  }
+  if (!botToken()) return NextResponse.json({ ok: true, sent: 0, notesMade, youtube });
 
   const { data } = await admin.from("user_settings").select(REMINDER_COLUMNS).not("telegram_chat_id", "is", null);
   let sent = 0;
@@ -299,5 +307,5 @@ export async function POST(req: Request) {
       // one user's problem must not stop the others
     }
   }
-  return NextResponse.json({ ok: true, sent, notesMade });
+  return NextResponse.json({ ok: true, sent: sent + youtube.sent, notesMade, youtube });
 }
