@@ -19,8 +19,69 @@ export function mediaTypeFor(file: File): MediaType {
   return "file";
 }
 
-/** Inserts the files at pos (uploads them; until then the block shows the local preview). */
+/** Text files bigger than this are attached as a file instead of shown as a code block. */
+export const MAX_TEXT_FILE = 1024 * 1024;
+const TEXT_EXT = new Set(
+  "txt text md markdown mdx csv tsv json jsonc json5 ndjson js mjs cjs jsx ts mts cts tsx py rb go rs java kt kts swift c h cc cpp hpp cs php html htm css scss sass less xml svg yml yaml toml ini cfg conf env log sh bash zsh bat cmd ps1 sql graphql gql srt vtt tex rtf r lua pl dart vue svelte astro gitignore dockerfile makefile properties".split(" "),
+);
+const TEXT_TYPES = /^(text\/|application\/(json|xml|javascript|x-javascript|ecmascript|x-sh|x-yaml|yaml|toml|sql|x-sql|graphql|ld\+json|x-ndjson))/;
+
+/** A plain-text file (by type or by extension): dropped / pasted, it becomes a code block. */
+export function isTextFile(file: { name: string; type: string }): boolean {
+  if (TEXT_TYPES.test(file.type)) return true;
+  const name = file.name.toLowerCase();
+  const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : name;
+  return TEXT_EXT.has(ext);
+}
+
+/** File text ready for a code block (Windows line endings out). null = it isn't really text (binary). */
+export function cleanFileText(text: string): string | null {
+  if (text.includes("\u0000")) return null;
+  return text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").replace(/\n+$/, "");
+}
+
+/** Text files → plain-text code blocks (language: Plain text), in order, at `at`. Others are returned to upload. */
+function insertTextFiles(editor: Editor, files: File[], at: number): File[] {
+  const text = files.filter((f) => isTextFile(f) && f.size <= MAX_TEXT_FILE);
+  const big = files.filter((f) => isTextFile(f) && f.size > MAX_TEXT_FILE);
+  if (big.length) requestUi(editor.view, { kind: "toast", text: `${big[0].name} is too big to show as code (max 1 MB): added as a file.` });
+  if (!text.length) return files.filter((f) => !text.includes(f));
+  const binary: File[] = [];
+  void Promise.all(text.map((f) => f.text().then((t) => ({ f, t: cleanFileText(t) }), () => ({ f, t: null as string | null })))).then((read) => {
+    let pos = Math.min(at, editor.state.doc.content.size);
+    const nodes = [];
+    for (const { f, t } of read) {
+      if (t === null) {
+        binary.push(f);
+        continue;
+      }
+      nodes.push(editor.schema.nodeFromJSON({ type: "codeBlock", attrs: { language: null }, ...(t ? { content: [{ type: "text", text: t }] } : {}) }));
+    }
+    if (nodes.length) {
+      let tr = editor.state.tr;
+      for (const n of nodes) {
+        tr = tr.insert(pos, n);
+        pos += n.nodeSize;
+      }
+      editor.view.dispatch(tr.scrollIntoView());
+      requestUi(editor.view, { kind: "toast", text: nodes.length === 1 ? "Added as a code block." : `Added ${nodes.length} code blocks.` });
+    }
+    if (binary.length) uploadFiles(editor, binary, pos);
+  });
+  return files.filter((f) => !text.includes(f));
+}
+
+/**
+ * Inserts the files at pos. Text files (.txt, .md, .csv, .json, code…) become plain-text code blocks;
+ * the rest are uploaded (until then the block shows the local preview).
+ */
 export function insertFiles(editor: Editor, files: File[], pos?: number) {
+  const at = pos ?? editor.state.selection.$from.after(Math.max(1, editor.state.selection.$from.depth));
+  const rest = insertTextFiles(editor, files.slice(0, 10), at);
+  if (rest.length) uploadFiles(editor, rest, at);
+}
+
+function uploadFiles(editor: Editor, files: File[], pos?: number) {
   const upload = editor.storage.notion.upload;
   if (!upload) {
     requestUi(editor.view, { kind: "toast", text: "Files can only be added inside a note." });
