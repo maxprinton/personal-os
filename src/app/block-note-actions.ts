@@ -4,6 +4,8 @@
 // the calendar is read-only there, but the note of a block can be written.
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { indexSoon } from "@/lib/search/server";
 import { createClient } from "@/lib/supabase/server";
 import { findBlockNote, writeBlockNote } from "@/lib/block-notes";
 import { parseTags, setTags } from "@/lib/tags";
@@ -29,6 +31,7 @@ export async function saveBlockNote(input: { name: string; content: string }): P
     const content = String(input.content ?? "").replace(/\r\n?/g, "\n");
     if (content.length > MAX_LEN) return { error: "This note is too long." };
     const id = await writeBlockNote(sb, userId, String(input.name ?? ""), content);
+    after(() => indexSoon(userId, id)); // search index
     return { ok: true, id };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Could not save the note." };

@@ -122,12 +122,13 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
               </p>
             </div>
             {db && dbNote && <NoteProperties data={db} noteId={note.id} />}
-            <BlockNoteEditor name={note.block_name} content={note.content} minRows={14} />
+            <BlockNoteEditor key={note.id} name={note.block_name} content={note.content} minRows={14} />
             {!dbNote && <NoteTagsForm id={note.id} tags={tagNames.join(", ")} />}
           </>
         ) : (
           <>
             <NoteEditor
+              key={note.id /* a new editor per note: nothing of the previous note can leak into this one */}
               id={note.id}
               title={note.title}
               content={note.content}

@@ -146,6 +146,7 @@ export default function OccurrenceDialog({
             </span>
           </h3>
           <BlockNoteEditor
+            key={type.name}
             name={type.name}
             content={blockNoteOf(data.blockNotes, type.name)}
             onSaved={(content) => onNoteSaved?.(type.name, content)}
