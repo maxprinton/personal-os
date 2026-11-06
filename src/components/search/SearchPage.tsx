@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { reindexNowAction, searchAction, searchStatusAction } from "@/app/search-actions";
 import { ResultCard } from "@/components/search/SearchResults";
+import AiSummary from "@/components/search/AiSummary";
 import type { SearchResponse, SearchResult } from "@/lib/search/server";
 
 type Kind = "text" | "code" | "file";
@@ -113,6 +114,8 @@ export default function SearchPage({ initial }: { initial: string }) {
           </p>
         </div>
       )}
+
+      {res?.ok && q.trim() && res.total > 0 && <AiSummary query={q.trim()} opts={{ kinds: kind === "all" ? undefined : [kind], trash, templates }} ready={!busy} />}
 
       <div className="space-y-2">
         {list.map((r) => (

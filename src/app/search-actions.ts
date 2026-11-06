@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { currentUserId } from "@/lib/calendar/model";
+import { summarizeSearch, type SearchSummary } from "@/lib/search/ai";
 import { indexStatus, indexUser, processFiles, searchNotes, type SearchOptions, type SearchResponse } from "@/lib/search/server";
 
 export async function searchAction(input: string, opts: SearchOptions = {}): Promise<SearchResponse> {
@@ -41,5 +42,17 @@ export async function reindexNowAction(): Promise<{ ok: boolean; notes?: number;
     return { ok: true, notes, files };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Couldn't update the index." };
+  }
+}
+
+/** ✨ AI summary of what the search found (its notes' properties + the parts where the words appear). */
+export async function summarizeSearchAction(input: string, opts: SearchOptions = {}): Promise<SearchSummary> {
+  try {
+    const supabase = await createClient();
+    const userId = await currentUserId(supabase);
+    if (!userId) return { ok: false, error: "Sign in again." };
+    return await summarizeSearch(supabase, userId, String(input ?? ""), opts);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "The AI summary failed." };
   }
 }

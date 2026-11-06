@@ -2,6 +2,7 @@
 import { findMatches, makeSnippet, parseQuery, plainNumbers, splitIdentifiers, wordsOf } from "@/lib/search/core";
 import { filePathOf, noteToChunks, readableFile } from "@/lib/search/extract";
 import { docxText, fileText, pptxText, unzip, xlsxText } from "@/lib/search/files";
+import { buildEvidence, splitCitations, summaryPrompt, EVIDENCE_BUDGET, MIN_PER_NOTE } from "@/lib/search/ai-evidence";
 
 let pass = 0;
 let fail = 0;
@@ -147,6 +148,31 @@ const xlsx = zip({
 });
 eq("xlsx", xlsxText(xlsx), [{ label: "sheet Budget", text: "Rent · 1500\nFood · cheap" }]);
 eq("unzip only wanted", [...unzip(docx, () => false).keys()], []);
+
+// ---- AI summary: evidence + citations ----
+const mkNote = (i: number, body = `The project plan number ${i} starts on Monday. ` + "filler ".repeat(300)) => ({
+  id: `n${i}`, title: `Note ${i}`, parentTitle: i === 1 ? "Parent" : null, updatedAt: "2026-11-06T10:00:00Z",
+  props: ["Type: Idea", "Status: Done", "Words: 300"], passages: [{ kind: "text", label: null, anchor: "Plan", body }, { kind: "code", label: "python", anchor: null, body: "project = start()" }],
+});
+const ev3 = buildEvidence([mkNote(1), mkNote(2), mkNote(3)], ["project", "start"]);
+eq("3 notes all read", [ev3.sources.length, ev3.left], [3, 0]);
+ok("numbered [1]..[3]", ev3.text.includes("[1] Note 1 (inside “Parent”)") && ev3.text.includes("[3] Note 3"));
+ok("properties included, noisy ones skipped", ev3.text.includes("Properties: Type: Idea; Status: Done") && !ev3.text.includes("Words:"));
+ok("passages labeled", ev3.text.includes("- Text under “Plan”:") && ev3.text.includes("- Code (python):"));
+ok("matching part kept", ev3.text.includes("project plan"));
+ok("within budget", ev3.text.length <= EVIDENCE_BUDGET + 3 * 200);
+const many = Array.from({ length: 150 }, (_, i) => mkNote(i + 1));
+const evMany = buildEvidence(many, ["project"]);
+eq("150 notes: fits up to budget/min", evMany.sources.length, Math.floor(EVIDENCE_BUDGET / MIN_PER_NOTE));
+eq("left counted", evMany.left, 150 - Math.floor(EVIDENCE_BUDGET / MIN_PER_NOTE));
+ok("many notes still within ~budget", evMany.text.length < EVIDENCE_BUDGET * 1.6);
+const ev80 = buildEvidence(many.slice(0, 80), ["project"]);
+eq("80 notes: all read", [ev80.sources.length, ev80.left], [80, 0]);
+ok("prompt says found / read", summaryPrompt("project", 150, evMany).includes(`NOTES FOUND: 150 (excerpts of the best ${evMany.sources.length} below)`));
+eq("empty", buildEvidence([], ["x"]), { text: "", sources: [], left: 0 });
+eq("citations split", splitCitations("Plans [2][5] and [1, 3].", 5), [{ text: "Plans " }, { cite: [2, 5] }, { text: " and " }, { cite: [1, 3] }, { text: "." }]);
+eq("unknown numbers dropped", splitCitations("x [9] y", 3), [{ text: "x [9] y" }]);
+eq("partial unknown", splitCitations("x [2, 9]", 3), [{ text: "x " }, { cite: [2] }]);
 
 const run = async () => {
   eq("txt file", await fileText("notes.TXT", Buffer.from("﻿line 1\r\nline 2")), { status: "done", parts: [{ label: null, text: "line 1\nline 2" }] });

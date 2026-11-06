@@ -121,7 +121,7 @@ export default function SearchPalette() {
         </div>
         {q.trim() && (
           <button type="button" onClick={() => go(`/search?q=${encodeURIComponent(q.trim())}`)} className="flex w-full items-center justify-between border-t border-line px-4 py-2.5 text-sm text-muted hover:bg-subtle hover:text-fg">
-            <span>See all results{res?.total ? ` (${res.total})` : ""} with filters</span>
+            <span>See all results{res?.total ? ` (${res.total})` : ""} + ✨ AI summary</span>
             <span aria-hidden>→</span>
           </button>
         )}
