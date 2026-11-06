@@ -14,6 +14,10 @@ export type SearchSummary = {
   sources?: Source[];
   /** Notes the search found / notes whose excerpts the AI read. */
   found?: number;
+  /** Several words: the AI only reads notes that have them together, in that order ("change management"). */
+  phrase?: string;
+  /** Notes that have the whole phrase (when there is one). */
+  matched?: number;
   read?: number;
   corrected?: string;
   cached?: boolean;
@@ -34,25 +38,45 @@ export async function summarizeSearch(sb: SupabaseClient, userId: string, input:
   if (!hasAi()) return { ok: false, error: "The AI is not connected (GROQ_API_KEY in Vercel)." };
 
   // 1) Every note the search finds (best first)
-  const results: SearchResult[] = [];
-  let total = 0;
-  let corrected: string | undefined;
-  for (let offset = 0; offset < MAX_NOTES; offset += 100) {
-    const r = await searchNotes(sb, userId, query, { ...opts, limit: 100, offset });
-    if (!r.ok) return { ok: false, error: r.error ?? "Search failed." };
-    if (offset === 0) {
-      total = r.total;
-      corrected = r.corrected;
+  const collect = async (text: string) => {
+    const list: SearchResult[] = [];
+    let total = 0;
+    let corrected: string | undefined;
+    for (let offset = 0; offset < MAX_NOTES; offset += 100) {
+      const r = await searchNotes(sb, userId, text, { ...opts, limit: 100, offset });
+      if (!r.ok) return { error: r.error ?? "Search failed." };
+      if (offset === 0) {
+        total = r.total;
+        corrected = r.corrected;
+      }
+      list.push(...r.results);
+      if (list.length >= total || !r.results.length) break;
     }
-    results.push(...r.results);
-    if (results.length >= total || !r.results.length) break;
+    return { list, total, corrected };
+  };
+  const all = await collect(query);
+  if ("error" in all) return { ok: false, error: all.error };
+  const total = all.total;
+  const corrected = all.corrected;
+  if (!all.list.length) return { ok: true, found: 0, read: 0, answer: "", sources: [], corrected };
+
+  // Several plain words ("change management"): the AI only talks about notes that have the whole phrase
+  const plain = parseQuery(corrected ?? query).simple;
+  const phraseWords = plain && plain.length > 1 ? plain : null;
+  let results = all.list;
+  let phrase: string | undefined;
+  if (phraseWords) {
+    phrase = (corrected ?? query).trim();
+    const exact = await collect(`"${phraseWords.join(" ")}"`);
+    if ("error" in exact) return { ok: false, error: exact.error };
+    results = exact.list;
+    if (!results.length) return { ok: true, found: total, matched: 0, read: 0, phrase, answer: "", sources: [], corrected };
   }
-  if (!results.length) return { ok: true, found: 0, read: 0, answer: "", sources: [], corrected };
   const ids = results.map((r) => r.id);
 
   // 2) The same search answered in the last day (and none of its notes changed since): no new AI call
   const key = createHash("sha1")
-    .update(JSON.stringify([query.toLowerCase(), opts.kinds ?? [], !!opts.trash, !!opts.templates, results.map((r) => `${r.id}@${r.updatedAt}`)]))
+    .update(JSON.stringify(["phrase-v1", query.toLowerCase(), opts.kinds ?? [], !!opts.trash, !!opts.templates, results.map((r) => `${r.id}@${r.updatedAt}`)]))
     .digest("hex");
   const { data: hit } = await sb.from("search_ai_cache").select("answer,created_at").eq("user_id", userId).eq("key", key).maybeSingle();
   if (hit && Date.now() - Date.parse((hit as { created_at: string }).created_at) < CACHE_HOURS * 3600_000) {
@@ -61,7 +85,8 @@ export async function summarizeSearch(sb: SupabaseClient, userId: string, input:
 
   // 3) Their properties and the pieces where the words appear
   const q = parseQuery(corrected ?? query);
-  const anyWord = q.terms.map((t) => `(${t})`).join(" | ");
+  // The pieces to read: with a phrase, only those that have it; otherwise any of the words
+  const anyWord = phraseWords ? parseQuery(`"${phraseWords.join(" ")}"`).terms.join(" & ") : q.terms.map((t) => `(${t})`).join(" | ");
   const kinds = opts.kinds?.length ? [...new Set(opts.kinds.flatMap((k) => KIND_GROUPS[k]))] : null;
   const [{ data: pieces, error: e1 }, { data: props }] = await Promise.all([
     sb.rpc("search_passages", { p_user: userId, p_query: anyWord, p_notes: ids, p_kinds: kinds }),
@@ -81,11 +106,11 @@ export async function summarizeSearch(sb: SupabaseClient, userId: string, input:
   // 4) One AI call
   const out = await withAiUsage(
     "search-summary",
-    () => aiChat(SUMMARY_SYSTEM, [{ text: summaryPrompt(corrected ?? query, total, evidence) }], { kind: "write", temperature: 0.3, maxTokens: 900, timeoutMs: 40000 }),
+    () => aiChat(SUMMARY_SYSTEM, [{ text: summaryPrompt(phraseWords ? `"${corrected ?? query}" (the whole phrase)` : corrected ?? query, results.length, evidence) }], { kind: "write", temperature: 0.3, maxTokens: 900, timeoutMs: 40000 }),
     { sb, userId },
   );
   if ("error" in out) return { ok: false, error: out.error, found: total, read: evidence.sources.length };
-  const answer: SearchSummary = { ok: true, answer: out.text, sources: evidence.sources, found: total, read: evidence.sources.length, corrected };
+  const answer: SearchSummary = { ok: true, answer: out.text, sources: evidence.sources, found: total, read: evidence.sources.length, corrected, phrase, matched: phraseWords ? results.length : undefined };
   await sb.from("search_ai_cache").upsert({ user_id: userId, key, answer, created_at: new Date().toISOString() });
   return answer;
 }

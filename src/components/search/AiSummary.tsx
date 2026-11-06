@@ -119,17 +119,24 @@ export default function AiSummary({ query, opts, ready }: { query: string; opts:
   }, [key, ready]);
 
   if (!query || (!busy && !res) || (res?.ok && !res.found)) return null;
+  if (res?.ok && res.phrase && !res.matched)
+    return <section className="rounded-xl border border-line bg-surface p-4 text-sm text-muted">✨ No note has the whole phrase “{res.phrase}” together, so there is no AI summary. Put words in quotes or search fewer words.</section>;
   const sources = res?.sources ?? [];
   const q = res?.corrected ?? query;
   return (
     <section className="rounded-xl border border-line bg-surface p-4" aria-live="polite">
       <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
         <span className="font-semibold text-fg">✨ AI summary</span>
-        {res?.ok && (
+        {res?.ok && res.phrase && res.matched ? (
+          <span className="text-xs text-muted">
+            only the {res.matched} {res.matched === 1 ? "note" : "notes"} with the whole phrase “{res.phrase}”{res.found && res.found > res.matched ? ` (of ${res.found} found)` : ""}
+            {res.read !== res.matched ? ` · read ${res.read}` : ""} · properties + the parts with the phrase{res.cached ? " · saved answer" : ""}
+          </span>
+        ) : res?.ok && res.found ? (
           <span className="text-xs text-muted">
             read {res.read === res.found ? `all ${res.found}` : `${res.read} of ${res.found}`} {res.found === 1 ? "note" : "notes"} (properties + the parts with your words){res.cached ? " · saved answer" : ""}
           </span>
-        )}
+        ) : null}
       </div>
       {busy && !res && (
         <div className="space-y-2" aria-label="Reading the notes">
