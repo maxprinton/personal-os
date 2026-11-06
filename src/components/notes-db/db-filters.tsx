@@ -195,7 +195,7 @@ export function PropertyPicker({ rect, onClose, onPick, title = "Filter by", exc
 
 // ---- Quick chips -------------------------------------------------------------------------------------
 
-export function FilterChip({ rule, open, onOpen, onClose, onChange, onDelete }: { rule: FilterRule; open: boolean; onOpen: () => void; onClose: () => void; onChange: (r: FilterRule) => void; onDelete: () => void }) {
+export function FilterChip({ rule, open, onOpen, onClose, onChange, onDelete, onAdvanced }: { rule: FilterRule; open: boolean; onOpen: () => void; onClose: () => void; onChange: (r: FilterRule) => void; onDelete: () => void; onAdvanced?: () => void }) {
   const { properties } = useDb();
   const prop = findProp(rule.prop, properties);
   const btn = useRef<HTMLButtonElement>(null);
@@ -231,6 +231,11 @@ export function FilterChip({ rule, open, onOpen, onClose, onChange, onDelete }: 
               </button>
             </div>
             <ValueEditor rule={rule} prop={prop} onChange={(value) => onChange(value === undefined ? withoutValue(rule) : { ...rule, value })} />
+            {onAdvanced && (
+              <button type="button" className="db-link" onClick={onAdvanced}>
+                + Add to advanced filter
+              </button>
+            )}
           </div>
         </Popover>
       )}

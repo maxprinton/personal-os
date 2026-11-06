@@ -25,6 +25,7 @@
     "test:ai-usage": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-ai-usage.ts",
     "test:writing": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-writing.ts && node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-writing-editor.ts && node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-predict.ts",
     "test:addons": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-addons.ts",
+    "test:note-views": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-note-views.ts",
     "test:tag-ops": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-tag-ops.ts",
     "test:youtube-a": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-a.ts",
     "test:youtube-b": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-b.ts",

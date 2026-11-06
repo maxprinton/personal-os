@@ -267,3 +267,26 @@ body.db-filling { cursor: crosshair; user-select: none; }
 .db-td-title.is-wrap .db-title-text { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
 .db-td-title.is-wrap .db-parent { white-space: normal; max-width: 45%; }
 .db-td-title.is-wrap > :first-child { margin-top: 2px; }
+
+/* ---- View tabs (saved views) ---- */
+.db-views { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.db-views-list { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.db-views-list::-webkit-scrollbar { display: none; }
+.db-view-tab { position: relative; display: inline-flex; align-items: center; flex-shrink: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.db-view-tab.is-on { border-bottom-color: var(--fg); }
+.db-view-tab.is-over { box-shadow: inset 2px 0 0 var(--accent); }
+.db-view-btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px; border-radius: 6px; font-size: 13px; color: var(--muted); max-width: 200px; }
+.db-view-tab.is-on .db-view-btn { color: var(--fg); font-weight: 500; }
+.db-view-btn:hover { background: var(--subtle); color: var(--fg); }
+.db-view-btn:focus-visible, .db-view-more:focus-visible, .db-view-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.db-view-icon { font-size: 12px; }
+.db-view-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.db-view-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--accent); flex-shrink: 0; }
+.db-view-more { height: 24px; width: 24px; border-radius: 6px; color: var(--muted); font-size: 14px; line-height: 1; }
+.db-view-more:hover { background: var(--subtle); color: var(--fg); }
+.db-view-add { height: 28px; padding: 0 8px; margin-left: 4px; border-radius: 6px; font-size: 13px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+.db-view-add:hover:not(:disabled) { background: var(--subtle); color: var(--fg); }
+.db-view-name-input { height: 28px; width: 150px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--accent); background: var(--surface); color: var(--fg); font-size: 13px; outline: none; }
+.db-view-save { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; padding-bottom: 4px; }
+.db-save-btn { height: 28px; padding: 0 12px; border-radius: 6px; background: var(--accent); color: #fff; font-size: 13px; font-weight: 500; }
+.db-save-btn:disabled { opacity: 0.6; }

@@ -182,6 +182,16 @@ export function Toolbar({
                 setOpenChip(null);
                 setView((v) => ({ ...v, quick: v.quick.filter((x) => x.id !== r.id) }));
               }}
+              onAdvanced={() => {
+                // The chip becomes a rule of the Advanced filter (joined with the others by And / Or)
+                setOpenChip(null);
+                setView((v) => {
+                  const rule = v.quick.find((x) => x.id === r.id);
+                  if (!rule) return v;
+                  const root = v.advanced ?? { kind: "group" as const, id: "root", join: "and" as const, items: [] };
+                  return { ...v, quick: v.quick.filter((x) => x.id !== r.id), advanced: { ...root, items: [...root.items, rule] } };
+                });
+              }}
             />
           ))}
           <button type="button" className="db-chip is-add" onClick={open("add")}>
