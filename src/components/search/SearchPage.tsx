@@ -28,6 +28,25 @@ export default function SearchPage({ initial }: { initial: string }) {
   const [status, setStatus] = useState<Status>(null);
   const [indexing, setIndexing] = useState<string | null>(null);
   const seq = useRef(0);
+  // ✨ AI summary on/off (remembered in this browser). Off: a "Summarize" button runs it only when asked.
+  const [aiOn, setAiOn] = useState(true);
+  const [aiAsk, setAiAsk] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      setAiOn(localStorage.getItem("pos-search-ai") !== "off");
+    } catch {
+      /* default on */
+    }
+  }, []);
+  const toggleAi = (on: boolean) => {
+    setAiOn(on);
+    setAiAsk(null);
+    try {
+      localStorage.setItem("pos-search-ai", on ? "on" : "off");
+    } catch {
+      /* not remembered */
+    }
+  };
 
   const opts = (offset: number) => ({ kinds: kind === "all" ? undefined : [kind], trash, templates, limit: PAGE, offset });
 
@@ -100,6 +119,9 @@ export default function SearchPage({ initial }: { initial: string }) {
         <label className="inline-flex items-center gap-1.5 text-muted">
           <input type="checkbox" checked={templates} onChange={(e) => setTemplates(e.target.checked)} /> Include templates
         </label>
+        <label className="inline-flex items-center gap-1.5 text-muted" title="Turn off to search without using the AI">
+          <input type="checkbox" checked={aiOn} onChange={(e) => toggleAi(e.target.checked)} /> ✨ AI summary
+        </label>
         {res?.ok && q.trim() && <span className="ml-auto text-xs text-muted">{res.total} {res.total === 1 ? "note" : "notes"}</span>}
       </div>
 
@@ -115,7 +137,12 @@ export default function SearchPage({ initial }: { initial: string }) {
         </div>
       )}
 
-      {res?.ok && q.trim() && res.total > 0 && <AiSummary query={q.trim()} opts={{ kinds: kind === "all" ? undefined : [kind], trash, templates }} ready={!busy} />}
+      {res?.ok && q.trim() && res.total > 0 && (aiOn || aiAsk === q.trim()) && <AiSummary query={q.trim()} opts={{ kinds: kind === "all" ? undefined : [kind], trash, templates }} ready={!busy} />}
+      {res?.ok && q.trim() && res.total > 0 && !aiOn && aiAsk !== q.trim() && (
+        <button type="button" onClick={() => setAiAsk(q.trim())} className="rounded-lg border border-line px-3 py-1.5 text-sm text-muted hover:bg-subtle hover:text-fg">
+          ✨ Summarize these {res.total} notes with AI
+        </button>
+      )}
 
       <div className="space-y-2">
         {list.map((r) => (

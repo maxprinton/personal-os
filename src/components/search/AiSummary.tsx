@@ -107,7 +107,7 @@ export default function AiSummary({ query, opts, ready }: { query: string; opts:
         .then((r) => n === seq.current && setRes(r))
         .catch(() => n === seq.current && setRes({ ok: false, error: "The AI summary failed." }))
         .finally(() => n === seq.current && setBusy(false));
-    }, 1500);
+    }, 1200);
     return () => {
       window.clearTimeout(t);
       if (!fired && n === seq.current) {
