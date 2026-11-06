@@ -4,6 +4,7 @@
 // 2) READ: those notes are read in full (as much as the free AI allows) and it answers from them only.
 // "@os NOTE-12 …" goes straight to that note (no search); "@os NOTE-12" alone = a short summary of it.
 // Reply to the answer to ask more about the same notes. READ ONLY: nothing is changed.
+import { searchNotes } from "@/lib/search/server";
 import { aiChat, aiJson, hasAi } from "@/lib/ai";
 import { noteAsPlainText } from "@/lib/block-notes";
 import { fetchAll, type Ctx } from "@/lib/bot/core";
@@ -326,7 +327,20 @@ export async function askNotes(c: Ctx, question: string, follow?: AskTurn, histo
   const words = keywords(question);
   // Properties count for finding too ("notes with Status Lista", "tagged #trip", "AI summary says…")
   const ranked = notes.map((n) => ({ n, s: score({ title: n.title, content: `${n.content}\n${(n.meta ?? []).join("\n")}` }, words) })).sort((a, b) => b.s - a.s);
-  const matched = ranked.filter((r) => r.s > 0).slice(0, 20).map((r) => r.n);
+  let matched = ranked.filter((r) => r.s > 0).slice(0, 20).map((r) => r.n);
+  // The search engine (any of the words, accents ignored, also inside attached files): its best notes first
+  if (words.length) {
+    try {
+      const r = await searchNotes(c.admin, c.userId, words.join(" OR "), { limit: 15 });
+      if (r.ok) {
+        const byId = new Map(notes.map((n) => [n.id, n]));
+        const top = r.results.map((x) => byId.get(x.id)).filter((n): n is Note => !!n);
+        matched = [...top, ...matched.filter((n) => !top.includes(n))].slice(0, 20);
+      }
+    } catch {
+      /* the word score above is enough */
+    }
+  }
   const pool = [...matched];
   const earlier = new Set([...(follow?.ids ?? []), ...history.flatMap((h) => h.ids)]);
   for (const n of notes.filter((x) => earlier.has(x.id))) if (!pool.includes(n)) pool.unshift(n);

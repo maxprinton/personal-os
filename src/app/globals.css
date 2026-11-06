@@ -699,3 +699,8 @@
 /* Dragging a block: the copy that follows the mouse, and the dimmed original */
 .n-drag-ghost { position: fixed; z-index: 9999; max-height: 150px; overflow: hidden; pointer-events: none; padding: 4px 8px; border-radius: 8px; background: var(--n-page, var(--bg)); border: 1px solid var(--n-blue-accent, #2383e2); box-shadow: 0 6px 22px rgba(0, 0, 0, 0.22); opacity: 0.94; font-size: 15px; line-height: 1.4; color: var(--fg); }
 .n-drag-source { opacity: 0.3; }
+
+/* ---- Notes search: marked words in results, and matches inside a note opened from a search ---- */
+.search-mark { background: rgba(250, 204, 21, 0.35); color: inherit; border-radius: 2px; padding: 0 1px; }
+::highlight(search-find) { background-color: rgba(250, 204, 21, 0.4); }
+::highlight(search-current) { background-color: rgba(249, 115, 22, 0.65); }

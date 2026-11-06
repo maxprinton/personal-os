@@ -9,6 +9,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { loadNotesDatabase, reorderProperties } from "@/app/notes-db-actions";
 import { createNoteView, deleteNoteView, listNoteViews, reorderNoteViews, saveNoteView } from "@/app/note-view-actions";
+import { searchAction } from "@/app/search-actions";
 import { NoteSelection, NotesExportBar } from "@/components/NotesExport";
 import BulkEdit from "@/components/notes-db/BulkEdit";
 import NewNoteButton from "@/components/notes-db/NewNoteButton";
@@ -428,7 +429,37 @@ export default function Database({ data }: { data: DbData }) {
 
   // ---- The view ----
   const deferred = useDeferredValue(view); // typing in the search stays smooth with many notes
-  const shown = useMemo(() => applyView(notes, properties, deferred, today, timezone), [notes, properties, deferred, today, timezone]);
+  // The magnifier also asks the search engine (every word, accents ignored, code, files…): its notes are
+  // added to the ones found here, best match first when there is no sort. Until it answers, the quick
+  // search of the notes on screen is used.
+  const [engine, setEngine] = useState<{ q: string; rank: Map<string, number> } | null>(null);
+  const searchText = deferred.search.trim();
+  useEffect(() => {
+    if (!searchText) {
+      setEngine(null);
+      return;
+    }
+    let live = true;
+    const t = window.setTimeout(() => {
+      void searchAction(searchText, { limit: 100, templates: true })
+        .then((r) => {
+          if (live && r.ok) setEngine({ q: searchText, rank: new Map(r.results.map((x, i) => [x.id, i])) });
+        })
+        .catch(() => undefined);
+    }, 250);
+    return () => {
+      live = false;
+      window.clearTimeout(t);
+    };
+  }, [searchText]);
+  const shown = useMemo(() => {
+    const local = applyView(notes, properties, deferred, today, timezone);
+    if (!searchText || !engine || engine.q !== searchText) return local;
+    const mine = new Set(local.map((n) => n.id));
+    const out = applyView(notes, properties, { ...deferred, search: "" }, today, timezone).filter((n) => engine.rank.has(n.id) || mine.has(n.id));
+    if (!deferred.sorts.length) out.sort((a, b) => (engine.rank.get(a.id) ?? 1e9) - (engine.rank.get(b.id) ?? 1e9));
+    return out;
+  }, [notes, properties, deferred, today, timezone, searchText, engine]);
   const filtering = useMemo(() => isFiltering(view, properties), [view, properties]);
   const byId = useMemo(() => new Map(properties.map((p) => [p.id, p])), [properties]);
   const cols = useMemo(() => view.visible.map((id) => byId.get(id)).filter((p): p is NoteProperty => !!p), [view.visible, byId]);

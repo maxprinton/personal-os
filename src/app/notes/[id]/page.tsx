@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import FindInNote from "@/components/search/FindInNote";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -102,6 +104,9 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
 
   return (
     <>
+      <Suspense fallback={null}>
+        <FindInNote />
+      </Suspense>
       <main className={note.block_name ? "mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 lg:py-8" : "w-full px-4 py-6 sm:px-6 lg:py-8"}>
         {note.block_name ? (
           <>

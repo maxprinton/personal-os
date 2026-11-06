@@ -27,6 +27,7 @@
     "test:addons": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-addons.ts",
     "test:note-views": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-note-views.ts",
     "test:text-drop": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-text-drop.ts",
+    "test:search": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-search.ts",
     "test:tag-ops": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-tag-ops.ts",
     "test:youtube-a": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-a.ts",
     "test:youtube-b": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-b.ts",
@@ -64,6 +65,7 @@
     "nspell": "^2.1.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "unpdf": "^2.1.0",
     "y-protocols": "^1.0.7",
     "yjs": "^13.6.33"
   },

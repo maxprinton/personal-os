@@ -2,6 +2,9 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { currentUserId } from "@/lib/calendar/model";
+import { indexSoon } from "@/lib/search/server";
 import { createClient } from "@/lib/supabase/server";
 import { parseTags, setTags } from "@/lib/tags";
 import type { ActionState } from "@/app/actions";
@@ -24,6 +27,7 @@ export async function saveNote(_prev: ActionState, form: FormData): Promise<Acti
   const { error } = await supabase.from("notes").update({ title, content }).eq("id", id);
   if (error) return { error: error.message };
   await setTags(supabase, "note", id, parseTags(String(form.get("tags") ?? "")));
+  after(async () => indexSoon(await currentUserId(supabase), id)); // search index
   revalidatePath("/notes");
   revalidatePath(`/notes/${id}`);
   revalidatePath("/");
@@ -54,6 +58,7 @@ export async function autosaveNote(input: { id: string; title: string; content: 
     .update({ title: String(input.title ?? "").trim() || "Untitled", content })
     .eq("id", id);
   if (error) return { error: error.message };
+  after(async () => indexSoon(await currentUserId(supabase), id)); // search index
   return { ok: true };
 }
 

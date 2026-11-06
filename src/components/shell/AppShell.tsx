@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MobileTabs, NAV_ITEMS, Sidebar } from "@/components/Nav";
 import CalendarPanel from "@/components/calendar/CalendarPanel";
 import { useSystemThemeSync } from "@/components/ui/ThemeToggle";
+import SearchPalette from "@/components/search/SearchPalette";
 import { readPref, writePref } from "@/components/calendar/util";
 import { useAddonFavorites } from "@/components/addons/useFavorites";
 import { ADDONS } from "@/lib/addons/registry";
@@ -80,6 +81,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <div className="min-w-0 flex-1 pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0">{children}</div>
       {showPanel && <CalendarPanel open={calOpen} onToggle={toggleCal} />}
       <MobileTabs pathname={pathname} favorites={favorites} />
+      <SearchPalette />
     </div>
   );
 }

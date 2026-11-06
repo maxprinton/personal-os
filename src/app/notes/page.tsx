@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { searchNotes } from "@/lib/search/server";
 import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/agenda";
 import { getTagsFor, idsWithTag } from "@/lib/tags";
@@ -77,6 +78,17 @@ export default async function NotesPage({
 
   const search = (q ?? "").replace(/[%_,()]/g, " ").trim();
   const tagIds = tag ? await idsWithTag(supabase, "note", tag) : null;
+  // The search engine (every word, accents ignored, files too); the old "contains" search if it isn't ready
+  let searchIds: string[] | null = null;
+  if (search) {
+    try {
+      const uid = await currentUserId(supabase);
+      const r = uid ? await searchNotes(supabase, uid, q ?? "", { limit: 100 }) : null;
+      if (r?.ok) searchIds = r.results.map((x) => x.id);
+    } catch {
+      searchIds = null;
+    }
+  }
   const build = (withBlocks: boolean, withPages = withBlocks) => {
     let query = supabase
       .from("notes")
@@ -84,7 +96,8 @@ export default async function NotesPage({
       .is("deleted_at", null)
       .order("updated_at", { ascending: false })
       .limit(200);
-    if (search) query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
+    if (searchIds) query = query.in("id", searchIds.length ? searchIds : ["00000000-0000-0000-0000-000000000000"]);
+    else if (search) query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
     // Block notes have their own tab (a search or a tag still finds them)
     else if (withBlocks && !tagIds) query = query.is("block_name", null);
     if (tagIds) query = query.in("id", tagIds);
@@ -94,6 +107,7 @@ export default async function NotesPage({
   if (error) ({ data, error } = await build(true, false)); // migration 0020 not run yet
   if (error) ({ data } = await build(false)); // migration 0017 not run yet
   const notes = (data ?? []) as unknown as NoteRow[];
+  if (searchIds) notes.sort((a, b) => searchIds!.indexOf(a.id) - searchIds!.indexOf(b.id)); // best match first
   const tags = await getTagsFor(supabase, "note", notes.map((n) => n.id));
   const exportable: ExportNote[] = notes.map((n) => ({
     id: n.id,

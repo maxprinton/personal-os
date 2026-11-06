@@ -1,5 +1,6 @@
 // Look things up from Telegram without the AI (server only): /search, /notes, /habits, /insights,
 // /metrics (+ "sleep 7.5"), /settings.
+import { searchNotes } from "@/lib/search/server";
 import { addDays } from "@/lib/time";
 import { getHabitSummaries } from "@/lib/calendar/habits";
 import { noteAsPlainText } from "@/lib/block-notes";
@@ -25,7 +26,10 @@ export async function searchView(c: Ctx, query: string): Promise<Reply> {
   const like = `%${q}%`;
   const [tasks, notes, events, txns] = await Promise.all([
     c.admin.from("tasks").select("id,title,status,scheduled_for").eq("user_id", c.userId).is("deleted_at", null).ilike("title", like).order("scheduled_for", { ascending: false }).limit(8),
-    c.admin.from("notes").select("id,title,block_name,updated_at").eq("user_id", c.userId).is("deleted_at", null).or(`title.ilike.${like},content.ilike.${like}`).order("updated_at", { ascending: false }).limit(6),
+    // The search engine (every word, accents ignored, attached files too); the old "contains" search as a fallback
+    searchNotes(c.admin, c.userId, query, { limit: 6 })
+      .then((r) => (r.ok ? { data: r.results.map((x) => ({ id: x.id, title: x.title, block_name: x.blockName, updated_at: x.updatedAt })) } : Promise.reject(r)))
+      .catch(() => c.admin.from("notes").select("id,title,block_name,updated_at").eq("user_id", c.userId).is("deleted_at", null).or(`title.ilike.${like},content.ilike.${like}`).order("updated_at", { ascending: false }).limit(6)),
     c.admin.from("events").select("id,title,event_date").eq("user_id", c.userId).is("deleted_at", null).ilike("title", like).order("event_date", { ascending: false }).limit(5),
     c.admin.from("transactions").select("id,type,amount,description,occurred_at").eq("user_id", c.userId).is("deleted_at", null).ilike("description", like).order("occurred_at", { ascending: false }).limit(5),
   ]);
