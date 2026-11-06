@@ -20,6 +20,7 @@ export type ViewTabsProps = {
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
   onReorder: (ids: string[]) => void;
+  onLayout: (id: string, layout: Layout) => void;
   onSave: () => void;
   onReset: () => void;
 };
@@ -161,6 +162,20 @@ export default function ViewTabs(p: ViewTabsProps) {
         <Popover rect={menu.rect} onClose={() => setMenu(null)} width={fit(220)} className="n-menu">
           <div className="p-2">
             <MenuLabel>{target.name}</MenuLabel>
+            <MenuLabel>Layout</MenuLabel>
+            {LAYOUT_IDS.map((l) => (
+              <MenuItem
+                key={l}
+                icon={<span aria-hidden>{LAYOUT_ICON[l]}</span>}
+                label={LAYOUT_NAME[l]}
+                right={target.state.layout === l ? <span aria-hidden>✓</span> : undefined}
+                onClick={() => {
+                  setMenu(null);
+                  if (target.state.layout !== l) p.onLayout(target.id, l);
+                }}
+              />
+            ))}
+            <MenuLabel>View</MenuLabel>
             <MenuItem
               icon={<span aria-hidden>✎</span>}
               label="Rename"

@@ -36,6 +36,7 @@ export function Toolbar({
   setCardSize,
   hideEmpty,
   setHideEmpty,
+  showLayouts = true,
 }: {
   view: ViewState;
   setView: Dispatch<SetStateAction<ViewState>>;
@@ -53,6 +54,8 @@ export function Toolbar({
   setCardSize: (s: CardSize) => void;
   hideEmpty: boolean;
   setHideEmpty: (on: boolean) => void;
+  /** The Table / List / Gallery / Board switch. Off when the saved views (tabs) are on: each view has its layout. */
+  showLayouts?: boolean;
 }) {
   const env = useDb();
   const [menu, setMenu] = useState<{ kind: "add" | "advanced" | "sort" | "props"; rect: Rect } | null>(null);
@@ -69,6 +72,7 @@ export function Toolbar({
   return (
     <div className="db-toolbar">
       <div className="db-bar">
+        {showLayouts && (
         <div className="db-layouts" role="tablist" aria-label="Layout">
           {LAYOUTS.map((l) => (
             <button key={l.id} type="button" role="tab" aria-selected={view.layout === l.id} className={`db-layout ${view.layout === l.id ? "is-on" : ""}`} onClick={() => set({ layout: l.id })} title={l.label}>
@@ -77,6 +81,7 @@ export function Toolbar({
             </button>
           ))}
         </div>
+        )}
         <span className="db-count" aria-live="polite">
           {count} {count === 1 ? "note" : "notes"}
           {filtering && count !== total && <span className="text-faint"> of {total}</span>}

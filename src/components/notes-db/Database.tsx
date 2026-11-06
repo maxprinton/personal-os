@@ -115,8 +115,18 @@ export default function Database({ data }: { data: DbData }) {
         if (r.ok) {
           list = r.views;
           if (!list.length) {
-            const c = await createNoteView({ name: nextViewName([], LAYOUT_NAME[v.layout]), state: { ...v, search: "" }, extras: localExtras });
-            list = c.ok && c.view ? [c.view] : null;
+            // The first time: the 4 layouts become the first 4 views. The one this browser was using keeps its filters.
+            const made: SavedView[] = [];
+            for (const layout of ["table", "list", "gallery", "board"] as Layout[]) {
+              const state = layout === v.layout ? { ...v, search: "" } : { ...defaultView(propsRef.current), layout };
+              const c = await createNoteView({ name: LAYOUT_NAME[layout], state, extras: layout === v.layout ? localExtras : undefined });
+              if (c.ok && c.view) made.push(c.view);
+            }
+            list = made.length ? made : null;
+            if (list) {
+              const mine = list.find((x) => x.state.layout === v.layout);
+              if (mine) writeJson(ACTIVE_KEY, mine.id);
+            }
           }
         }
       } catch {
@@ -297,6 +307,22 @@ export default function Database({ data }: { data: DbData }) {
       });
     },
     [savedViews],
+  );
+  const onLayoutView = useCallback(
+    (id: string, layout: Layout) => {
+      if (id === activeId) {
+        setView((v) => ({ ...v, layout })); // saves by itself
+        return;
+      }
+      const target = savedViews?.find((x) => x.id === id);
+      if (!target) return;
+      const state = { ...target.state, layout };
+      setSavedViews((list) => list && list.map((x) => (x.id === id ? { ...x, state } : x)));
+      void saveNoteView(id, { state }).then((r) => {
+        if (!r.ok) toast(r.error ?? "Couldn't save the view.");
+      });
+    },
+    [activeId, savedViews],
   );
   const onSaveDraft = useCallback(async () => {
     if (!activeSaved || busy) return;
@@ -580,6 +606,7 @@ export default function Database({ data }: { data: DbData }) {
               onDuplicate={onDuplicateView}
               onDelete={(id) => void onDeleteView(id)}
               onReorder={onReorderViews}
+              onLayout={onLayoutView}
               onSave={() => void onSaveDraft()}
               onReset={onResetDraft}
             />
@@ -600,6 +627,7 @@ export default function Database({ data }: { data: DbData }) {
             setCardSize={setCardSize}
             hideEmpty={extras.hideEmpty}
             setHideEmpty={setHideEmpty}
+            showLayouts={!savedViews}
           />
           <BulkProvider notes={notes} tags={tags}>
             <NoteSelection notes={exportNotes}>
