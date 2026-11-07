@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { MobileTabs, NAV_ITEMS, Sidebar } from "@/components/Nav";
+import { MobileTabs, NAV_ITEMS } from "@/components/Nav";
+import TopBar from "@/components/shell/TopBar";
 import CalendarPanel from "@/components/calendar/CalendarPanel";
 import { useSystemThemeSync } from "@/components/ui/ThemeToggle";
 import SearchPalette from "@/components/search/SearchPalette";
-import { readPref, writePref } from "@/components/calendar/util";
 import { useAddonFavorites } from "@/components/addons/useFavorites";
 import { ADDONS } from "@/lib/addons/registry";
 
@@ -19,42 +19,25 @@ function typing(e: KeyboardEvent) {
 }
 
 /**
- * The app frame: sidebar (desktop) or tab bar (phone), the page, and the calendar panel on the right.
- * Keyboard: "[" sidebar, "\" calendar panel, "g" + letter jumps to a section (see the sidebar tooltips).
+ * The app frame (Blocks design): top bar (desktop) or tab bar (phone), the page, and the calendar as a
+ * slide-over you open from the top bar. Keyboard: "\" calendar, "g" + letter jumps to a section.
  */
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "/";
   const router = useRouter();
-  const [collapsed, setCollapsed] = useState(false);
   const [calOpen, setCalOpen] = useState(false);
   const gPressed = useRef(0);
   const { favorites } = useAddonFavorites();
   useSystemThemeSync();
 
-  useEffect(() => {
-    setCollapsed(readPref("ui.sidebar") === "collapsed");
-    const saved = readPref("ui.calPanel");
-    // Open by default on wide screens; on medium screens it floats over the page, so it starts closed
-    setCalOpen(saved ? saved === "open" : window.innerWidth >= 1280);
-  }, []);
-
-  const toggleSidebar = useCallback(() => {
-    setCollapsed((c) => {
-      writePref("ui.sidebar", c ? "expanded" : "collapsed");
-      return !c;
-    });
-  }, []);
-  const toggleCal = useCallback(() => {
-    setCalOpen((o) => {
-      writePref("ui.calPanel", o ? "closed" : "open");
-      return !o;
-    });
-  }, []);
+  const toggleCal = useCallback(() => setCalOpen((o) => !o), []);
+  // The slide-over closes when you move to another page
+  useEffect(() => setCalOpen(false), [pathname]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setCalOpen(false);
       if (e.metaKey || e.ctrlKey || e.altKey || typing(e)) return;
-      if (e.key === "[") return toggleSidebar();
       if (e.key === "\\") return toggleCal();
       if (e.key === "g") {
         gPressed.current = Date.now();
@@ -70,15 +53,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [router, toggleSidebar, toggleCal]);
+  }, [router, toggleCal]);
 
   if (BARE.some((p) => pathname.startsWith(p))) return <>{children}</>;
   const showPanel = !pathname.startsWith("/calendar");
 
   return (
-    <div className="flex min-h-dvh">
-      <Sidebar pathname={pathname} collapsed={collapsed} onToggle={toggleSidebar} favorites={favorites} />
-      <div className="min-w-0 flex-1 pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0">{children}</div>
+    <div className="min-h-dvh">
+      <TopBar pathname={pathname} favorites={favorites} calOpen={calOpen && showPanel} onToggleCalendar={toggleCal} />
+      <div className="min-w-0 pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0">{children}</div>
       {showPanel && <CalendarPanel open={calOpen} onToggle={toggleCal} />}
       <MobileTabs pathname={pathname} favorites={favorites} />
       <SearchPalette />

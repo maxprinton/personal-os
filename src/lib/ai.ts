@@ -155,11 +155,69 @@ export async function aiChat(
       }
     }
   }
+  // Every Groq model failed (limit used up, busy, slow, gone): the free Cloudflare backup answers instead
+  if (!tooBig && kind !== "vision" && hasBackupAi()) {
+    const left = deadline - Date.now();
+    if (left > 4000) {
+      const cf = await cloudflareChat(system, parts, { json: opts.json, temperature: opts.temperature, maxTokens: opts.maxTokens, timeoutMs: left });
+      if ("text" in cf) return cf;
+    }
+  }
   if (tooBig) return { error: "That's too much text for the free AI at once. Select a smaller part (or fewer notes) and try again." };
   if (quota) return { error: "The free AI limit is used up for now. Try again in a minute (or tomorrow)." };
   if (busy) return { error: "The AI is busy right now. Try again in a minute." };
   if (slow) return { error: "The AI took too long. Try again." };
   return { error: "No AI model answered. Check GROQ_API_KEY in Vercel, or ask the bot /ai." };
+}
+
+// ---- Backup: Cloudflare Workers AI (free plan: 10,000 "Neurons" a day, shared with the AI covers) ----------
+// Same account and keys as the covers (CF_ACCOUNT_ID, CF_API_TOKEN with "Workers AI" permission). Text only.
+export const BACKUP_MODELS = ["@cf/meta/llama-3.3-70b-instruct-fp8-fast", "@cf/meta/llama-3.1-8b-instruct-fast"];
+const cfEnv = (v: string | undefined) => (v ?? "").trim().replace(/^["']+|["']+$/g, "").trim();
+
+export function hasBackupAi() {
+  return !!(cfEnv(process.env.CF_ACCOUNT_ID) && cfEnv(process.env.CF_API_TOKEN)) && process.env.AI_BACKUP !== "off";
+}
+
+/** One answer from Cloudflare (text only). Tries the big model, then the small one. */
+export async function cloudflareChat(
+  system: string,
+  parts: AiPart[],
+  opts: { json?: boolean; temperature?: number; maxTokens?: number; timeoutMs?: number } = {},
+): Promise<AiResult> {
+  const account = cfEnv(process.env.CF_ACCOUNT_ID);
+  const token = cfEnv(process.env.CF_API_TOKEN);
+  if (!account || !token) return { error: "The backup AI isn't connected (CF_ACCOUNT_ID / CF_API_TOKEN)." };
+  if (parts.some((p) => "image" in p)) return { error: "The backup AI can't read pictures." };
+  const deadline = Date.now() + (opts.timeoutMs ?? 30000);
+  const user = parts.map((p) => ("text" in p ? p.text : "")).join("\n\n");
+  const messages = [
+    { role: "system", content: opts.json ? `${system}\nReply with ONE JSON object only, with no other text before or after it.` : system },
+    { role: "user", content: user },
+  ];
+  for (const model of BACKUP_MODELS) {
+    const left = deadline - Date.now();
+    if (left < 2500) break;
+    try {
+      const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(account)}/ai/run/${model}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ messages, max_tokens: Math.min(opts.maxTokens ?? 2500, 4000), temperature: opts.temperature ?? 0.6 }),
+        signal: AbortSignal.timeout(Math.min(left, 40000)),
+      });
+      if (res.status === 401 || res.status === 403) return { error: "Cloudflare refused the token (the backup AI)." };
+      if (!res.ok) continue; // daily free limit, busy or this model is gone: next one
+      const json = (await res.json().catch(() => null)) as { result?: { response?: unknown; usage?: { prompt_tokens?: number; completion_tokens?: number } } } | null;
+      const raw = json?.result?.response;
+      const text = stripThinking(typeof raw === "string" ? raw : raw && typeof raw === "object" ? JSON.stringify(raw) : "");
+      if (!text) continue;
+      recordAiCall({ model: `cloudflare:${model.split("/").pop()}`, prompt: json?.result?.usage?.prompt_tokens ?? 0, completion: json?.result?.usage?.completion_tokens ?? 0 });
+      return { text, model: `cloudflare:${model}` };
+    } catch {
+      // slow or unreachable: next model
+    }
+  }
+  return { error: "The backup AI didn't answer either." };
 }
 
 /**
@@ -250,5 +308,6 @@ export async function aiCheck(): Promise<string> {
   const vision = (await modelsFor("vision"))[0] ?? "none";
   const voice = WHISPER.find((m) => have.includes(m)) ?? "none";
   if (!("text" in out)) return `✨ Groq is connected but didn't answer: ${out.error}`;
-  return `✨ The AI (Groq) is connected and answering.\n• Notes and text: ${write}\n• Receipt photos: ${vision}\n• Voice notes: ${voice}`;
+  const backup = hasBackupAi() ? "Cloudflare (used only when Groq can't answer)" : "none (needs CF_ACCOUNT_ID and CF_API_TOKEN)";
+  return `✨ The AI (Groq) is connected and answering.\n• Notes and text: ${write}\n• Receipt photos: ${vision}\n• Voice notes: ${voice}\n• Backup: ${backup}`;
 }

@@ -64,6 +64,7 @@ export const BUILTINS: BuiltinDef[] = [
   { key: "ai_summary", name: "AI summary", type: "ai_summary" },
   { key: "kind", name: "Kind", type: "kind", hidden: true },
   { key: "block", name: "Block", type: "block" },
+  { key: "portfolio", name: "Portfolio", type: "portfolio", hidden: true },
   { key: "created", name: "Created", type: "created_time", hidden: true },
   { key: "edited", name: "Last edited", type: "last_edited_time", hidden: true },
 ];

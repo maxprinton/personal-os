@@ -21,6 +21,7 @@ import TemplateBar from "@/components/notes-db/TemplateBar";
 import SeriesNav from "@/components/notes-db/SeriesNav";
 import EmptyNoteTemplates from "@/components/notes-db/EmptyNoteTemplates";
 import NoteLinkButton from "@/components/notes-db/NoteLinkMenu";
+import PortfolioChip from "@/components/portfolio/PortfolioChip";
 import TurnIntoVideoIdea from "@/components/youtube/idea/TurnIntoVideoIdea";
 
 export const dynamic = "force-dynamic";
@@ -127,6 +128,9 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
           </>
         ) : (
           <>
+            <Suspense fallback={null}>
+              <PortfolioChip noteId={note.id} />
+            </Suspense>
             <NoteEditor
               key={note.id /* a new editor per note: nothing of the previous note can leak into this one */}
               id={note.id}

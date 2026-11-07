@@ -3,68 +3,81 @@
 /* Dark mode follows <html data-theme="dark">, set before paint by the script in layout.tsx */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
-/* ---------- Design tokens: "Serene indigo" ----------
-   All UI color comes from these variables. Text tokens pass WCAG AA (4.5:1) on app, surface and subtle. */
+/* ---------- Design tokens: "Blocks" (direction C, Nov 2026) ----------
+   Bright, flat surfaces; color comes from your blocks. Text tokens pass WCAG AA (4.5:1) on app, surface and subtle. */
 :root {
   color-scheme: light;
-  --app: #f6f7fb;
+  --app: #fbfcfe;
   --surface: #ffffff;
-  --subtle: #eef0f7;
-  --subtle-2: #e4e7f1;
-  --line: #e1e4ef;
-  --edge: #ccd1e0;
+  --subtle: #f1f3f8;
+  --subtle-2: #e6e9f1;
+  --line: #e3e5ec;
+  --edge: #cdd1de;
   --line-strong: #7c839c;
-  --fg: #171a2b;
-  --muted: #5b6178;
-  --faint: #6b7189;
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
+  --fg: #15171f;
+  --muted: #565c6e;
+  --faint: #646b80;
+  --accent: #2f5fe3;
+  --accent-hover: #244ecb;
   --accent-fg: #ffffff;
-  --accent-soft: #e8e9fd;
+  --accent-soft: #e6edfe;
   --success: #166534;
-  --success-solid: #16a34a;
-  --success-soft: #e7f6ec;
+  --success-solid: #1f8f5f;
+  --success-soft: #e0f4ea;
   --warning: #92400e;
-  --warning-solid: #f59e0b;
-  --warning-soft: #fdf3e1;
-  --danger: #b91c1c;
-  --danger-solid: #dc2626;
-  --danger-soft: #fdecec;
+  --warning-solid: #d99a12;
+  --warning-soft: #fbf0d9;
+  --danger: #b3321d;
+  --danger-solid: #e8553f;
+  --danger-soft: #fde9e4;
   --info: #075985;
   --info-soft: #e6f3fb;
-  --shadow: 0 1px 2px rgb(23 26 43 / 0.05), 0 1px 3px rgb(23 26 43 / 0.06);
-  --shadow-lg: 0 8px 24px rgb(23 26 43 / 0.12);
+  --shadow: none;
+  --shadow-lg: 0 12px 32px rgb(21 23 31 / 0.14);
+  /* Block palette (also used as a default for blocks without a color) */
+  --b-blue: #2f5fe3;
+  --b-coral: #e8553f;
+  --b-magenta: #c42e8c;
+  --b-green: #1f8f5f;
+  --b-amber: #e3b23c;
+  --tint: 14%;
 }
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --app: #0f1117;
-  --surface: #171a23;
-  --subtle: #1f2330;
-  --subtle-2: #282d3c;
-  --line: #2a2f3e;
-  --edge: #363c4f;
+  --app: #12141c;
+  --surface: #161925;
+  --subtle: #1b1e29;
+  --subtle-2: #252938;
+  --line: #2b2f3e;
+  --edge: #3a3f52;
   --line-strong: #6b7390;
-  --fg: #eceef6;
-  --muted: #9aa0b8;
-  --faint: #858ba3;
-  --accent: #818cf8;
-  --accent-hover: #a5b4fc;
-  --accent-fg: #0f1117;
-  --accent-soft: #262a52;
-  --success: #4ade80;
-  --success-solid: #22c55e;
-  --success-soft: #14291d;
-  --warning: #fbbf24;
-  --warning-solid: #f59e0b;
-  --warning-soft: #2e2410;
-  --danger: #f87171;
-  --danger-solid: #ef4444;
-  --danger-soft: #2f1719;
+  --fg: #f1f3fa;
+  --muted: #a3a9bc;
+  --faint: #8e95ab;
+  --accent: #7b97ff;
+  --accent-hover: #9db1ff;
+  --accent-fg: #0b1020;
+  --accent-soft: #1d2748;
+  --success: #4fd39a;
+  --success-solid: #2db67d;
+  --success-soft: #14312a;
+  --warning: #f0c050;
+  --warning-solid: #e3b23c;
+  --warning-soft: #38301a;
+  --danger: #ff8a75;
+  --danger-solid: #f0553f;
+  --danger-soft: #3a1e1b;
   --info: #7dd3fc;
   --info-soft: #102636;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
-  --shadow-lg: 0 8px 24px rgb(0 0 0 / 0.5);
+  --shadow: none;
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.55);
+  --b-blue: #7b97ff;
+  --b-coral: #ff7a63;
+  --b-magenta: #f05db4;
+  --b-green: #4fd39a;
+  --b-amber: #f0c050;
+  --tint: 24%;
 }
 
 @theme inline {
@@ -95,7 +108,8 @@
   --color-info-soft: var(--info-soft);
   --shadow-card: var(--shadow);
   --shadow-pop: var(--shadow-lg);
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: var(--font-figtree), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--font-bricolage), var(--font-figtree), system-ui, sans-serif;
 }
 
 @layer base {
@@ -112,6 +126,12 @@
   }
   ::selection {
     background: var(--accent-soft);
+  }
+  h1:not(.rich-prose *, .n-page *),
+  h2:not(.rich-prose *, .n-page *),
+  h3:not(.rich-prose *, .n-page *) {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
   }
   /* Form controls get the theme by default, so every form looks the same without extra classes */
   input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="hidden"])),
@@ -184,15 +204,20 @@
   .card {
     background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: 0.75rem;
+    border-radius: 1rem;
     box-shadow: var(--shadow);
   }
   .section-title {
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--muted);
+    font-family: var(--font-display);
+    font-size: 1.125rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+  }
+  /* A block-colored band: set --c (the block's color) inline; the tint adapts to light and dark */
+  .band {
+    background: color-mix(in srgb, var(--c, var(--accent)) var(--tint), var(--surface));
+    border-radius: 1rem;
   }
 }
 
@@ -704,3 +729,8 @@
 .search-mark { background: rgba(250, 204, 21, 0.35); color: inherit; border-radius: 2px; padding: 0 1px; }
 ::highlight(search-find) { background-color: rgba(250, 204, 21, 0.4); }
 ::highlight(search-current) { background-color: rgba(249, 115, 22, 0.65); }
+
+/* Blocks design: labels read as plain sentence case, not tracked-out capitals.
+   (Unlayered on purpose so it wins over the utilities; use [text-transform:uppercase] where caps are the point.) */
+.uppercase { text-transform: none; }
+.tracking-wider, .tracking-wide { letter-spacing: 0; }

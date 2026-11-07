@@ -58,7 +58,7 @@ export default function PackageEditor({
 
   return (
     <div className="space-y-4">
-      <div className="sticky top-0 z-10 -mx-1 rounded-lg border border-line bg-surface/95 px-4 py-2 shadow-card backdrop-blur">
+      <div className="sticky top-14 z-10 -mx-1 rounded-lg border border-line bg-surface/95 px-4 py-2 shadow-card backdrop-blur">
         <p className="text-[11px] uppercase tracking-wide text-faint">Idea name — what the video really is (not the title)</p>
         <p className="text-sm font-semibold">
           {video.idea_name}{" "}

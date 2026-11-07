@@ -111,6 +111,9 @@ export default function SearchPalette() {
           <kbd className="hidden rounded border border-line px-1.5 text-[11px] text-muted sm:inline">Esc</kbd>
         </div>
         <div className="max-h-[60vh] space-y-2 overflow-y-auto p-3">
+          {res?.building && (
+            <p className="rounded-lg bg-subtle px-3 py-2 text-sm text-muted">⏳ The search index is still being built ({res.building.indexed} of {res.building.notes} notes), so some notes may be missing. It finishes by itself in a few minutes.</p>
+          )}
           {res?.corrected && <p className="text-sm text-muted">No exact matches. Showing results for “{res.corrected}”.</p>}
           {res && !res.ok && <p className="text-sm text-danger">Search isn&apos;t ready: {res.error ?? "error"}</p>}
           {res?.ok && q.trim() && !results.length && !busy && <p className="text-sm text-muted">No notes contain all of these words.</p>}

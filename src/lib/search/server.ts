@@ -68,7 +68,7 @@ export async function indexUser(sb: SupabaseClient, userId: string, opts: { only
 }
 
 /** Reads waiting files (every user; admin client). Stops at the time budget. Returns how many were read. */
-export async function processFiles(sb: SupabaseClient, opts: { budgetMs: number; max?: number; userId?: string }): Promise<number> {
+export async function processFiles(sb: SupabaseClient, opts: { budgetMs: number; max?: number; userId?: string; touched?: Set<string> }): Promise<number> {
   const t0 = Date.now();
   let fq = sb
     .from("search_files")
@@ -109,6 +109,7 @@ export async function processFiles(sb: SupabaseClient, opts: { budgetMs: number;
       const chars = r.parts.reduce((s, p) => s + p.text.length, 0);
       await mark({ status: r.status, detail: r.detail ?? null, chars, attempts: r.status === "failed" ? f.attempts + 1 : f.attempts });
       read++;
+      opts.touched?.add(f.user_id);
     } catch (e) {
       await mark({ status: f.attempts >= 2 ? "failed" : "pending", attempts: f.attempts + 1, detail: e instanceof Error ? e.message.slice(0, 200) : "error" });
     }
@@ -121,20 +122,24 @@ export async function runSearchCron(admin: SupabaseClient, opts: { budgetMs: num
   const t0 = Date.now();
   const { data: users } = await admin.from("user_settings").select("user_id");
   let notes = 0;
+  const touched = new Set<string>();
   for (const u of (users ?? []) as { user_id: string }[]) {
     if (Date.now() - t0 > opts.budgetMs * 0.6) break;
     try {
-      notes += await indexUser(admin, u.user_id, { budgetMs: opts.budgetMs * 0.6 });
+      const n = await indexUser(admin, u.user_id, { budgetMs: opts.budgetMs * 0.6 });
+      if (n) touched.add(u.user_id);
+      notes += n;
     } catch (e) {
       console.error("search index", e);
     }
   }
   let files = 0;
   try {
-    files = await processFiles(admin, { budgetMs: Math.max(2000, opts.budgetMs - (Date.now() - t0)) });
+    files = await processFiles(admin, { budgetMs: Math.max(2000, opts.budgetMs - (Date.now() - t0) - 1500), touched });
   } catch (e) {
     console.error("search files", e);
   }
+  for (const u of touched) await refreshWords(admin, u);
   return { notes, files };
 }
 
@@ -156,7 +161,16 @@ export type SearchResult = {
   hits: SearchHit[];
 };
 export type SearchOptions = { kinds?: ("text" | "code" | "file")[]; trash?: boolean; templates?: boolean; limit?: number; offset?: number };
-export type SearchResponse = { ok: boolean; results: SearchResult[]; total: number; words: string[]; corrected?: string; error?: string };
+export type SearchResponse = {
+  ok: boolean;
+  results: SearchResult[];
+  total: number;
+  words: string[];
+  corrected?: string;
+  error?: string;
+  /** The index is still being built: results may be incomplete. */
+  building?: { notes: number; indexed: number };
+};
 
 const KIND_GROUPS: Record<"text" | "code" | "file", string[]> = {
   text: ["title", "heading", "text", "table", "props", "media"],
@@ -242,6 +256,30 @@ export async function searchNotes(sb: SupabaseClient, userId: string, input: str
   });
   return { ok: true, results, total: Number(rows[0]?.total ?? results.length), words, corrected };
 }
+
+/**
+ * The list of indexed words (for typo suggestions, migration 0041). Rebuilt after the index changed;
+ * before 0041 is run it does nothing and suggestions use the slower way.
+ */
+export async function refreshWords(sb: SupabaseClient, userId: string): Promise<void> {
+  try {
+    await sb.rpc("refresh_search_words", { p_user: userId });
+  } catch {
+    /* 0041 not run yet */
+  }
+}
+
+/** Notes vs notes in the index (two quick counts). */
+export async function indexGap(sb: SupabaseClient, userId: string): Promise<{ notes: number; indexed: number }> {
+  const [notes, indexed] = await Promise.all([
+    sb.from("notes").select("id", { count: "exact", head: true }).eq("user_id", userId),
+    sb.from("search_state").select("note_id", { count: "exact", head: true }).eq("user_id", userId),
+  ]);
+  return { notes: notes.count ?? 0, indexed: indexed.count ?? 0 };
+}
+
+/** The index is missing more than a couple of notes (e.g. right after publishing). */
+export const indexIncomplete = (g: { notes: number; indexed: number } | null) => !!g && g.notes > 0 && g.indexed < g.notes - 2;
 
 /** How far the index is (for the search page). */
 export async function indexStatus(sb: SupabaseClient, userId: string) {

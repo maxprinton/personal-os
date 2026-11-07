@@ -281,20 +281,128 @@ async function readAndAnswer(
   };
 }
 
+/** Properties of these notes, read from the search index (kind "props"): no full database load. */
+async function propsFor(c: Ctx, ids: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (!ids.length) return out;
+  try {
+    const { data, error } = await c.admin.from("search_chunks").select("note_id,body").eq("user_id", c.userId).eq("kind", "props").in("note_id", ids);
+    if (error) return out;
+    const want = new Set(ids);
+    for (const r of (data ?? []) as { note_id?: unknown; body?: unknown }[]) {
+      if (typeof r.note_id === "string" && typeof r.body === "string" && want.has(r.note_id)) out.set(r.note_id, r.body.split("\n").filter(Boolean));
+    }
+  } catch {
+    /* no index: no properties */
+  }
+  return out;
+}
+
+/** Full text of the chosen notes only. */
+async function loadNotes(c: Ctx, ids: string[]): Promise<Note[]> {
+  if (!ids.length) return [];
+  const { data, error } = await c.admin.from("notes").select("id,title,content,block_name,updated_at").eq("user_id", c.userId).in("id", ids);
+  if (error) throw error;
+  const rows = ((data ?? []) as Note[]).filter((n) => ids.includes(n.id));
+  return ids
+    .map((id) => rows.find((r) => r.id === id))
+    .filter((n): n is Note => Boolean(n))
+    .map((n) => ({ ...n, title: n.title ?? "", md: n.content ?? "", content: noteAsPlainText(n.content ?? "") }));
+}
+
+type Found = { pool: Note[]; matched: Note[]; byEngine: boolean };
+
+/**
+ * FIND with the search engine (same index as /search, also inside attached files): its best notes, the
+ * ones asked about earlier, and a few recent ones (for questions worded differently). Only those notes
+ * are read from the database. null = the engine isn't usable (no index yet): use findByScan.
+ */
+async function findByEngine(c: Ctx, words: string[], earlier: Set<string>): Promise<Found | null> {
+  let hits: { id: string; title: string; blockName: string | null; updatedAt: string; preview: string }[] = [];
+  if (words.length) {
+    const r = await searchNotes(c.admin, c.userId, words.join(" OR "), { limit: 20 });
+    if (!r.ok) return null;
+    if (!r.results.length) {
+      // nothing found: is that because the index is empty (right after publishing)?
+      const { count, error } = await c.admin.from("search_state").select("note_id", { count: "exact", head: true }).eq("user_id", c.userId);
+      if (error || !count) return null;
+    }
+    hits = r.results.map((x) => ({
+      id: x.id,
+      title: x.blockName ? x.blockName : x.title,
+      blockName: x.blockName,
+      updatedAt: x.updatedAt,
+      preview: x.hits.map((h) => h.snippet.text).join(" … ").slice(0, 260),
+    }));
+  }
+  const room = 30 - hits.length;
+  const extra = hits.length ? Math.min(10, room) : room; // recent notes: fewer when the search found some
+  const { data, error } = await c.admin
+    .from("notes")
+    .select("id,title,content,block_name,updated_at,is_template,merged_into")
+    .eq("user_id", c.userId)
+    .is("deleted_at", null)
+    .order("updated_at", { ascending: false })
+    .limit(extra + hits.length + 10);
+  if (error) return null;
+  const hitIds = new Set(hits.map((h) => h.id));
+  const recent = ((data ?? []) as (Note & { merged_into?: string | null })[])
+    .filter((n) => !n.is_template && !n.merged_into && !hitIds.has(n.id))
+    .map((n): Note => ({ ...n, title: n.title ?? "", md: n.content ?? "", content: noteAsPlainText(n.content ?? "") }))
+    .filter((n) => n.content.trim() || n.title.trim());
+  const fromHits: Note[] = hits.map((h) => ({ id: h.id, title: h.title, content: h.preview, block_name: h.blockName, updated_at: h.updatedAt }));
+  const pool: Note[] = [];
+  const missingEarlier = [...earlier].filter((id) => !hitIds.has(id) && !recent.some((n) => n.id === id));
+  if (missingEarlier.length) pool.push(...(await loadNotes(c, missingEarlier).catch(() => [])));
+  for (const id of earlier) {
+    const n = fromHits.find((x) => x.id === id) ?? recent.find((x) => x.id === id);
+    if (n && !pool.includes(n)) pool.unshift(n);
+  }
+  for (const n of fromHits) if (!pool.some((x) => x.id === n.id)) pool.push(n);
+  for (const n of recent) {
+    if (pool.length >= 30) break;
+    if (!pool.some((x) => x.id === n.id)) pool.push(n);
+  }
+  const props = await propsFor(c, pool.map((n) => n.id));
+  for (const n of pool) n.meta = props.get(n.id) ?? [];
+  return { pool, matched: fromHits.map((h) => pool.find((n) => n.id === h.id)!).filter(Boolean), byEngine: true };
+}
+
+/** FIND the old way (every note read and scored): only when the search index can't be used. */
+async function findByScan(c: Ctx, words: string[], earlier: Set<string>): Promise<Found | null> {
+  const metaP = noteMetaMap(c.admin, c.userId);
+  const rows = await fetchAll<Note>((a, b) =>
+    c.admin.from("notes").select("id,title,content,block_name,updated_at,is_template").eq("user_id", c.userId).is("deleted_at", null).order("updated_at", { ascending: false }).range(a, b),
+  ).catch(() =>
+    fetchAll<Note>((a, b) => c.admin.from("notes").select("id,title,content,block_name,updated_at").eq("user_id", c.userId).is("deleted_at", null).order("updated_at", { ascending: false }).range(a, b)),
+  );
+  const meta = await metaP;
+  const notes: Note[] = rows
+    .filter((n) => !n.is_template)
+    .map((n): Note => ({ ...n, md: n.content ?? "", content: noteAsPlainText(n.content ?? ""), meta: meta.get(n.id) ?? [] }))
+    .filter((n) => n.content.trim() || n.title.trim() || n.meta?.length);
+  if (!notes.length) return null;
+  const ranked = notes.map((n) => ({ n, s: score({ title: n.title, content: `${n.content}\n${(n.meta ?? []).join("\n")}` }, words) })).sort((a, b) => b.s - a.s);
+  const matched = ranked.filter((r) => r.s > 0).slice(0, 20).map((r) => r.n);
+  const pool = [...matched];
+  for (const n of notes.filter((x) => earlier.has(x.id))) if (!pool.includes(n)) pool.unshift(n);
+  for (const n of notes) {
+    if (pool.length >= 30) break;
+    if (!pool.includes(n)) pool.push(n);
+  }
+  return { pool, matched, byEngine: false };
+}
+
 export async function askNotes(c: Ctx, question: string, follow?: AskTurn, history: AskTurn[] = []): Promise<AskResult> {
   if (!question.trim()) return { text: "✨ Ask about your notes: “@os what did I write about the trip?”", kb: [], noteIds: [] };
   if (!hasAi()) return { text: "✨ The AI is not connected (GROQ_API_KEY in Vercel).", kb: [], noteIds: [] };
 
-  const metaP = noteMetaMap(c.admin, c.userId); // every note's properties (loads in parallel)
-  const withMeta = async <T extends Note>(list: T[]): Promise<T[]> => {
-    const meta = await metaP;
-    return list.map((n) => ({ ...n, meta: meta.get(n.id) ?? [] }));
-  };
-
   // ---- 0) "@os NOTE-12 …": straight to that note (no search)
   const direct = await notesByRef(c, question).catch(() => null);
   if (direct) {
-    direct.notes = await withMeta(direct.notes);
+    let props = await propsFor(c, direct.notes.map((n) => n.id));
+    if (!props.size && direct.notes.length) props = await noteMetaMap(c.admin, c.userId); // not indexed yet
+    direct.notes = direct.notes.map((n) => ({ ...n, meta: props.get(n.id) ?? [] }));
     const tag = (n: number) => `${direct.prefix}-${n}`;
     if (!direct.notes.length) {
       return {
@@ -312,42 +420,19 @@ export async function askNotes(c: Ctx, question: string, follow?: AskTurn, histo
     });
   }
 
-  const rows = await fetchAll<Note>((a, b) =>
-    c.admin.from("notes").select("id,title,content,block_name,updated_at,is_template").eq("user_id", c.userId).is("deleted_at", null).order("updated_at", { ascending: false }).range(a, b),
-  ).catch(() =>
-    fetchAll<Note>((a, b) => c.admin.from("notes").select("id,title,content,block_name,updated_at").eq("user_id", c.userId).is("deleted_at", null).order("updated_at", { ascending: false }).range(a, b)),
-  );
-  // templates are not notes; md = the note as written (its headings help pick the right part of a long note)
-  const notes: Note[] = (await withMeta(rows.filter((n) => !n.is_template).map((n): Note => ({ ...n, md: n.content ?? "", content: noteAsPlainText(n.content ?? "") })))).filter(
-    (n) => n.content.trim() || n.title.trim() || n.meta?.length,
-  );
-  if (!notes.length) return { text: "📝 You don't have notes yet.", kb: [], noteIds: [] };
-
   // ---- 1) Find
   const words = keywords(question);
-  // Properties count for finding too ("notes with Status Lista", "tagged #trip", "AI summary says…")
-  const ranked = notes.map((n) => ({ n, s: score({ title: n.title, content: `${n.content}\n${(n.meta ?? []).join("\n")}` }, words) })).sort((a, b) => b.s - a.s);
-  let matched = ranked.filter((r) => r.s > 0).slice(0, 20).map((r) => r.n);
-  // The search engine (any of the words, accents ignored, also inside attached files): its best notes first
-  if (words.length) {
-    try {
-      const r = await searchNotes(c.admin, c.userId, words.join(" OR "), { limit: 15 });
-      if (r.ok) {
-        const byId = new Map(notes.map((n) => [n.id, n]));
-        const top = r.results.map((x) => byId.get(x.id)).filter((n): n is Note => !!n);
-        matched = [...top, ...matched.filter((n) => !top.includes(n))].slice(0, 20);
-      }
-    } catch {
-      /* the word score above is enough */
-    }
-  }
-  const pool = [...matched];
   const earlier = new Set([...(follow?.ids ?? []), ...history.flatMap((h) => h.ids)]);
-  for (const n of notes.filter((x) => earlier.has(x.id))) if (!pool.includes(n)) pool.unshift(n);
-  for (const n of notes) {
-    if (pool.length >= 30) break;
-    if (!pool.includes(n)) pool.push(n); // the latest notes, in case the question uses other words
+  let found: Found | null = null;
+  try {
+    found = await findByEngine(c, words, earlier);
+  } catch {
+    found = null;
   }
+  if (!found) found = await findByScan(c, words, earlier);
+  if (!found || !found.pool.length) return { text: "📝 You don't have notes yet.", kb: [], noteIds: [] };
+  const { pool, matched } = found;
+
   const short = (n: Note) => {
     const meta = (n.meta ?? []).filter((l) => !/^(Created|Last edited|Words|Open to-dos|Backlinks):/.test(l));
     const summary = meta.filter((l) => l.startsWith("AI summary:"));
@@ -368,9 +453,16 @@ export async function askNotes(c: Ctx, question: string, follow?: AskTurn, histo
   let chosen = (nums ?? []).map((x) => pool[Number(x) - 1]).filter((n): n is Note => Boolean(n));
   if (!nums) chosen = matched.slice(0, 3); // the AI didn't answer: the best word matches
   if (!chosen.length) chosen = matched.slice(0, 2); // it said "none" but words match: read them anyway
-  if (!chosen.length && earlier.size) chosen = notes.filter((n) => earlier.has(n.id));
+  if (!chosen.length && earlier.size) chosen = pool.filter((n) => earlier.has(n.id));
   chosen = [...new Set(chosen)].slice(0, 4);
 
-  // ---- 2) Read and answer (no note at all: a general answer, said so)
+  // ---- 2) Read (only the chosen notes are loaded in full) and answer
+  if (found.byEngine && chosen.length) {
+    const full = await loadNotes(c, chosen.map((n) => n.id)).catch(() => [] as Note[]);
+    chosen = chosen.map((n) => {
+      const f = full.find((x) => x.id === n.id);
+      return f ? { ...f, meta: n.meta } : n;
+    });
+  }
   return readAndAnswer(chosen, question, follow, { today: c.today, history });
 }

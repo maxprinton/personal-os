@@ -35,7 +35,7 @@ function remember(pref: ThemePref) {
 export function applyTheme(pref: ThemePref) {
   const dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.dataset.theme = dark ? "dark" : "light";
-  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute("content", dark ? "#0f1117" : "#f6f7fb"));
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute("content", dark ? "#12141c" : "#fbfcfe"));
 }
 
 /** Picks a theme: applies it, remembers it here, saves it in your settings and updates every toggle on screen. */

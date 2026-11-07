@@ -39,7 +39,7 @@ function Thumb({ thumb, theme, className }: { thumb: YtVariant | null; theme: Th
     return <img src={thumb.image_url} alt="" className={`${className} object-cover`} />;
   return (
     <div className={`${className} grid place-items-center overflow-hidden p-1 text-center`} style={{ background: theme.ph, color: theme.muted }}>
-      <span className="line-clamp-3 text-[10px] font-bold uppercase leading-tight">{thumb?.thumb_text || thumb?.value || "No thumbnail yet"}</span>
+      <span className="line-clamp-3 text-[10px] font-bold [text-transform:uppercase] leading-tight">{thumb?.thumb_text || thumb?.value || "No thumbnail yet"}</span>
     </div>
   );
 }

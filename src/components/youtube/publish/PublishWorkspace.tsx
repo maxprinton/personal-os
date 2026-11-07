@@ -268,7 +268,7 @@ export default function PublishWorkspace(p: Props) {
   return (
     <div className="space-y-4">
       {/* ----- status ----- */}
-      <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface/95 px-3 py-2 text-sm shadow-card backdrop-blur">
+      <div className="sticky top-14 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface/95 px-3 py-2 text-sm shadow-card backdrop-blur">
         <span className={check.errors.length ? "text-danger" : "text-success"}>{check.errors.length ? `${check.errors.length} to fix` : "Ready ✓"}</span>
         {check.warnings.length > 0 && <span className="text-warning">· {check.warnings.length} warnings</span>}
         {!isShort && <span className={`text-xs ${p.introStatus === "filmed" ? "text-success" : "text-danger"}`}>· Intro: {introLabel}</span>}

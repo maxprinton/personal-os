@@ -386,7 +386,7 @@ export function NotesExportBar({ extra }: { extra?: (ids: string[]) => ReactNode
   const getNotes = () => ctx.notes.filter((x) => ctx.selected.has(x.id)).map((x) => ({ ...x, ...fresh(x) }));
 
   return (
-    <div className="sticky top-0 z-30 -mx-1 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-line bg-surface/95 px-3 py-2 shadow-card backdrop-blur">
+    <div className="sticky top-14 z-30 -mx-1 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-line bg-surface/95 px-3 py-2 shadow-card backdrop-blur">
       <label className="flex cursor-pointer items-center gap-2 text-sm">
         <input
           ref={allRef}

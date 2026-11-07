@@ -61,7 +61,7 @@ export default function TaskRow({
   const failed = task.status === "failed";
   const overdue = task.status === "pending" && task.scheduled_for !== null && task.scheduled_for < today;
   return (
-    <li className="group flex flex-wrap items-start gap-x-3 gap-y-1 sm:flex-nowrap rounded-xl border border-line bg-surface p-3 shadow-card transition-colors hover:border-edge">
+    <li className="group flex flex-wrap items-start gap-x-3 gap-y-1 sm:flex-nowrap rounded-2xl border border-line bg-surface p-3 transition-colors hover:border-edge">
       <form action={updateTask} className="pt-0.5">
         <input type="hidden" name="id" value={task.id} />
         <input type="hidden" name="op" value={done ? "reopen" : "complete"} />

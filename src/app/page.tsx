@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAgenda, getSettings, whatNow, type AgendaItem } from "@/lib/agenda";
 import { formatDateLong, formatMinutes, localNow } from "@/lib/time";
 import Link from "next/link";
+import type { CSSProperties } from "react";
 import AutoRefresh from "@/components/AutoRefresh";
 import TaskRow, { type TaskRowData } from "@/components/TaskRow";
 import { getContextFor } from "@/lib/links";
@@ -124,7 +125,7 @@ export default async function CommandCenter() {
     if (activeEvent?.fulfills) parts.push(`fulfills your “${activeEvent.fulfills}” block`);
     else if (activeEvent && activeBlock) parts.push(`overlaps your “${activeBlock.title}” block`);
     else if (!activeEvent) parts.push("planned block");
-    detail = parts.join(" · ");
+    detail = parts.join(", ");
   }
   const focusColor = current?.color ?? null;
   const elapsed = current ? Math.min(100, Math.max(0, Math.round(((now.minutes - current.start) / Math.max(1, current.end - current.start)) * 100))) : null;
@@ -137,14 +138,14 @@ export default async function CommandCenter() {
   return (
     <>
       <AutoRefresh />
-      <main className="@container mx-auto w-full max-w-6xl space-y-6 px-4 py-6 sm:px-6 lg:py-8">
-        <header className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <p className="text-sm font-medium text-muted">{formatDateLong(now.date)}</p>
-            <h1 className="text-2xl font-semibold tracking-tight">Today</h1>
-          </div>
+      <main className="@container mx-auto w-full max-w-[1280px] space-y-6 px-4 py-6 sm:px-8 lg:py-9">
+        <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+          <h1 className="font-display text-4xl font-bold leading-[1.05] tracking-tight sm:text-5xl">
+            {formatDateLong(now.date).split(",")[0]}{" "}
+            <span className="font-medium text-muted">{formatDateLong(now.date).split(",")[1]?.trim()}</span>
+          </h1>
           {blockCount > 0 && (
-            <p className="text-sm text-muted">
+            <p className="text-muted">
               <span className="font-semibold text-fg">{doneCount}</span> of {blockCount} blocks done
             </p>
           )}
@@ -152,49 +153,45 @@ export default async function CommandCenter() {
 
         {/* Focus: what should I be doing right now? */}
         <section
-          className="relative overflow-hidden rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6"
-          style={focusColor ? { background: `linear-gradient(135deg, ${alpha(focusColor, 0.16)}, ${alpha(focusColor, 0.04)}), var(--surface)` } : undefined}
+          className="band relative overflow-hidden border-2 p-5 sm:p-6"
+          style={{ "--c": focusColor ?? "var(--accent)", borderColor: focusColor ?? "var(--accent)" } as CSSProperties}
+          aria-label="Right now"
         >
-          <span
-            className="absolute inset-y-0 left-0 w-1.5"
-            style={{ background: focusColor ?? "var(--accent)" }}
-            aria-hidden
-          />
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
-              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted">
+              <p className="flex items-center gap-2 text-sm font-semibold text-muted">
                 {current ? (
                   <span className="relative flex h-2 w-2">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success-solid opacity-60" />
                     <span className="relative inline-flex h-2 w-2 rounded-full bg-success-solid" />
                   </span>
                 ) : null}
-                Right now · {formatMinutes(now.minutes)}
+                Now, {formatMinutes(now.minutes)}
               </p>
-              <h2 className="mt-2 text-3xl font-semibold tracking-tight">{headline}</h2>
+              <h2 className="mt-1.5 font-display text-3xl font-bold leading-tight tracking-tight sm:text-4xl">{headline}</h2>
               <p className="mt-1 text-muted">{detail}</p>
             </div>
             {minutesLeft !== null && (
               <div className="sm:text-right">
-                <p className="text-3xl font-semibold tabular-nums">{minutesLeft >= 60 ? `${Math.floor(minutesLeft / 60)}h ${minutesLeft % 60}m` : `${minutesLeft}m`}</p>
-                <p className="text-xs text-muted">left</p>
+                <p className="font-display text-4xl font-bold leading-none tabular-nums">{minutesLeft >= 60 ? `${Math.floor(minutesLeft / 60)}h ${minutesLeft % 60}m` : `${minutesLeft}m`}</p>
+                <p className="mt-1 text-sm text-muted">left</p>
               </div>
             )}
           </div>
           {elapsed !== null && (
-            <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-subtle-2" aria-label={`${elapsed}% of this block elapsed`}>
+            <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-surface" aria-label={`${elapsed}% of this block elapsed`}>
               <div className="h-full rounded-full" style={{ width: `${elapsed}%`, background: focusColor ?? "var(--accent)" }} />
             </div>
           )}
           {(allDay.length > 0 || (current && next)) && (
-            <div className="mt-4 flex flex-wrap gap-2 text-xs">
+            <div className="mt-4 flex flex-wrap gap-2 text-sm">
               {current && next && (
-                <span className="rounded-full bg-surface/80 px-2.5 py-1 font-medium ring-1 ring-line">
-                  Next: {next.title} · {formatMinutes(next.start)}
+                <span className="rounded-full bg-surface px-3 py-1 font-medium">
+                  Next: {next.title}, {formatMinutes(next.start)}
                 </span>
               )}
               {allDay.map((i) => (
-                <span key={i.id} className="rounded-full bg-surface/80 px-2.5 py-1 ring-1 ring-line">
+                <span key={i.id} className="rounded-full bg-surface px-3 py-1">
                   {i.title}
                 </span>
               ))}
@@ -243,7 +240,7 @@ export default async function CommandCenter() {
                       <span className="flex gap-2">
                         <Icon name="spark" size={16} className="mt-0.5 text-warning" />
                         <span>
-                          <span className="mr-1.5 text-[11px] font-semibold uppercase tracking-wide text-warning">{i.insight_type}</span>
+                          <span className="mr-1.5 text-xs font-semibold text-warning">{i.insight_type}</span>
                           {i.message}
                         </span>
                       </span>
@@ -279,13 +276,13 @@ export default async function CommandCenter() {
               <Section title="Habits today" count={habitsToday.length} href="/habits" linkLabel="Streaks">
                 <ul className="space-y-2">
                   {habitsToday.map(({ h, t }) => (
-                    <li key={`${h.habit.id}-${t.occurrenceId}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface p-3 shadow-card">
+                    <li key={`${h.habit.id}-${t.occurrenceId}`} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-line bg-surface p-3">
                       <div className="flex min-w-0 items-center gap-3">
                         <span className="h-8 w-1 shrink-0 rounded-full" style={{ background: h.blockColor ?? "var(--accent)" }} />
                         <div className="min-w-0">
                           <p className="font-medium">{h.habit.name}</p>
                           <p className="text-xs text-muted">
-                            {h.blockName} · {formatMinutes(Number(t.start.slice(0, 2)) * 60 + Number(t.start.slice(3, 5)))}
+                            {h.blockName}, {formatMinutes(Number(t.start.slice(0, 2)) * 60 + Number(t.start.slice(3, 5)))}
                             {h.current > 0 && <span className="ml-1.5 font-medium text-warning">🔥 {h.current}</span>}
                             <span className="ml-1.5">best {h.best}</span>
                           </p>
@@ -330,35 +327,37 @@ export default async function CommandCenter() {
                   <Link href="/events" className="font-medium text-accent hover:underline">an event</Link>.
                 </div>
               ) : (
-                <ol className="card relative overflow-hidden py-1">
+                <ol className="space-y-2.5">
                   {timed.map((i) => {
                     const isNow = i === current;
                     const past = i.end <= now.minutes;
-                    const color = i.color ?? (i.kind === "event" ? "#64748b" : "#6366f1");
+                    const isEvent = i.kind === "event";
+                    const color = i.color ?? (isEvent ? "#64748b" : "#6366f1");
                     return (
                       <li
                         key={`${i.kind}-${i.id}-${i.start}`}
-                        className={`relative flex items-start gap-3 px-3 py-2.5 ${isNow ? "bg-accent-soft" : ""} ${past || i.status === "free_day" ? "opacity-55" : ""}`}
+                        className={`grid grid-cols-[3.25rem_minmax(0,1fr)] items-start gap-3 ${past || i.status === "free_day" ? "opacity-60" : ""}`}
                       >
-                        <span className="w-[4.5rem] shrink-0 pt-0.5 text-xs tabular-nums text-muted">{formatMinutes(i.start)}</span>
-                        <span
-                          className={`mt-1 h-3 w-3 shrink-0 rounded-full ${i.kind === "event" ? "border-2 bg-transparent" : ""}`}
-                          style={i.kind === "event" ? { borderColor: color } : { background: color }}
-                          aria-hidden
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className={`text-sm font-medium ${i.fulfilledBy ? "text-faint line-through" : ""}`}>{i.title}</p>
-                          <p className="text-xs text-muted">
-                            {range(i)} · {i.kind === "event" ? "Event" : "Block"}
-                            {i.isHabit ? " · Habit" : ""}
-                            {i.status === "free_day" ? " · free day" : ""}
-                            {i.fulfilledBy ? ` · fulfilled by ${i.fulfilledBy}` : ""}
-                            {i.fulfills ? ` · fulfills ${i.fulfills}` : ""}
-                          </p>
+                        <span className={`pt-3 text-right text-sm tabular-nums ${isNow ? "font-semibold text-accent" : "text-muted"}`}>{formatMinutes(i.start)}</span>
+                        <div
+                          className={`flex items-center gap-3 px-4 py-2.5 ${isEvent ? "rounded-2xl border-[1.5px] border-dashed bg-surface" : "band"} ${isNow ? "border-2" : ""}`}
+                          style={{ "--c": color, ...(isEvent || isNow ? { borderColor: color } : {}) } as CSSProperties}
+                        >
+                          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${isEvent ? "border-2 bg-transparent" : ""}`} style={isEvent ? { borderColor: color } : { background: color }} aria-hidden />
+                          <div className="min-w-0 flex-1">
+                            <p className={`font-semibold ${i.fulfilledBy ? "text-faint line-through" : ""}`}>{i.title}</p>
+                            <p className="text-sm text-muted">
+                              {range(i)}, {isEvent ? "event" : "block"}
+                              {i.isHabit ? ", habit" : ""}
+                              {i.status === "free_day" ? ", free day" : ""}
+                              {i.fulfilledBy ? `, fulfilled by ${i.fulfilledBy}` : ""}
+                              {i.fulfills ? `, fulfills ${i.fulfills}` : ""}
+                            </p>
+                          </div>
+                          {i.status === "done" && <span className="rounded-full bg-surface px-2.5 py-0.5 text-xs font-medium text-success">Done</span>}
+                          {i.status === "partial" && <span className="rounded-full bg-surface px-2.5 py-0.5 text-xs font-medium text-warning">Partly</span>}
+                          {isNow && <span className="rounded-full bg-accent px-2.5 py-0.5 text-xs font-semibold text-accent-fg">Now</span>}
                         </div>
-                        {i.status === "done" && <span className="rounded-full bg-success-soft px-2 py-0.5 text-[11px] font-medium text-success">Done</span>}
-                        {i.status === "partial" && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-[11px] font-medium text-warning">Partly</span>}
-                        {isNow && <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-accent-fg">Now</span>}
                       </li>
                     );
                   })}

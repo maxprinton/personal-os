@@ -26,3 +26,36 @@ Plan: https://claude.ai/artifact/NdccGVPrbDZbe9jsZk5Eyf
 5. Calendario en el panel: crear/mover un bloque funciona igual que antes.
 6. Teléfono: tabs abajo, "More" abre el resto; el calendario sigue siendo solo lectura.
 7. Si algo falla: Vercel → Deployments → el despliegue anterior → Promote.
+
+---
+
+# Rediseño "Blocks" (C) — 7 nov 2026
+
+Reemplaza la paleta "Índigo sereno". Referencia: el canvas con C claro y oscuro. Respaldo: `backups/antes-rediseno-c-2026-11-07.tgz`.
+
+## Hecho
+- Tokens nuevos en `globals.css` (claro #FBFCFE, oscuro #12141C; azul, coral, magenta, verde, ámbar), sin sombras, esquinas redondas grandes.
+- Tipografías: Bricolage Grotesque (títulos) + Figtree (texto) con `next/font/google`.
+- Barra superior (`shell/TopBar.tsx`) en lugar de la barra lateral: Today, Calendar, Tasks, Notes, Finance, Habits, More (resto de secciones, tema, cerrar sesión), búsqueda, Capture.
+- Calendario: ya no es un panel fijo; se abre desde la barra superior o con `\` como panel lateral.
+- Today: título "Saturday / November 7", tarjeta "Right now" con color del bloque, agenda con bandas de color de cada bloque.
+- Finance: tarjetas de cuentas, barra de gasto por categoría, títulos de sección nuevos.
+- Settings en pestañas: Appearance, Telegram, AI, Writing, Data (`/settings?tab=...`).
+- Notas en dos paneles: en una nota abierta aparece la lista de notas a la izquierda (`notes/[id]/layout.tsx`, solo pantallas grandes).
+- Etiquetas en MAYÚSCULAS y espaciadas pasan a minúsculas normales (regla global); el texto de miniaturas de YouTube sigue en mayúsculas.
+- PWA: caché `personal-os-v5`, colores nuevos.
+
+## No hecho / aproximado
+- Today no agrupa tareas por bloque como el mock, ni tiene la tira "This week" (el calendario se abre aparte).
+- Páginas secundarias (Tasks, Habits, Blocks, Events, YouTube, Capture, Login) heredan colores, fuentes y bordes, pero no se rediseñaron una por una.
+- Los colores por defecto de bloques nuevos siguen siendo el índigo anterior (#6366f1).
+
+## Lista de prueba
+1. PROBAR-BUILD.cmd → "build exit: 0" (necesita internet por las fuentes). Luego SUBIR-CAMBIOS.cmd.
+2. Barra superior: cada sección, el menú More, búsqueda, Capture. Teléfono: tabs abajo.
+3. Calendario: botón de la barra superior y tecla `\`; Esc lo cierra; crear/mover un bloque funciona igual.
+4. Today en claro y oscuro: tarjeta "Right now", marcar una tarea y un hábito.
+5. Finance: barra de gasto y las tarjetas de cuentas.
+6. Settings: las 5 pestañas guardan igual que antes.
+7. Abrir una nota: lista a la izquierda, el editor sigue guardando.
+8. Si algo falla: Vercel → Deployments → despliegue anterior → Promote, o restaurar el .tgz.

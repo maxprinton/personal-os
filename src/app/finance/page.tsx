@@ -100,27 +100,60 @@ export default async function FinancePage() {
   const unassigned = accounts.length > 0 ? txns.filter((t) => !t.account_id) : [];
   const monthName = new Date(`${today}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
 
+  // Spending by category as one bar: the 4 biggest in the block palette, the rest together as "Other"
+  const palette = ["var(--b-blue)", "var(--b-coral)", "var(--b-magenta)", "var(--b-green)"];
+  const spendByCat = expenseCats
+    .map((c) => ({
+      name: c.name,
+      total: monthTxns.filter((t) => t.type === "expense" && t.category_id === c.id).reduce((n, t) => n + t.amount, 0),
+    }))
+    .filter((x) => x.total > 0)
+    .sort((a, b) => b.total - a.total);
+  const restTotal = spendByCat.slice(4).reduce((n, x) => n + x.total, 0);
+  const spendBar = [
+    ...spendByCat.slice(0, 4).map((x, i) => ({ ...x, color: palette[i] })),
+    ...(restTotal > 0 ? [{ name: "Other", total: restTotal, color: "var(--b-amber)" }] : []),
+  ];
+
   return (
     <>
-      <main className="@container mx-auto w-full max-w-6xl space-y-8 px-4 py-6 sm:px-6 lg:py-8">
+      <main className="@container mx-auto w-full max-w-[1280px] space-y-8 px-4 py-6 sm:px-8 lg:py-9">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Finance</h1>
-          <p className="text-sm text-muted">Log what you can. A balance update fixes the rest.</p>
+          <h1 className="font-display text-4xl font-bold leading-[1.05] tracking-tight sm:text-5xl">Finance</h1>
+          <p className="mt-2 text-muted">Log what you can. A balance update fixes the rest.</p>
         </div>
 
         <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
-            { label: `${monthName} income`, value: sums.income, cls: "text-success" },
-            { label: `${monthName} spent`, value: sums.expense, cls: "text-danger" },
-            { label: "Net this month", value: sums.net, cls: sums.net >= 0 ? "text-success" : "text-danger" },
-            { label: "All accounts", value: netWorth, cls: "" },
+            { label: `${monthName} income`, value: sums.income, cls: "text-success", strong: false },
+            { label: `${monthName} spent`, value: sums.expense, cls: "text-danger", strong: false },
+            { label: "Net this month", value: sums.net, cls: sums.net >= 0 ? "text-success" : "text-danger", strong: false },
+            { label: "All accounts", value: netWorth, cls: "", strong: true },
           ].map((c) => (
-            <div key={c.label} className="card p-4">
-              <p className="text-xs text-muted">{c.label}</p>
-              <p className={`text-2xl font-semibold tabular-nums tracking-tight ${c.cls}`}>{formatUSD(c.value)}</p>
+            <div key={c.label} className={`rounded-2xl px-5 py-4 ${c.strong ? "bg-fg text-app" : "bg-subtle"}`}>
+              <p className={`text-sm ${c.strong ? "opacity-70" : "text-muted"}`}>{c.label}</p>
+              <p className={`font-display text-3xl font-bold tabular-nums tracking-tight ${c.cls}`}>{formatUSD(c.value)}</p>
             </div>
           ))}
         </section>
+
+        {spendBar.length > 0 && (
+          <section aria-label={`${monthName} spending by category`}>
+            <div className="flex h-4 gap-0.5 overflow-hidden rounded-full">
+              {spendBar.map((x) => (
+                <i key={x.name} className="block" style={{ flex: x.total, background: x.color }} title={`${x.name} ${formatUSD(x.total)}`} />
+              ))}
+            </div>
+            <ul className="mt-2.5 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted">
+              {spendBar.map((x) => (
+                <li key={x.name} className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: x.color }} aria-hidden />
+                  {x.name} <span className="tabular-nums">{formatUSD(x.total)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {unassigned.length > 0 && (
           <section className="space-y-2 rounded-lg border border-warning/40 bg-warning-soft p-3">

@@ -64,6 +64,17 @@ export const ADDONS: Addon[] = [
     keywords: ["music", "musica", "música", "audio", "song", "track", "pista", "background", "fondo", "wav", "beat", "soundtrack"],
     connects: ["YouTube Pipeline (video energy curves, music list)"],
   },
+  {
+    id: "portfolio",
+    name: "Portfolio",
+    description: "Your public website in English and Spanish. Write each page as a normal note, then publish it with one button: About, Now, projects, articles and videos.",
+    icon: "globe",
+    href: "/portfolio",
+    type: "creative",
+    key: "p",
+    keywords: ["portfolio", "portafolio", "website", "sitio", "web", "publish", "publicar", "blog", "projects", "proyectos", "about", "now", "case study", "contact", "contacto"],
+    connects: ["Notes", "Public website (Vercel)", "Telegram (contact messages)", "YouTube Pipeline (published videos)"],
+  },
 ];
 
 /** How many add-ons fit in the main menu. */

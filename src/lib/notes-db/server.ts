@@ -198,6 +198,22 @@ export async function getNotesDatabase(sb: SupabaseClient, opts: { userId?: stri
   const backlinks = new Map<string, number>();
   for (const [from, s] of stats) for (const to of s.links) if (to !== from) backlinks.set(to, (backlinks.get(to) ?? 0) + 1);
 
+  // Portfolio pages: which notes are the page of a slot (ignored when migration 0042 has not been run)
+  const portfolioLabel = new Map<string, string>();
+  {
+    const [{ data: links, error: e1 }, { data: slots, error: e2 }] = await Promise.all([
+      sb.from("notes").select("id,portfolio_slot_id,portfolio_lang").eq("user_id", userId).is("deleted_at", null).not("portfolio_slot_id", "is", null),
+      sb.from("portfolio_slots").select("id,kind,key").eq("user_id", userId),
+    ]);
+    if (!e1 && !e2) {
+      const slotById = new Map(((slots ?? []) as { id: string; kind: string; key: string }[]).map((x) => [x.id, x]));
+      for (const l of (links ?? []) as { id: string; portfolio_slot_id: string; portfolio_lang: string }[]) {
+        const sl = slotById.get(l.portfolio_slot_id);
+        if (sl) portfolioLabel.set(l.id, `${sl.kind === sl.key ? sl.kind[0].toUpperCase() + sl.kind.slice(1) : sl.key} · ${l.portfolio_lang.toUpperCase()}`);
+      }
+    }
+  }
+
   const status = properties.find((p) => p.type === "status" && p.config.defaultOptionId);
   const all: DbNote[] = notesRows.map((r) => {
     const s = stats.get(r.id)!;
@@ -214,6 +230,7 @@ export async function getNotesDatabase(sb: SupabaseClient, opts: { userId?: stri
       cover: r.page?.cover ?? null,
       parentId: r.parent_id,
       blockName: r.block_name,
+      portfolio: portfolioLabel.get(r.id) ?? null,
       kind: kindOf(r),
       seq: r.seq,
       createdAt: r.created_at,

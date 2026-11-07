@@ -1,7 +1,7 @@
 // AI summary of a search — pure part: turns the found notes (their properties + only the pieces where the
 // words appear) into numbered excerpts that fit one call of Groq's free plan, and splits the AI's
 // citations ([3], [2][5], [1, 4]) for the screen.
-import { makeSnippet } from "@/lib/search/core";
+import { fold, makeSnippet, wordsOf } from "@/lib/search/core";
 
 export type EvidencePassage = { kind: string; label: string | null; anchor: string | null; body: string };
 export type EvidenceNote = { id: string; title: string; parentTitle: string | null; updatedAt: string; props: string[]; passages: EvidencePassage[] };
@@ -106,4 +106,54 @@ export function splitCitations(line: string, max: number): Piece[] {
   }
   if (at < line.length) out.push({ text: line.slice(at) });
   return out;
+}
+
+// ---- Citation check (free: no AI) ----------------------------------------------------------------
+// A claim cited as [n] should share at least one meaningful word with what the AI read from note n
+// (its title, properties and excerpts). The searched words don't count (every excerpt has them).
+// Words are compared by their first 5 letters, so "planning" ~ "planned" and "presupuesto" ~ "presupuestos".
+
+const CHECK_STOP = new Set(
+  (
+    "that this these those with from have their there which about would could should into than then them they what when where while also only more most some such very your " +
+    "notes note nota notas mention mentions mentioned says said shows include includes including related relates describe describes " +
+    "para pero como cuando donde porque esta este estos estas esos esas sobre entre tiene tienen hace hacen tambien solo menciona mencionan dice dicen incluye incluyen relacion relaciona"
+  )
+    .split(/\s+/)
+    .filter(Boolean),
+);
+
+/** Meaningful words of a text as 5-letter stems (4+ letters, no filler, no searched words). */
+export function claimStems(text: string, skip: string[] = []): string[] {
+  const skipStems = new Set(skip.map((w) => fold(w).slice(0, 5)).filter((w) => w.length >= 3));
+  const out = new Set<string>();
+  for (const w of wordsOf(text.replace(/\*\*|\[[\d,;\s]+\]/g, " "))) {
+    if (w.length < 4 || /^\d+$/.test(w) || CHECK_STOP.has(w)) continue;
+    const stem = w.slice(0, 5);
+    if (skipStems.has(stem)) continue;
+    out.add(stem);
+  }
+  return [...out];
+}
+
+/** Everything the AI read from one note, folded (title + properties + excerpts). */
+export function sourceText(s: Source): string {
+  return fold([s.title, s.parentTitle ?? "", ...s.props, ...s.passages.map((p) => `${p.label} ${p.text}`)].join(" "));
+}
+
+/**
+ * The cited notes that don't seem to back this claim: none of the claim's meaningful words appear in
+ * what the AI read from that note. Claims with fewer than 2 meaningful words are never flagged.
+ */
+export function weakCitations(claim: string, nums: number[], sources: Source[], searched: string[] = []): number[] {
+  const stems = claimStems(claim, searched);
+  if (stems.length < 2) return [];
+  const weak: number[] = [];
+  for (const n of nums) {
+    const s = sources[n - 1];
+    if (!s) continue;
+    const words = new Set(wordsOf(sourceText(s)).map((w) => w.slice(0, 5)));
+    if (!stems.some((st) => words.has(st))) weak.push(n);
+  }
+  return weak;
 }

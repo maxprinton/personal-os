@@ -67,7 +67,7 @@ export default function FilmMode({
 
   return (
     <div className="fixed inset-0 z-40 overflow-y-auto bg-app text-fg">
-      <header className="sticky top-0 z-10 border-b border-line bg-surface/95 px-3 py-2 backdrop-blur">
+      <header className="sticky top-14 z-10 border-b border-line bg-surface/95 px-3 py-2 backdrop-blur">
         <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-2">
           <Link href={videoHref(video.id, "shots")} className={BTN_SM} aria-label="Back to the shot list">
             ← Back

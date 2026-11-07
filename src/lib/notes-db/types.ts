@@ -24,6 +24,7 @@ export type PropType =
   | "last_edited_time"
   | "kind"
   | "block" // the block this note belongs to (block notes); changed from its menu, not typed
+  | "portfolio" // the Portfolio slot + language this note is the page of (read only, computed)
   | "word_count"
   | "open_todos"
   | "backlinks"
@@ -34,7 +35,7 @@ export type PropType =
 /** Types offered in "+ Add a property" (the rest are built-in only). */
 export const CREATABLE_TYPES: PropType[] = ["text", "number", "select", "multi_select", "status", "date", "checkbox", "files", "url", "email", "phone", "relation", "rollup", "unique_id"];
 /** Types whose value can't be edited by hand. */
-export const READONLY_TYPES: PropType[] = ["rollup", "unique_id", "created_time", "last_edited_time", "kind", "block", "word_count", "open_todos", "backlinks"];
+export const READONLY_TYPES: PropType[] = ["rollup", "unique_id", "created_time", "last_edited_time", "kind", "block", "portfolio", "word_count", "open_todos", "backlinks"];
 
 export const TYPE_LABEL: Record<PropType, string> = {
   text: "Text",
@@ -55,6 +56,7 @@ export const TYPE_LABEL: Record<PropType, string> = {
   last_edited_time: "Last edited time",
   kind: "Kind",
   block: "Block",
+  portfolio: "Portfolio",
   word_count: "Word count",
   open_todos: "Open to-dos",
   backlinks: "Backlinks",
@@ -81,6 +83,7 @@ export const TYPE_ICON: Record<PropType, string> = {
   last_edited_time: "🕒",
   kind: "📄",
   block: "🧱",
+  portfolio: "🌐",
   word_count: "#",
   open_todos: "☐",
   backlinks: "↙",
@@ -146,6 +149,8 @@ export type DbNote = {
   cover: string | null;
   parentId: string | null;
   blockName: string | null;
+  /** "About · EN" when the note is a portfolio page, else null (read only). */
+  portfolio?: string | null;
   kind: NoteKind;
   seq: number | null;
   createdAt: string;

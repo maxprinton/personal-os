@@ -5,7 +5,8 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { summarizeSearchAction } from "@/app/search-actions";
-import { splitCitations, type Source } from "@/lib/search/ai-evidence";
+import { splitCitations, weakCitations, type Source } from "@/lib/search/ai-evidence";
+import { wordsOf } from "@/lib/search/core";
 import type { SearchSummary } from "@/lib/search/ai";
 import type { SearchOptions } from "@/lib/search/server";
 
@@ -13,15 +14,28 @@ const href = (s: Source, q: string) => `/notes/${s.id}?find=${encodeURIComponent
 
 function Inline({ text, sources, q }: { text: string; sources: Source[]; q: string }) {
   const out: React.ReactNode[] = [];
+  const searched = wordsOf(q);
+  let claim = ""; // the text since the previous citation: what this citation should back
   splitCitations(text, sources.length).forEach((p, i) => {
     if ("cite" in p) {
+      // Too short to judge (e.g. "… [1], [2]"): judge it with the whole line
+      const judged = claim.split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4).length >= 3 ? claim : text;
+      const weak = new Set(weakCitations(judged, p.cite, sources, searched));
+      claim = "";
       out.push(
         <span key={i} className="whitespace-nowrap">
           {p.cite.map((n) => {
             const s = sources[n - 1];
+            const w = weak.has(n);
             return (
-              <Link key={n} href={href(s, q)} title={s.title} className="mx-px inline-block rounded bg-accent-soft px-1 align-baseline text-[11px] font-semibold text-accent no-underline hover:bg-accent hover:text-accent-fg">
+              <Link
+                key={n}
+                href={href(s, q)}
+                title={w ? `${s.title} — couldn't find this in what the AI read from note ${n}. Open it to check.` : s.title}
+                className={`mx-px inline-block rounded px-1 align-baseline text-[11px] font-semibold no-underline ${w ? "border border-dashed border-warning bg-transparent text-warning hover:bg-subtle" : "bg-accent-soft text-accent hover:bg-accent hover:text-accent-fg"}`}
+              >
                 {n}
+                {w && <sup className="ml-px">?</sup>}
               </Link>
             );
           })}
@@ -29,6 +43,7 @@ function Inline({ text, sources, q }: { text: string; sources: Source[]; q: stri
       );
       return;
     }
+    claim += p.text;
     // **bold** and *italic*
     p.text.split(/(\*\*[^*]+\*\*|\*[^*\s][^*]*\*)/g).forEach((t, j) => {
       if (!t) return;

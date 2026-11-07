@@ -156,6 +156,8 @@ export function usageLine(calls: AiCall[], sum: UsageSummary | null, day: string
   if (!calls.length) return null;
   const tokens = calls.reduce((s, c) => s + c.prompt + c.completion, 0);
   const last = [...calls].reverse().find((c) => c.model) ?? calls.at(-1)!;
+  // Answered by the backup (Groq was out of quota / down): its own free plan, not Groq's limits
+  if (last.model.startsWith("cloudflare:")) return `✨ ${num(tokens)} tokens · answered by the Cloudflare backup (Groq wasn't available)`;
   const today = modelToday(sum, day, last.model);
   const usedTok = Math.max(today.tokens, tokens);
   const left = last.remReq ?? null;

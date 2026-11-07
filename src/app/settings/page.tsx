@@ -20,7 +20,17 @@ function Check({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
-export default async function SettingsPage() {
+const TABS = [
+  { id: "appearance", label: "Appearance" },
+  { id: "telegram", label: "Telegram" },
+  { id: "ai", label: "AI" },
+  { id: "writing", label: "Writing" },
+  { id: "data", label: "Data" },
+] as const;
+
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const { tab: tabParam } = await searchParams;
+  const tab = TABS.some((t) => t.id === tabParam) ? tabParam! : "appearance";
   const supabase = await createClient();
   const {
     data: { user },
@@ -58,23 +68,40 @@ export default async function SettingsPage() {
 
   return (
     <>
-      <main className="mx-auto w-full max-w-3xl space-y-8 px-4 py-6 sm:px-6 lg:py-8">
+      <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6 sm:px-8 lg:py-9">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-          <p className="text-sm text-muted">
-            {user?.email} · {s?.timezone} · {s?.currency} · English
+          <h1 className="font-display text-4xl font-bold leading-[1.05] tracking-tight sm:text-5xl">Settings</h1>
+          <p className="mt-2 text-muted">
+            {user?.email}, {s?.timezone}, {s?.currency}, English
           </p>
         </div>
 
-        <section className="card flex flex-wrap items-center justify-between gap-3 p-4">
+        <nav aria-label="Settings sections" className="flex flex-wrap gap-1.5">
+          {TABS.map((t) => (
+            <Link
+              key={t.id}
+              href={`/settings?tab=${t.id}`}
+              aria-current={tab === t.id ? "page" : undefined}
+              className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
+                tab === t.id ? "border-fg bg-fg text-app" : "border-line text-muted hover:bg-subtle hover:text-fg"
+              }`}
+            >
+              {t.label}
+            </Link>
+          ))}
+        </nav>
+
+        <div hidden={tab !== "appearance"} className="space-y-6">
+        <section className="card flex flex-wrap items-center justify-between gap-3 p-5">
           <div>
             <h2 className="font-medium">Appearance</h2>
             <p className="text-sm text-muted">Auto follows your device&apos;s light or dark setting.</p>
           </div>
           <ThemeToggle />
         </section>
-
-        <section className="space-y-3 rounded-lg border border-line p-4 bg-surface shadow-card">
+        </div>
+        <div hidden={tab !== "telegram"} className="space-y-6">
+        <section className="space-y-3 card p-5">
           <h2 className="font-medium">Telegram bot (&quot;invisible UI&quot;)</h2>
           <p className="text-sm text-muted">
             Text the bot things like &quot;spent 12 on lunch&quot; or &quot;task: call mom tomorrow&quot; and they land here.
@@ -123,24 +150,27 @@ export default async function SettingsPage() {
             }}
           />
         )}
-
-        <section className="space-y-3 rounded-lg border border-line p-4 bg-surface shadow-card">
+        </div>
+        <div hidden={tab !== "writing"} className="space-y-6">
+        <section className="space-y-3 card p-5">
           <div>
             <h2 className="font-medium">Writing</h2>
             <p className="text-sm text-muted">Spelling in Spanish and English, next-word prediction and the AI that checks what the rules can&apos;t.</p>
           </div>
           <WritingSettings />
         </section>
-
-        <section id="ai-usage" className="space-y-3 rounded-lg border border-line p-4 bg-surface shadow-card">
+        </div>
+        <div hidden={tab !== "ai"} className="space-y-6">
+        <section id="ai-usage" className="space-y-3 card p-5">
           <div>
             <h2 className="font-medium">AI usage</h2>
             <p className="text-sm text-muted">Groq&apos;s free plan: about 1,000 requests and 200,000 tokens a day per model. Also in Telegram: /usage.</p>
           </div>
           <AiUsageSection />
         </section>
-
-        <section className="space-y-3 rounded-lg border border-line p-4 bg-surface shadow-card">
+        </div>
+        <div hidden={tab !== "telegram"} className="space-y-6">
+        <section className="space-y-3 card p-5">
           <h2 className="font-medium">Weekly insights</h2>
           <p className="text-sm text-muted">
             Every Monday at 8:00 AM the system reviews postponed tasks, stale backlog, habits and budgets, and leaves
@@ -150,8 +180,9 @@ export default async function SettingsPage() {
             <button className="rounded-md border border-edge transition-colors hover:bg-subtle px-3 py-1.5 text-sm">Generate now</button>
           </form>
         </section>
-
-        <section className="space-y-3 rounded-lg border border-line p-4 bg-surface shadow-card">
+        </div>
+        <div hidden={tab !== "data"} className="space-y-6">
+        <section className="space-y-3 card p-5">
           <div className="flex items-center justify-between gap-2">
             <h2 className="font-medium">Tags</h2>
             {unusedCount > 0 && (
@@ -177,7 +208,7 @@ export default async function SettingsPage() {
           </ul>
         </section>
 
-        <section className="space-y-3 rounded-lg border border-line p-4 bg-surface shadow-card">
+        <section className="space-y-3 card p-5">
           <h2 className="font-medium">Your data</h2>
           <div className="flex flex-wrap gap-2">
             <a href="/api/export" className="rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-1.5 text-sm text-accent-fg">
@@ -191,14 +222,16 @@ export default async function SettingsPage() {
             The ZIP has your notes as Markdown files and every table as CSV. No lock-in.
           </p>
         </section>
-
-        <section className="space-y-2 rounded-lg border border-line p-4 bg-surface shadow-card">
+        </div>
+        <div hidden={tab !== "appearance"} className="space-y-6">
+        <section className="space-y-2 card p-5">
           <h2 className="font-medium">Install on your phone</h2>
           <p className="text-sm text-muted">
             Open this site on your phone. Android (Chrome): menu ⋮ → Install app. iPhone (Safari): Share → Add to Home
             Screen. Quick capture works offline and syncs when you are back online.
           </p>
         </section>
+        </div>
       </main>
     </>
   );

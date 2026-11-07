@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Bricolage_Grotesque, Figtree } from "next/font/google";
 import "./globals.css";
 import ServiceWorker from "@/components/ServiceWorker";
 import RecoverStale from "@/components/RecoverStale";
@@ -6,6 +7,10 @@ import NowTint from "@/components/calendar/NowTint";
 import AppShell from "@/components/shell/AppShell";
 import { themeScript } from "@/components/ui/ThemeToggle";
 import AiUsageToast from "@/components/AiUsageToast";
+
+// Headings: Bricolage Grotesque. Everything else: Figtree. Self-hosted by Next at build time.
+const bricolage = Bricolage_Grotesque({ subsets: ["latin"], variable: "--font-bricolage", display: "swap" });
+const figtree = Figtree({ subsets: ["latin"], variable: "--font-figtree", display: "swap" });
 
 export const metadata: Metadata = {
   title: "Personal OS",
@@ -17,8 +22,8 @@ export const metadata: Metadata = {
 
 export const viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f6f7fb" },
-    { media: "(prefers-color-scheme: dark)", color: "#0f1117" },
+    { media: "(prefers-color-scheme: light)", color: "#fbfcfe" },
+    { media: "(prefers-color-scheme: dark)", color: "#12141c" },
   ],
   viewportFit: "cover",
 };
@@ -27,7 +32,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className={`${bricolage.variable} ${figtree.variable}`}>
       <head>
         {/* Applies light/dark before the first paint */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />

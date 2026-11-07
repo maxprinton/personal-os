@@ -125,6 +125,9 @@ export default function SearchPage({ initial }: { initial: string }) {
         {res?.ok && q.trim() && <span className="ml-auto text-xs text-muted">{res.total} {res.total === 1 ? "note" : "notes"}</span>}
       </div>
 
+      {res?.building && (
+        <p className="rounded-lg bg-subtle px-3 py-2 text-sm text-muted">⏳ The search index is still being built ({res.building.indexed} of {res.building.notes} notes), so some notes may be missing. It finishes by itself in a few minutes.</p>
+      )}
       {res?.corrected && <p className="text-sm text-muted">No exact matches. Showing results for “{res.corrected}”.</p>}
       {res && !res.ok && <p className="text-sm text-danger">Search isn&apos;t ready: {res.error ?? "error"}</p>}
       {res?.ok && q.trim() && !list.length && !busy && <p className="text-sm text-muted">No notes contain all of these words{kind !== "all" ? " in that place" : ""}.</p>}

@@ -2,7 +2,7 @@
 // Pages: network first, fall back to the last copy seen. Static assets: cache first.
 // v3: only successful responses are cached (v2 could keep a failed download of an app file forever,
 // which broke the app in that browser until its data was cleared). Changing the name wipes old caches.
-const CACHE = "personal-os-v4"; // v4: the spelling dictionaries (/dict/) are kept for offline use
+const CACHE = "personal-os-v5"; // v5: Blocks redesign (new fonts and colors). v4: the spelling dictionaries (/dict/) are kept for offline use
 const PRECACHE = ["/capture", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {

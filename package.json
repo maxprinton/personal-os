@@ -28,11 +28,13 @@
     "test:note-views": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-note-views.ts",
     "test:text-drop": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-text-drop.ts",
     "test:search": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-search.ts",
+    "test:search-fixes": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-search-fixes.ts",
     "test:tag-ops": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-tag-ops.ts",
     "test:youtube-a": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-a.ts",
     "test:youtube-b": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-b.ts",
     "test:youtube-c": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-c.ts",
     "test:youtube": "npm run -s test:youtube-lead && npm run -s test:youtube-a && npm run -s test:youtube-b && npm run -s test:youtube-c",
+    "test:portfolio-core": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-portfolio-core.ts",
     "test:youtube-lead": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-lead.ts"
   },
   "dependencies": {

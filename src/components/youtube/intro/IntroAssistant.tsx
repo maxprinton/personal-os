@@ -117,7 +117,7 @@ export default function IntroAssistant({
   };
 
   return (
-    <aside className="min-w-0 space-y-3 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:self-start xl:overflow-y-auto" aria-label="Intro assistant">
+    <aside className="min-w-0 space-y-3 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:self-start xl:overflow-y-auto" aria-label="Intro assistant">
       {/* Pinned pair */}
       <div className={`${CARD} border-accent/40`}>
         <div className="flex items-center justify-between gap-2">
@@ -133,7 +133,7 @@ export default function IntroAssistant({
           <div className="flex aspect-video w-full flex-col items-center justify-center rounded-md border border-dashed border-line bg-subtle p-2 text-center">
             <span className="text-sm font-medium">{pinned.thumbnail.concept}</span>
             {pinned.thumbnail.focal && <span className="text-[11px] text-muted">Focal: {pinned.thumbnail.focal}</span>}
-            {pinned.thumbnail.text && <span className="text-xs font-bold uppercase">“{pinned.thumbnail.text}”</span>}
+            {pinned.thumbnail.text && <span className="text-xs font-bold [text-transform:uppercase]">“{pinned.thumbnail.text}”</span>}
           </div>
         ) : null}
         <p className="text-sm font-semibold leading-snug">{pinned.title ?? <span className="font-normal text-muted">No title yet — the intro delivers on the title, so pick one in Package.</span>}</p>
