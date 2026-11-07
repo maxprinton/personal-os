@@ -1,0 +1,6 @@
+Portfolio fase 5: videos
+
+- OS: pantalla /portfolio/videos (agregar videos terminados del add-on de YouTube, ordenar, destacar, ocultar, refrescar, quitar)
+- Solo se copian titulo, descripcion corta, fecha, miniatura y duracion; la miniatura va al bucket publico
+- Sitio: /videos, reproductor que carga al hacer clic (youtube-nocookie), ultimo video en Inicio, video adjunto en proyectos y articulos, VideoObject JSON-LD
+- Pruebas nuevas: test:portfolio-videos

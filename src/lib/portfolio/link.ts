@@ -3,9 +3,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { LANGS, type Lang, type SlotKind } from "@/lib/portfolio/constants";
 import { cleanLangs, isSingleton, keyFor, keyProblem, KIND_LABEL, nextPosition, renameKey, slugFor, slugProblem, slugTaken, sortSlots } from "@/lib/portfolio/slots";
+import { sourceHash } from "@/lib/portfolio/publish/hash";
 import { computeStatus } from "@/lib/portfolio/status";
 import type { LinkedNote, PublishedInfo, Slot, SlotLangs, SlotMeta, SlotView } from "@/lib/portfolio/types";
 import { isMissingPortfolio } from "@/lib/portfolio/errors";
+import { starterFor } from "@/lib/portfolio/templates";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 export type Result<T = object> = ({ ok: true } & T) | { ok: false; error: string };
@@ -50,12 +52,25 @@ export async function loadSlotViews(sb: SupabaseClient, userId: string, opts: { 
     pubs.set(`${p.slot_id}:${p.lang}`, { version: p.version, is_live: p.is_live, published_at: p.published_at, slug: p.slug, source_hash: hash.get(`${p.slot_id}:${p.lang}`) ?? null });
   }
 
+  // change detection: compare a fingerprint of the note (and the slot's texts) with the one that went live
+  const toCheck = new Map<string, string>();
+  for (const [k, p] of pubs) {
+    const n = notes.get(k);
+    if (p.is_live && p.source_hash && n && !n.deleted_at) toCheck.set(n.id, k);
+  }
+  const bodies = new Map<string, { title: string | null; content: string | null; page: { icon?: string | null; cover?: string | null } | null }>();
+  if (toCheck.size) {
+    const { data } = await sb.from("notes").select("id,title,content,page").eq("user_id", userId).in("id", [...toCheck.keys()]);
+    for (const n of (data ?? []) as { id: string; title: string | null; content: string | null; page: { icon?: string | null; cover?: string | null } | null }[]) bodies.set(toCheck.get(n.id)!, n);
+  }
+
   const views: SlotView[] = slots.map((s) => {
     const pages = {} as SlotView["pages"];
     for (const lang of LANGS) {
       const note = notes.get(`${s.id}:${lang}`) ?? null;
       const published = pubs.get(`${s.id}:${lang}`) ?? null;
-      pages[lang] = { note, published, status: computeStatus(note, published) };
+      const body = bodies.get(`${s.id}:${lang}`);
+      pages[lang] = { note, published, status: computeStatus(note, published, body ? sourceHash(body, s, lang) : null) };
     }
     return { ...s, pages };
   });
@@ -187,7 +202,7 @@ export async function linkNote(sb: SupabaseClient, userId: string, input: { slot
   return { ok: true, released };
 }
 
-/** A new empty note linked to the slot (its title starts as the slot's name). Fails when the language already has a note. */
+/** A new note linked to the slot, filled with a short starter text for the page kind (its title starts as the slot's name). Fails when the language already has a note. */
 export async function createLinkedNote(sb: SupabaseClient, userId: string, input: { slotId: string; lang: Lang; title?: string; content?: string }): Promise<Result<{ noteId: string }>> {
   const slot = (await allSlots(sb, userId)).find((s) => s.id === input.slotId);
   if (!slot) return fail("This slot no longer exists.");
@@ -195,7 +210,7 @@ export async function createLinkedNote(sb: SupabaseClient, userId: string, input
   const title = (input.title ?? "").trim() || (isSingleton(slot.kind) ? KIND_LABEL[slot.kind] : slot.key);
   const { data, error } = await sb
     .from("notes")
-    .insert({ user_id: userId, title, content: input.content ?? "", portfolio_slot_id: input.slotId, portfolio_lang: input.lang })
+    .insert({ user_id: userId, title, content: input.content ?? starterFor(slot.kind, input.lang), portfolio_slot_id: input.slotId, portfolio_lang: input.lang })
     .select("id")
     .single();
   if (error || !data) return fail(error?.message ?? "Could not create the note.");

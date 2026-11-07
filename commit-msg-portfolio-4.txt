@@ -1,0 +1,8 @@
+Portfolio fase 4: escritos, uso, RSS, búsqueda y plantillas
+
+- Sitio: /writing (lista), /writing/[slug] (artículo con fecha, índice y JSON-LD), /uses, /rss.xml (solo resumen) y /search (servidor, noindex)
+- Buscador en la barra lateral; helpers puros de consulta, fragmento y orden
+- Menú: Writing y Uses se activan al tener páginas publicadas
+- OS: plantillas de inicio por tipo y idioma al crear una nota de portfolio
+- published_at conserva la fecha de la primera publicación
+- Pruebas nuevas: test:portfolio-writing; test:security cubre búsqueda y RSS

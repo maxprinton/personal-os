@@ -1,0 +1,8 @@
+Portfolio fase 6: contacto
+
+- Sitio: pagina /contact con formulario (Turnstile, campo trampa, tiempo minimo), /api/contact que reenvia firmado al OS
+- OS: /api/portfolio/contact (HMAC, ventana de 5 min, limite por visitante y por dia, puntuacion de spam, duplicados), guarda en portfolio_inbox
+- Bandeja en Portfolio -> Inbox: no leidos, resuelto, spam aparte, responder por correo, borrar
+- Aviso por Telegram para mensajes que no son spam
+- CSP: solo la pagina de contacto permite Turnstile
+- Pruebas nuevas: test:portfolio-contact, test:portfolio-sitecontact

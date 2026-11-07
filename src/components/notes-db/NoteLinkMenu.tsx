@@ -17,6 +17,7 @@ import {
   type LinkResult,
   type PageChoice,
 } from "@/app/block-link-actions";
+import { linkNoteToPortfolio, portfolioChoicesForNote, unlinkNoteFromPortfolio, type PortfolioLinkInfo } from "@/app/portfolio-actions";
 import { emitCalendarChanged } from "@/components/calendar/util";
 import type { NoteKind, RelatedItem } from "@/lib/notes-db/types";
 import { anchorOf, errorText, fitWidth, toast, type Anchor } from "./prop-ui";
@@ -27,6 +28,7 @@ type View =
   | { v: "menu" }
   | { v: "blocks" }
   | { v: "pages"; mode: "inside" | "another" }
+  | { v: "portfolio" }
   | { v: "confirm"; text: ReactNode; action: string; run: () => Promise<void>; danger?: boolean }
   | { v: "choice"; c: Choice };
 
@@ -176,6 +178,43 @@ function PageList({ noteId, onPick }: { noteId: string; onPick: (p: PageChoice) 
   );
 }
 
+/** Kind menu → Portfolio: pick the page (and language) this note becomes, or unlink it. */
+function PortfolioList({ noteId, onLink, onUnlink }: { noteId: string; onLink: (slot: PortfolioLinkInfo["slots"][number], lang: "en" | "es") => void; onUnlink: (c: NonNullable<PortfolioLinkInfo["current"]>) => void }) {
+  const [info, setInfo] = useState<PortfolioLinkInfo | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void portfolioChoicesForNote(noteId)
+      .then((r) => live && (r.ok ? setInfo(r) : setErr(r.error)))
+      .catch((e) => live && setErr(errorText(e, "Couldn't load the portfolio pages.")));
+    return () => {
+      live = false;
+    };
+  }, [noteId]);
+  return (
+    <div className="np-section" style={{ maxHeight: 320, overflowY: "auto" }}>
+      {err && <p className="np-hint np-err">{err}</p>}
+      {!info && !err && <p className="np-hint">Loading…</p>}
+      {info?.current && <Row icon="✂" label={`Unlink from ${info.current.label} (${info.current.lang.toUpperCase()})`} onClick={() => onUnlink(info.current!)} />}
+      {info?.slots.map((s) => (
+        <div key={s.id} className="np-row-btn !cursor-default">
+          <span className="np-icon">🌐</span>
+          <span className="min-w-0 flex-1 truncate">
+            {s.label} <span className="text-xs text-muted">{s.kind}</span>
+          </span>
+          {(["en", "es"] as const).map((l) => (
+            <button key={l} type="button" className={btn2} title={s.taken[l] ? "Already has a note" : "Empty"} disabled={info.current?.slotId === s.id && info.current.lang === l} onClick={() => onLink(s, l)}>
+              {l.toUpperCase()}
+              {s.taken[l] ? " •" : ""}
+            </button>
+          ))}
+        </div>
+      ))}
+      {info && !info.slots.length && <p className="np-hint">No portfolio pages yet. Create one in Portfolio → Pages.</p>}
+    </div>
+  );
+}
+
 /** Runs a link and turns its answer into: done, a Replace/Merge question, or an error. */
 async function runLink(noteId: string, blockTypeId: string, mode?: "replace" | "merge"): Promise<{ done?: string; notice?: string; choice?: Choice }> {
   const r: LinkResult = await linkNoteToBlock({ noteId, blockTypeId, mode });
@@ -287,6 +326,42 @@ export default function NoteLinkButton({
       },
     });
 
+  const toPortfolio = (slot: PortfolioLinkInfo["slots"][number], lang: "en" | "es") =>
+    setView({
+      v: "confirm",
+      action: slot.taken[lang] ? "Replace" : "Link",
+      text: slot.taken[lang] ? (
+        <>
+          This note becomes the {lang.toUpperCase()} page of “<b>{slot.label}</b>”. The note it replaces stays in Notes as “Former · {slot.label} · {lang} · today”. Nothing goes public until you publish.
+        </>
+      ) : (
+        <>
+          This note becomes the {lang.toUpperCase()} page of “<b>{slot.label}</b>”. Nothing goes public until you publish.
+        </>
+      ),
+      run: async () => {
+        const r = await linkNoteToPortfolio({ noteId, slotId: slot.id, lang, replace: slot.taken[lang] });
+        if (!r.ok) throw r;
+        finish(noteId, r.notice);
+      },
+    });
+
+  const fromPortfolio = (c: NonNullable<PortfolioLinkInfo["current"]>) =>
+    setView({
+      v: "confirm",
+      action: "Unlink",
+      text: (
+        <>
+          This note stops being the {c.lang.toUpperCase()} page of “<b>{c.label}</b>”. It stays in Notes, and the live page does not change.
+        </>
+      ),
+      run: async () => {
+        const r = await unlinkNoteFromPortfolio(c.slotId, c.lang);
+        if (!r.ok) throw r;
+        finish(noteId, r.notice);
+      },
+    });
+
   function body(): ReactNode {
     if (isTemplate)
       return (
@@ -307,6 +382,7 @@ export default function NoteLinkButton({
             ) : (
               <>
                 <Row icon="🧱" label="Link to a block…" onClick={() => setView({ v: "blocks" })} />
+                <Row icon="🌐" label="Portfolio page…" onClick={() => setView({ v: "portfolio" })} />
                 {kind === "page" ? (
                   <Row icon="📄" label="Move inside another page…" onClick={() => setView({ v: "pages", mode: "inside" })} />
                 ) : (
@@ -323,6 +399,8 @@ export default function NoteLinkButton({
         return <BlockList noteId={noteId} onPick={linkTo} />;
       case "pages":
         return <PageList noteId={noteId} onPick={moveTo} />;
+      case "portfolio":
+        return <PortfolioList noteId={noteId} onLink={toPortfolio} onUnlink={fromPortfolio} />;
       case "confirm":
         return <Confirm text={view.text} action={view.action} busy={busy} danger={view.danger} onBack={() => setView({ v: "menu" })} onOk={() => void attempt(view.run)} />;
       case "choice": {

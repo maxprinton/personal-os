@@ -1,0 +1,9 @@
+Portfolio fase 7: pulido y guias finales
+
+- Analitica de Vercel sin cookies con interruptor (solo produccion)
+- Tarjetas para compartir generadas por pagina (/[lang]/og/[kind]/[slug]); el texto sale de la base, no de la URL
+- 404 por idioma dentro de /en y /es
+- Contraste AA verificado por prueba (sello mas oscuro), foco visible en el cuaderno, objetivos tactiles de 44px, imagenes con carga diferida
+- Menu en espanol: "Herramientas" en vez de "Uso"
+- Guias: PASOS-DOMINIO-PORTFOLIO, PRUEBAS-PORTFOLIO-FINAL, NOTAS-VERSION-PORTFOLIO
+- npm run test:portfolio-all corre las 10 suites

@@ -8,7 +8,9 @@ register(
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 const SRC = ${JSON.stringify(pathToFileURL(process.cwd() + "/src/").href)};
+const ROOT = ${JSON.stringify(pathToFileURL(process.cwd() + "/").href)};
 export async function resolve(spec, ctx, next) {
+  if (/^next\\/[a-z-]+$/.test(spec) && existsSync(fileURLToPath(new URL("node_modules/" + spec + ".js", ROOT)))) return next(new URL("node_modules/" + spec + ".js", ROOT).href, ctx);
   let target = spec.startsWith("@/") ? new URL(spec.slice(2), SRC).href : spec;
   if ((target.startsWith("file:") || target.startsWith(".")) && !/\\.[cm]?[jt]s$/.test(target)) {
     const base = target.startsWith(".") ? new URL(target, ctx.parentURL).href : target;

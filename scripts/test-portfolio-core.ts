@@ -3,6 +3,7 @@
 // Run: npm run test:portfolio-core
 import { cleanLangs, isSingleton, keyFor, keyProblem, nextPosition, pathFor, renameKey, slugify, slugProblem, slugTaken, sortSlots } from "@/lib/portfolio/slots";
 import { computeStatus, canPublish } from "@/lib/portfolio/status";
+import { sourceHash } from "@/lib/portfolio/publish/hash";
 import { parseLangs, parseLinks, parseMeta, parseStack, parseWords } from "@/lib/portfolio/forms";
 import { createLinkedNote, createSlot, deleteSlot, formerTitle, linkNote, loadSlotViews, unlinkNote, updateSlot } from "@/lib/portfolio/link";
 import { BUILTINS } from "@/lib/notes-db/builtins";
@@ -186,7 +187,10 @@ ok("only one note per language", !(await createLinkedNote(sb, U, { slotId: about
 // views and statuses
 {
   tables.portfolio_pages.push({ slot_id: aboutId, lang: "en", version: 1, is_live: true, published_at: "2026-11-05T00:00:00Z", slug: "about", user_id: U });
-  tables.portfolio_page_versions.push({ slot_id: aboutId, lang: "en", version: 1, source_hash: "h1", action: "publish", user_id: U });
+  const aboutRow = tables.portfolio_slots.find((x) => x.id === aboutId)! as { kind: string; meta: unknown; langs: Record<string, unknown> };
+  const n2 = tables.notes.find((n) => n.id === "n2")! as { title: string; content?: string; page?: { icon?: string } };
+  const liveHash = sourceHash({ title: n2.title, content: n2.content ?? "", page: n2.page ?? null }, aboutRow, "en");
+  tables.portfolio_page_versions.push({ slot_id: aboutId, lang: "en", version: 1, source_hash: liveHash, action: "publish", user_id: U });
   const { slots } = await loadSlotViews(sb, U);
   const a = slots.find((s) => s.id === aboutId)!;
   ok("view: published page is live and unchanged", a.pages.en.status === "published", a.pages.en.status);
@@ -198,6 +202,14 @@ ok("only one note per language", !(await createLinkedNote(sb, U, { slotId: about
   const again = (await loadSlotViews(sb, U)).slots.find((s) => s.id === aboutId)!;
   ok("view: note in trash", again.pages.en.status === "trashed", again.pages.en.status);
   tables.notes.find((n) => n.id === "n2")!.deleted_at = null;
+  // change detection by fingerprint: editing the note text (even with an old timestamp) makes it "changed"
+  tables.notes.find((n) => n.id === "n2")!.content = "edited after publishing";
+  const edited = (await loadSlotViews(sb, U)).slots.find((s) => s.id === aboutId)!;
+  ok("view: edited note is 'changed' by hash", edited.pages.en.status === "changed", edited.pages.en.status);
+  tables.notes.find((n) => n.id === "n2")!.content = n2.content ?? "";
+  aboutRow.langs = { ...aboutRow.langs, en: { summary: "new summary" } };
+  ok("view: editing the slot's texts is 'changed' too", (await loadSlotViews(sb, U)).slots.find((s) => s.id === aboutId)!.pages.en.status === "changed");
+  aboutRow.langs = {};
 }
 
 // unlink, archive, delete

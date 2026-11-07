@@ -7,9 +7,9 @@ import { createClient } from "@/lib/supabase/server";
 import { indexSoon } from "@/lib/search/server";
 import type { ActionState } from "@/app/actions";
 import { BASE } from "@/lib/portfolio/constants";
-import { createLinkedNote, createSlot, deleteSlot, linkNote, unlinkNote, updateSlot } from "@/lib/portfolio/link";
+import { createLinkedNote, createSlot, deleteSlot, linkNote, loadSlotViews, portfolioLinkOfNote, unlinkNote, updateSlot } from "@/lib/portfolio/link";
 import { parseLangs, parseLinks, parseMeta, parseWords } from "@/lib/portfolio/forms";
-import { isKind, isLang, slugProblem } from "@/lib/portfolio/slots";
+import { isKind, isLang, KIND_LABEL, slugProblem } from "@/lib/portfolio/slots";
 import { loadSite, saveSite, type SiteSettings } from "@/lib/portfolio/site";
 
 async function who() {
@@ -170,5 +170,50 @@ export async function saveSiteAction(_p: ActionState, f: FormData): Promise<Acti
     return done();
   } catch (e) {
     return msg(e);
+  }
+}
+
+// ——— From a note's Kind menu: link this note to a portfolio page ———
+export type SlotChoice = { id: string; label: string; kind: string; taken: { en: boolean; es: boolean } };
+export type PortfolioLinkInfo = { slots: SlotChoice[]; current: { slotId: string; lang: "en" | "es"; label: string } | null };
+
+export async function portfolioChoicesForNote(noteId: string): Promise<({ ok: true } & PortfolioLinkInfo) | { ok: false; error: string }> {
+  try {
+    const { sb, userId } = await who();
+    const [{ slots }, link] = await Promise.all([loadSlotViews(sb, userId), portfolioLinkOfNote(sb, userId, noteId)]);
+    const label = (s: { kind: string; key: string }) => (s.kind === s.key ? KIND_LABEL[s.kind as keyof typeof KIND_LABEL] : s.key);
+    return {
+      ok: true,
+      slots: slots.map((s) => ({ id: s.id, label: label(s), kind: KIND_LABEL[s.kind], taken: { en: !!s.pages.en.note, es: !!s.pages.es.note } })),
+      current: link ? { slotId: link.slotId, lang: link.lang, label: label(link) } : null,
+    };
+  } catch (e) {
+    return { ok: false, error: msg(e).error ?? "Something went wrong." };
+  }
+}
+
+export async function linkNoteToPortfolio(input: { noteId: string; slotId: string; lang: string; replace: boolean }): Promise<{ ok: true; notice: string } | { ok: false; error: string }> {
+  try {
+    if (!isLang(input.lang)) return { ok: false, error: "Pick a language." };
+    const { sb, userId } = await who();
+    const r = await linkNote(sb, userId, { slotId: input.slotId, lang: input.lang, noteId: input.noteId, replace: input.replace });
+    if (!r.ok) return { ok: false, error: r.error };
+    refresh(input.slotId);
+    return { ok: true, notice: r.released ? "Linked. The previous note was kept in Notes as “Former · …”." : "Linked to the portfolio page." };
+  } catch (e) {
+    return { ok: false, error: msg(e).error ?? "Something went wrong." };
+  }
+}
+
+export async function unlinkNoteFromPortfolio(slotId: string, lang: string): Promise<{ ok: true; notice: string } | { ok: false; error: string }> {
+  try {
+    if (!isLang(lang)) return { ok: false, error: "Pick a language." };
+    const { sb, userId } = await who();
+    const r = await unlinkNote(sb, userId, { slotId, lang });
+    if (!r.ok) return { ok: false, error: r.error };
+    refresh(slotId);
+    return { ok: true, notice: "Unlinked. The live page does not change." };
+  } catch (e) {
+    return { ok: false, error: msg(e).error ?? "Something went wrong." };
   }
 }

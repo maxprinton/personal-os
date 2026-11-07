@@ -1,0 +1,10 @@
+Portfolio, phase 3: public site (portfolio/), EN/ES, Classic theme, signed revalidate
+
+- New portfolio/ Next.js project (separate Vercel project): reads only the public tables with the anon key, no login
+- Spiral-bound notebook design on the green board (Classic tokens), phone layout, hover underline, reduced motion
+- Language routing (/en, /es, cookie + browser), per-page language switch, hreflang, canonical, OG, JSON-LD, sitemap, robots (noindex until launch)
+- Pages: Home, About, Now, Projects (+ detail with status, years, stack, links), 301/308 for old slugs
+- /api/revalidate: HMAC-signed, 5 min window; OS notifies the site after publish / unpublish / restore
+- Security headers (CSP with only YouTube privacy frames, HSTS, no framing, nosniff), HTML cleaned again at display
+- vercel.json ignore rules in both projects, root tsconfig excludes portfolio/
+- Tests: test:site (28), test:security (45); alias loader resolves next/* for tests

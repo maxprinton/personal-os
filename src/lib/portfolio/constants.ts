@@ -2,10 +2,12 @@
 export const BASE = "/portfolio";
 export const MIGRATION_FILE = "MIGRACION-0042-portfolio.sql";
 
-/** Sub-navigation. Phases 5 and 6 add "Videos" and "Inbox" when those screens exist. */
+/** Sub-navigation. */
 export const ADDON_NAV = [
   { href: BASE, label: "Overview" },
   { href: `${BASE}/pages`, label: "Pages" },
+  { href: `${BASE}/videos`, label: "Videos" },
+  { href: `${BASE}/inbox`, label: "Inbox" },
   { href: `${BASE}/settings`, label: "Settings" },
 ] as const;
 

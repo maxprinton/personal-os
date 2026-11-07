@@ -1,0 +1,9 @@
+Portfolio, phase 2: publish engine (render, sanitize, media copy, versions, preview dialog)
+
+- Renderer: note Markdown (callouts, columns, toggles, tables, code, math, YouTube, files, bookmarks) -> clean HTML; 🔒 blocks, buttons, sub-pages and private links removed with warnings
+- Sanitizer (allowlist) and warning levels: must fix / check / FYI
+- Media: copy to public bucket by content hash, strip EXIF/GPS/text metadata without re-encoding, 10 MB limit, cleanup of unused files
+- Engine: stage, publish/update, unpublish, rollback, history (last 10), slug change keeps old slug, change detection by fingerprint
+- OS: Preview & publish dialog, History/Restore, Unpublish, never-public words highlighted, Portfolio entry in a note's Kind menu
+- HMAC signing helper and signed "revalidate" notification to the public site
+- Tests: test:render (78), test:publish (65), test:portfolio-core (84)

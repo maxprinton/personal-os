@@ -5,6 +5,7 @@ import { useState } from "react";
 import { linkNoteAction, newNoteAction, unlinkNoteAction } from "@/app/portfolio-actions";
 import { LANG_LABEL, type Lang } from "@/lib/portfolio/constants";
 import type { SlotView } from "@/lib/portfolio/types";
+import PublishPanel from "./PublishPanel";
 import { ActForm, BOX, BTN_DANGER, BTN_PLAIN, BTN_PRIMARY, INPUT, LABEL, StatusBadge } from "./ui";
 
 export type NoteChoice = { id: string; title: string };
@@ -63,6 +64,8 @@ export default function LangCard({ slot, lang, choices }: { slot: SlotView; lang
           </ActForm>
         )}
       </div>
+
+      {note && !note.deleted_at && <PublishPanel slotId={slot.id} lang={lang} live={!!page.published?.is_live} changed={page.status === "changed"} />}
 
       {picking && (
         <ActForm action={linkNoteAction} className="space-y-2 border-t border-line pt-3" saved="Linked ✓">
