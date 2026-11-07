@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
-import { Atkinson_Hyperlegible, Shantell_Sans, Source_Serif_4 } from "next/font/google";
+import { Atkinson_Hyperlegible, Shantell_Sans } from "next/font/google";
+// Body serif is self-hosted from npm (not fetched from Google at build time).
+import "@fontsource/source-serif-4/latin-400.css";
+import "@fontsource/source-serif-4/latin-600.css";
 import "katex/dist/katex.min.css";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
@@ -12,7 +15,6 @@ import { siteUrl } from "../../lib/paths";
 
 const hand = Shantell_Sans({ subsets: ["latin"], weight: ["800"], variable: "--f-hand", display: "swap" });
 const ui = Atkinson_Hyperlegible({ subsets: ["latin"], weight: ["400", "700"], variable: "--f-ui", display: "swap" });
-const body = Source_Serif_4({ subsets: ["latin"], weight: ["400", "600"], variable: "--f-body", display: "swap" });
 
 export const metadata: Metadata = { metadataBase: new URL(siteUrl()), robots: noindex() ? { index: false, follow: false } : undefined };
 export const generateStaticParams = () => LANGS.map((lang) => ({ lang }));
@@ -23,7 +25,7 @@ export default async function LangLayout({ children, params }: { children: React
   if (!isLang(lang)) notFound();
   const site = await getSite();
   return (
-    <html lang={lang} className={`${hand.variable} ${ui.variable} ${body.variable}`}>
+    <html lang={lang} className={`${hand.variable} ${ui.variable}`}>
       <body>
         {children}
         {analyticsOn(site) && <script defer src={ANALYTICS_SRC} />}

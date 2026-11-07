@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fontsource/source-serif-4": "^5.2.0",
     "@supabase/supabase-js": "^2.58.0",
     "katex": "^0.16.47",
     "next": "^15.5.0",

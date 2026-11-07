@@ -1,3 +1,5 @@
+/* Body font: @fontsource/source-serif-4 (imported in the layout) */
+:root { --f-body: "Source Serif 4"; }
 /* Classic theme: a light paper notebook (spiral-bound) on a dark green board. Tokens from the design decision (Phase 0). */
 :root {
   --board: #17302a;
