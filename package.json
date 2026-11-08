@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "next lint",
     "test:bot": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-bot.ts",
+    "test:remote-image": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-remote-image.ts",
     "test:editor": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-editor-md.ts",
     "test:ai": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-ai-notes.ts",
     "test:notes-db": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-notes-db.ts",

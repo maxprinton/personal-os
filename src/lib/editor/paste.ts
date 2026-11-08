@@ -168,7 +168,11 @@ export const NotionPaste = Extension.create({
             const dt = event.clipboardData;
             if (!dt) return false;
             const files = Array.from(dt.files ?? []);
-            if (files.length && !dt.getData("text/html")) {
+            // "Copy image" on a web page gives the picture file AND a link to it (<img src="https://…">, often expiring):
+            // when there is no real text, keep the picture itself.
+            const pastedHtml = dt.getData("text/html");
+            const onlyAPicture = !!pastedHtml && /<img\b/i.test(pastedHtml) && !dt.getData("text/plain").trim();
+            if (files.length && (!pastedHtml || onlyAPicture)) {
               insertFiles(editor, files);
               return true;
             }

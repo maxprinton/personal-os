@@ -30,6 +30,7 @@ import { AudioBlock, BookmarkBlock, EmbedBlock, FileBlock, ImageBlock, PdfBlock,
 import { NotionContext, setPages, type PageRef } from "@/lib/editor/context";
 import { NotionKeymap } from "@/lib/editor/keymap";
 import { NotionPaste, insertFiles } from "@/lib/editor/paste";
+import { RehostImages } from "@/lib/editor/rehost";
 import { SuggestMenus, type SuggestState } from "@/lib/editor/slash";
 import { filterBlocks, rememberBlock, TURN_INTO, createSubpageBlock, type BlockItem } from "@/lib/editor/blocks";
 import { searchEmoji } from "@/lib/editor/emoji";
@@ -235,6 +236,7 @@ export default function RichEditor({
       NotionContext,
       NotionKeymap,
       NotionPaste,
+      RehostImages,
       SuggestMenus.configure({
         onChange: (s) => {
           setSuggest(s);
