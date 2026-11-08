@@ -176,7 +176,7 @@ ok("replacing needs confirmation", !noReplace.ok && note1().portfolio_slot_id ==
 const rep = await linkNote(sb, U, { slotId: aboutId, lang: "en", noteId: "n2", replace: true });
 ok("replace works", rep.ok && (rep as { released?: string }).released === "n1");
 ok("old note is a normal note again", note1().portfolio_slot_id === null && note1().portfolio_lang === null);
-ok("old note is called Former", /^Former · About · en · [A-Z][a-z]{2} \d{1,2}$/.test(String(note1().title)), String(note1().title));
+ok("old note is called Former · <its title>", /^Former · About me EN · en · [A-Z][a-z]{2} \d{1,2}$/.test(String(note1().title)), String(note1().title));
 ok("former title format", formerTitle("my-os", "es", "2026-11-07") === "Former · my-os · es · Nov 7");
 ok("new note is linked", tables.notes.find((n) => n.id === "n2")!.portfolio_slot_id === aboutId);
 

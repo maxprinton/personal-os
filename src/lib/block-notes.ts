@@ -6,8 +6,9 @@ import { normalizeName } from "@/lib/calendar/edit";
 import { simplifyNotionMarkdown } from "@/lib/notion-md";
 import { getSettings } from "@/lib/agenda";
 import { localNow } from "@/lib/time";
+import { parseMemory, releaseNaming, type NameChoice, type NameMemory } from "@/lib/note-name-memory";
 
-export type BlockNote = { id: string; name: string; content: string; updated_at: string };
+export type BlockNote = { id: string; name: string; content: string; updated_at: string; /** the note's title (normally the block's name) */ title: string; /** the name it had before it became this block's note (notes.name_memory) */ memory: NameMemory | null };
 
 /** Case-insensitive key of a block name. */
 export const noteKey = (name: string) => normalizeName(name).toLowerCase();
@@ -16,16 +17,18 @@ export const noteKey = (name: string) => normalizeName(name).toLowerCase();
 export async function getBlockNotes(sb: SupabaseClient, userId: string): Promise<BlockNote[]> {
   const { data, error } = await sb
     .from("notes")
-    .select("id,block_name,content,updated_at")
+    .select("id,block_name,content,updated_at,title,name_memory")
     .eq("user_id", userId)
     .is("deleted_at", null)
     .not("block_name", "is", null);
   if (error) return [];
-  return ((data ?? []) as { id: string; block_name: string; content: string; updated_at: string }[]).map((n) => ({
+  return ((data ?? []) as { id: string; block_name: string; content: string; updated_at: string; title?: string | null; name_memory?: unknown }[]).map((n) => ({
     id: n.id,
     name: n.block_name,
     content: n.content,
     updated_at: n.updated_at,
+    title: n.title ?? n.block_name,
+    memory: parseMemory(n.name_memory),
   }));
 }
 
@@ -160,11 +163,8 @@ export async function renameBlockNote(sb: SupabaseClient, userId: string, oldNam
   if (!mine) return { parked: null as string | null }; // no note yet: an old note with the new name simply becomes its note
   let parked: string | null = null;
   if (theirs) {
-    await sb
-      .from("notes")
-      .update({ block_name: null, title: await formerTitle(sb, theirs.name) })
-      .eq("id", theirs.id)
-      .eq("user_id", userId);
+    const rel = releaseNaming({ title: theirs.title, mem: theirs.memory, choice: "former", scope: "block", ymd: await todayYmd(sb), block: theirs.name });
+    await sb.from("notes").update({ block_name: null, title: rel.title, name_memory: rel.memory }).eq("id", theirs.id).eq("user_id", userId);
     parked = theirs.name;
   }
   await sb
@@ -196,23 +196,26 @@ export function formerTitleOn(name: string, ymd: string) {
 
 /** Today's "Former · <block> · <date>" title. */
 export async function formerTitle(sb: SupabaseClient, name: string) {
+  return formerTitleOn(name, await todayYmd(sb));
+}
+
+/** Today's date (yyyy-mm-dd) in the user's timezone. */
+export async function todayYmd(sb: SupabaseClient) {
   const { timezone } = await getSettings(sb as never);
-  return formerTitleOn(name, localNow(timezone).date);
+  return localNow(timezone).date;
 }
 
 /**
- * The block note of this name (if any) becomes a normal page called "Former · <block> · <date>".
- * Used when a block is deleted, when a new block takes the name of an old note, and by "Detach".
+ * The block note of this name (if any) stops being the block's note and becomes a normal page. `choice`:
+ *   · "former" (default; also for deleting a block / a new block taking the name): "Former · <block> · <date>", and the name it had before is remembered;
+ *   · "previous": it gets back the name it had before it became the block's note (if it has none saved, it falls back to Former).
  * Returns the id of the note that was released, or null.
  */
-export async function releaseBlockNote(sb: SupabaseClient, userId: string, name: string) {
+export async function releaseBlockNote(sb: SupabaseClient, userId: string, name: string, choice: NameChoice = "former") {
   const note = await findBlockNote(sb, userId, name);
   if (!note) return null;
-  const { error } = await sb
-    .from("notes")
-    .update({ block_name: null, title: await formerTitle(sb, note.name) })
-    .eq("id", note.id)
-    .eq("user_id", userId);
+  const rel = releaseNaming({ title: note.title, mem: note.memory, choice, scope: "block", ymd: await todayYmd(sb), block: note.name });
+  const { error } = await sb.from("notes").update({ block_name: null, title: rel.title, name_memory: rel.memory }).eq("id", note.id).eq("user_id", userId);
   if (error) throw new Error(error.message);
   return note.id;
 }

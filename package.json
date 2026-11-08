@@ -19,6 +19,7 @@
     "test:templates": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-templates.ts",
     "test:extras": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-notes-extras.ts",
     "test:block-links": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-block-links.ts",
+    "test:former-names": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-former-names.ts",
     "test:cover-art": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-cover-art.ts",
     "test:auto-cat": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-auto-categorize.ts",
     "test:work": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-work-log.ts && node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-work-import.ts && node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-xlsx-fill.ts",

@@ -6,6 +6,8 @@ import { linkNoteAction, newNoteAction, unlinkNoteAction } from "@/app/portfolio
 import { LANG_LABEL, type Lang } from "@/lib/portfolio/constants";
 import { otherLang } from "@/lib/portfolio/translate";
 import type { SlotView } from "@/lib/portfolio/types";
+import NameChoicePicker, { formerPreviewOf } from "@/components/notes-db/NameChoicePicker";
+import type { NameChoice } from "@/lib/note-name-memory";
 import PublishPanel from "./PublishPanel";
 import TranslateButton from "./TranslateButton";
 import { ActForm, BOX, BTN_DANGER, BTN_PLAIN, BTN_PRIMARY, INPUT, LABEL, StatusBadge } from "./ui";
@@ -16,6 +18,7 @@ export default function LangCard({ slot, lang, choices }: { slot: SlotView; lang
   const page = slot.pages[lang];
   const note = page.note;
   const [picking, setPicking] = useState(false);
+  const [nameChoice, setNameChoice] = useState<NameChoice>("former");
   return (
     <div className={`${BOX} space-y-3`}>
       <div className="flex items-center justify-between gap-2">
@@ -92,8 +95,11 @@ export default function LangCard({ slot, lang, choices }: { slot: SlotView; lang
               {note && (
                 <label className="flex items-start gap-2 text-xs text-muted">
                   <input type="checkbox" name="replace" className="mt-0.5" />
-                  <span>Replace the current note. It becomes a normal note called “Former · … · {lang} · date”.</span>
+                  <span>Replace the current note “{note.title}”. It stays in Notes as a normal note.</span>
                 </label>
+              )}
+              {note && (
+                <NameChoicePicker value={nameChoice} onChange={setNameChoice} inputName="nameChoice" heading="If you replace it, the old note will be called…" formerPreview={formerPreviewOf(note.title, lang)} previous={note.title} previousHint="It keeps the name it has now." />
               )}
               <button type="submit" disabled={pending} className={BTN_PRIMARY}>
                 Link note

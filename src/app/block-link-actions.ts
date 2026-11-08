@@ -2,7 +2,7 @@
 
 // Linking notes to blocks (Oct 2026, the user's design). Any note can become the note of any block
 // (shared by every block with that name). If the block already has a note you choose:
-//  · Replace: the old note stays as a normal page called "Former · <block> · <date>".
+//  · Replace: the old note stays as a normal page: you choose "Former · <block> · <date>" or the name it had before it became the block's note.
 //  · Merge:   the block keeps its note (same ID and NOTE number) and the other note's text, properties,
 //             tags and links go into it. The absorbed note is soft-deleted and points to it
 //             (notes.merged_into, migration 0022), so old links open the note it went into.
@@ -10,13 +10,14 @@
 // (notes.block_name), which follows the block when it is renamed.
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { findBlockNote, formerTitle } from "@/lib/block-notes";
+import { findBlockNote, todayYmd } from "@/lib/block-notes";
+import { memoryOnBlockLink, parseMemory, previousName, releaseNaming, type NameChoice } from "@/lib/note-name-memory";
 import { normalizeName } from "@/lib/calendar/edit";
 
 type Fail = { ok?: false; error: string };
 export type LinkResult =
   | { ok: true; noteId: string; notice?: string }
-  | { ok?: false; needsChoice: true; block: string; current: { id: string; title: string; preview: string } }
+  | { ok?: false; needsChoice: true; block: string; current: { id: string; title: string; preview: string; previousName: string | null } }
   | Fail;
 
 export type BlockChoice = { id: string; name: string; color: string; noteId: string | null; noteEmpty: boolean };
@@ -30,6 +31,7 @@ type NoteRow = {
   parent_id: string | null;
   props: Record<string, unknown> | null;
   is_template?: boolean;
+  name_memory?: unknown;
 };
 
 async function ctx() {
@@ -54,7 +56,7 @@ const preview = (md: string) => String(md ?? "").replace(/<[^>]+>/g, " ").replac
 async function readNote(c: Ctx, id: string): Promise<NoteRow | null> {
   const full = await c.sb
     .from("notes")
-    .select("id,title,content,block_name,parent_id,props,is_template")
+    .select("id,title,content,block_name,parent_id,props,is_template,name_memory")
     .eq("id", id)
     .eq("user_id", c.userId)
     .is("deleted_at", null)
@@ -123,7 +125,7 @@ export async function searchPagesForMove(q: string, noteId: string): Promise<{ o
  * Makes a note the note of a block. Without `mode`, if the block already has a note with text,
  * nothing changes and the answer asks to choose Replace or Merge.
  */
-export async function linkNoteToBlock(input: { noteId: string; blockTypeId: string; mode?: "replace" | "merge" }): Promise<LinkResult> {
+export async function linkNoteToBlock(input: { noteId: string; blockTypeId: string; mode?: "replace" | "merge"; /** what the replaced note is called: "Former · …" (default) or the name it had before */ nameChoice?: NameChoice }): Promise<LinkResult> {
   try {
     const c = await ctx();
     const note = await readNote(c, input.noteId);
@@ -136,7 +138,7 @@ export async function linkNoteToBlock(input: { noteId: string; blockTypeId: stri
     if (current?.id === note.id) return { ok: true, noteId: note.id, notice: `It is already the note of “${name}”.` };
 
     if (current && !blank(current.content) && !input.mode) {
-      return { needsChoice: true, block: name, current: { id: current.id, title: current.name, preview: preview(current.content) } };
+      return { needsChoice: true, block: name, current: { id: current.id, title: current.name, preview: preview(current.content), previousName: previousName("block", current.title, current.memory) } };
     }
 
     if (current && input.mode === "merge") {
@@ -151,14 +153,16 @@ export async function linkNoteToBlock(input: { noteId: string; blockTypeId: stri
         // An empty note: nothing to keep
         await c.sb.from("notes").update({ deleted_at: new Date().toISOString(), block_name: null }).eq("id", current.id).eq("user_id", c.userId);
       } else {
-        const former = await formerTitle(c.sb, name);
-        const { error } = await c.sb.from("notes").update({ block_name: null, title: former }).eq("id", current.id).eq("user_id", c.userId);
+        const rel = releaseNaming({ title: current.title, mem: current.memory, choice: input.nameChoice ?? "former", scope: "block", ymd: await todayYmd(c.sb), block: name });
+        const { error } = await c.sb.from("notes").update({ block_name: null, title: rel.title, name_memory: rel.memory }).eq("id", current.id).eq("user_id", c.userId);
         if (error) return { error: error.message };
-        notice = `The previous note is kept in Notes as “${former}”.`;
+        notice = `The previous note is kept in Notes as “${rel.title}”.`;
       }
     }
     // The note leaves its page (the page keeps its link to it) and takes the block's name
-    const { error } = await c.sb.from("notes").update({ block_name: name, title: name, parent_id: null }).eq("id", note.id).eq("user_id", c.userId);
+    // It takes the block's name: remember the name it had, so it can get it back when it is detached
+    const memory = memoryOnBlockLink(note, parseMemory(note.name_memory), name, await todayYmd(c.sb));
+    const { error } = await c.sb.from("notes").update({ block_name: name, title: name, parent_id: null, name_memory: memory }).eq("id", note.id).eq("user_id", c.userId);
     if (error) return { error: error.code === "23505" ? `“${name}” got a note a moment ago. Try again.` : error.message };
     refresh(note.id, current?.id);
     return { ok: true, noteId: note.id, notice };
@@ -167,32 +171,32 @@ export async function linkNoteToBlock(input: { noteId: string; blockTypeId: stri
   }
 }
 
-/** "Detach from block": the note becomes "Former · <block> · <date>"; the block starts with an empty note. */
-export async function detachFromBlock(noteId: string): Promise<{ ok: true; noteId: string; notice?: string } | Fail> {
+/** "Detach from block": the note becomes a normal page ("Former · <block> · <date>", or the name it had before); the block starts with an empty note. */
+export async function detachFromBlock(noteId: string, nameChoice: NameChoice = "former"): Promise<{ ok: true; noteId: string; notice?: string } | Fail> {
   try {
     const c = await ctx();
     const note = await readNote(c, noteId);
     if (!note) return { error: "That note is no longer there." };
     if (!note.block_name) return { ok: true, noteId, notice: "This note isn't linked to a block." };
-    const former = await formerTitle(c.sb, note.block_name);
-    const { error } = await c.sb.from("notes").update({ block_name: null, title: former }).eq("id", noteId).eq("user_id", c.userId);
+    const rel = releaseNaming({ title: note.title, mem: parseMemory(note.name_memory), choice: nameChoice, scope: "block", ymd: await todayYmd(c.sb), block: note.block_name });
+    const { error } = await c.sb.from("notes").update({ block_name: null, title: rel.title, name_memory: rel.memory }).eq("id", noteId).eq("user_id", c.userId);
     if (error) return { error: error.message };
     refresh(noteId);
-    return { ok: true, noteId, notice: `Now a normal page: “${former}”. “${note.block_name}” starts with an empty note.` };
+    return { ok: true, noteId, notice: `Now a normal page: “${rel.title}”. “${note.block_name}” starts with an empty note.` };
   } catch (e) {
     return { error: errText(e, "Couldn't detach the note.") };
   }
 }
 
 /** Calendar → block → "Change note…" → "Start a new empty note". */
-export async function startNewBlockNote(blockTypeId: string): Promise<{ ok: true; notice?: string } | Fail> {
+export async function startNewBlockNote(blockTypeId: string, nameChoice: NameChoice = "former"): Promise<{ ok: true; notice?: string } | Fail> {
   try {
     const c = await ctx();
     const block = await readBlock(c, blockTypeId);
     if (!block) return { error: "That block is no longer there." };
     const current = await findBlockNote(c.sb, c.userId, block.name);
     if (!current) return { ok: true };
-    const r = await detachFromBlock(current.id);
+    const r = await detachFromBlock(current.id, nameChoice);
     if (!r.ok) return r;
     return { ok: true, notice: blank(current.content) ? undefined : r.notice };
   } catch (e) {

@@ -18,18 +18,22 @@ import {
   type PageChoice,
 } from "@/app/block-link-actions";
 import { linkNoteToPortfolio, portfolioChoicesForNote, unlinkNoteFromPortfolio, type PortfolioLinkInfo } from "@/app/portfolio-actions";
+import { blockNoteNames, nameInfoForNote, restoreFormerNote, type FormerInfo } from "@/app/former-actions";
+import type { NameChoice } from "@/lib/note-name-memory";
+import NameChoicePicker, { formerPreviewOf } from "./NameChoicePicker";
 import { emitCalendarChanged } from "@/components/calendar/util";
 import type { NoteKind, RelatedItem } from "@/lib/notes-db/types";
 import { anchorOf, errorText, fitWidth, toast, type Anchor } from "./prop-ui";
 import "./properties.css";
 
-type Choice = { block: string; blockTypeId: string; noteId: string; current: { id: string; title: string; preview: string } };
+type Choice = { block: string; blockTypeId: string; noteId: string; current: { id: string; title: string; preview: string; previousName: string | null } };
+type Pick = { former: string; previous: string | null; hint?: string };
 type View =
   | { v: "menu" }
   | { v: "blocks" }
   | { v: "pages"; mode: "inside" | "another" }
   | { v: "portfolio" }
-  | { v: "confirm"; text: ReactNode; action: string; run: () => Promise<void>; danger?: boolean }
+  | { v: "confirm"; text: ReactNode; action: string; run: () => Promise<void>; danger?: boolean; pick?: Pick }
   | { v: "choice"; c: Choice };
 
 const btn = "rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-accent-fg shadow-sm transition-colors hover:bg-accent-hover disabled:opacity-50";
@@ -45,10 +49,26 @@ function Row({ icon, label, hint, onClick }: { icon: string; label: string; hint
   );
 }
 
-function Confirm({ text, action, busy, danger, onOk, onBack }: { text: ReactNode; action: string; busy: boolean; danger?: boolean; onOk: () => void; onBack: () => void }) {
+function Confirm({ text, action, busy, danger, pick, choiceRef, onOk, onBack }: { text: ReactNode; action: string; busy: boolean; danger?: boolean; pick?: Pick; choiceRef: { current: NameChoice }; onOk: () => void; onBack: () => void }) {
+  const [choice, setChoice] = useState<NameChoice>("former");
+  useEffect(() => {
+    choiceRef.current = "former";
+  }, [choiceRef]);
   return (
     <div className="space-y-3 p-3 text-sm">
       <p className="leading-snug">{text}</p>
+      {pick && (
+        <NameChoicePicker
+          value={choice}
+          onChange={(v) => {
+            setChoice(v);
+            choiceRef.current = v;
+          }}
+          formerPreview={pick.former}
+          previous={pick.previous}
+          previousHint={pick.hint}
+        />
+      )}
       <div className="flex justify-end gap-2">
         <button type="button" className={btn2} disabled={busy} onClick={onBack}>
           Back
@@ -61,21 +81,29 @@ function Confirm({ text, action, busy, danger, onOk, onBack }: { text: ReactNode
   );
 }
 
-/** Replace or Merge, when the block already has a note with text. */
-function ChoiceView({ c, busy, onPick, onBack }: { c: Choice; busy: boolean; onPick: (mode: "replace" | "merge") => void; onBack: () => void }) {
+/** Replace or Merge, when the block already has a note with text. Replace asks what the old note will be called. */
+function ChoiceView({ c, busy, onPick, onBack }: { c: Choice; busy: boolean; onPick: (mode: "replace" | "merge", nameChoice: NameChoice) => void; onBack: () => void }) {
+  const [nameChoice, setNameChoice] = useState<NameChoice>("former");
   return (
     <div className="space-y-3 p-3 text-sm">
       <p className="leading-snug">
         “{c.block}” already has a note{c.current.preview ? ":" : "."} {c.current.preview && <span className="text-muted">“{c.current.preview}…”</span>}
       </p>
-      <button type="button" className="np-row-btn !h-auto !items-start !py-2 text-left" disabled={busy} onClick={() => onPick("replace")}>
+      <NameChoicePicker
+        value={nameChoice}
+        onChange={setNameChoice}
+        heading="If you Replace, the old note will be called…"
+        formerPreview={formerPreviewOf(c.block)}
+        previous={c.current.previousName}
+      />
+      <button type="button" className="np-row-btn !h-auto !items-start !py-2 text-left" disabled={busy} onClick={() => onPick("replace", nameChoice)}>
         <span className="np-icon">⇄</span>
         <span className="min-w-0 flex-1">
           <b>Replace</b>
-          <span className="block text-xs text-muted">This note becomes the “{c.block}” note. The old one stays in Notes as “Former · {c.block} · today”.</span>
+          <span className="block text-xs text-muted">This note becomes the “{c.block}” note. The old one stays in Notes with the name you chose above.</span>
         </span>
       </button>
-      <button type="button" className="np-row-btn !h-auto !items-start !py-2 text-left" disabled={busy} onClick={() => onPick("merge")}>
+      <button type="button" className="np-row-btn !h-auto !items-start !py-2 text-left" disabled={busy} onClick={() => onPick("merge", nameChoice)}>
         <span className="np-icon">⊕</span>
         <span className="min-w-0 flex-1">
           <b>Merge</b>
@@ -216,8 +244,8 @@ function PortfolioList({ noteId, onLink, onUnlink }: { noteId: string; onLink: (
 }
 
 /** Runs a link and turns its answer into: done, a Replace/Merge question, or an error. */
-async function runLink(noteId: string, blockTypeId: string, mode?: "replace" | "merge"): Promise<{ done?: string; notice?: string; choice?: Choice }> {
-  const r: LinkResult = await linkNoteToBlock({ noteId, blockTypeId, mode });
+async function runLink(noteId: string, blockTypeId: string, mode?: "replace" | "merge", nameChoice?: NameChoice): Promise<{ done?: string; notice?: string; choice?: Choice }> {
+  const r: LinkResult = await linkNoteToBlock({ noteId, blockTypeId, mode, nameChoice });
   if ("needsChoice" in r && r.needsChoice) return { choice: { block: r.block, blockTypeId, noteId, current: r.current } };
   if (r.ok) return { done: r.noteId, notice: r.notice };
   throw r;
@@ -248,7 +276,21 @@ export default function NoteLinkButton({
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [view, setView] = useState<View>({ v: "menu" });
   const [busy, setBusy] = useState(false);
+  const [info, setInfo] = useState<FormerInfo | null>(null);
+  const choiceRef = useRef<NameChoice>("former");
   const ref = useRef<HTMLButtonElement>(null);
+
+  // What the note remembers (the name it had before, and where a Former note could go back to)
+  useEffect(() => {
+    if (!anchor || isTemplate) return;
+    let live = true;
+    void nameInfoForNote(noteId)
+      .then((r) => live && r.ok && setInfo(r.info))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [anchor, noteId, isTemplate]);
 
   const close = () => {
     setAnchor(null);
@@ -316,11 +358,36 @@ export default function NoteLinkButton({
       action: "Detach",
       text: (
         <>
-          This note becomes a normal page called “Former · {blockName} · today”. “{blockName}” starts with an empty note.
+          This note stops being the “{blockName}” note and becomes a normal page. “{blockName}” starts with an empty note.
         </>
       ),
+      pick: { former: formerPreviewOf(blockName ?? ""), previous: info?.previousName ?? null, hint: "The name it had before you linked it to the block." },
       run: async () => {
-        const r = await detachFromBlock(noteId);
+        const r = await detachFromBlock(noteId, choiceRef.current);
+        if (!r.ok) throw r;
+        finish(noteId, r.notice);
+      },
+    });
+
+  const restore = (to: NonNullable<FormerInfo["restore"]>) =>
+    setView({
+      v: "confirm",
+      action: "Restore",
+      text:
+        to.scope === "block" ? (
+          <>
+            This note becomes the “<b>{to.label}</b>” note again.
+            {to.currentTitle && to.currentHasText && " The note that is there now stays in Notes."}
+          </>
+        ) : (
+          <>
+            This note becomes the {to.lang!.toUpperCase()} page of “<b>{to.label}</b>” again, with its original name. Nothing goes public until you publish.
+            {to.currentTitle && ` The note that is there now (“${to.currentTitle}”) stays in Notes.`}
+          </>
+        ),
+      pick: to.currentTitle && (to.scope === "portfolio" || to.currentHasText) ? { former: formerPreviewOf(to.currentTitle, to.lang), previous: to.currentPrevious, hint: to.scope === "portfolio" ? "It keeps the name it has now." : undefined } : undefined,
+      run: async () => {
+        const r = await restoreFormerNote(noteId, choiceRef.current);
         if (!r.ok) throw r;
         finish(noteId, r.notice);
       },
@@ -332,15 +399,16 @@ export default function NoteLinkButton({
       action: slot.taken[lang] ? "Replace" : "Link",
       text: slot.taken[lang] ? (
         <>
-          This note becomes the {lang.toUpperCase()} page of “<b>{slot.label}</b>”. The note it replaces stays in Notes as “Former · {slot.label} · {lang} · today”. Nothing goes public until you publish.
+          This note becomes the {lang.toUpperCase()} page of “<b>{slot.label}</b>”. The note it replaces stays in Notes. Nothing goes public until you publish.
         </>
       ) : (
         <>
           This note becomes the {lang.toUpperCase()} page of “<b>{slot.label}</b>”. Nothing goes public until you publish.
         </>
       ),
+      pick: slot.taken[lang] ? { former: formerPreviewOf(slot.takenTitle[lang] ?? "Untitled", lang), previous: slot.takenTitle[lang] ?? "Untitled", hint: "It keeps the name it has now." } : undefined,
       run: async () => {
-        const r = await linkNoteToPortfolio({ noteId, slotId: slot.id, lang, replace: slot.taken[lang] });
+        const r = await linkNoteToPortfolio({ noteId, slotId: slot.id, lang, replace: slot.taken[lang], nameChoice: choiceRef.current });
         if (!r.ok) throw r;
         finish(noteId, r.notice);
       },
@@ -381,6 +449,14 @@ export default function NoteLinkButton({
               </>
             ) : (
               <>
+                {info?.restore && (
+                  <Row
+                    icon="↩"
+                    label={info.restore.scope === "block" ? `Restore as the “${info.restore.label}” note` : `Restore as ${info.restore.lang!.toUpperCase()} page of “${info.restore.label}”`}
+                    onClick={() => restore(info.restore!)}
+                  />
+                )}
+                {info?.restoreProblem && <p className="np-hint">↩ {info.restoreProblem}</p>}
                 <Row icon="🧱" label="Link to a block…" onClick={() => setView({ v: "blocks" })} />
                 <Row icon="🌐" label="Portfolio page…" onClick={() => setView({ v: "portfolio" })} />
                 {kind === "page" ? (
@@ -402,7 +478,7 @@ export default function NoteLinkButton({
       case "portfolio":
         return <PortfolioList noteId={noteId} onLink={toPortfolio} onUnlink={fromPortfolio} />;
       case "confirm":
-        return <Confirm text={view.text} action={view.action} busy={busy} danger={view.danger} onBack={() => setView({ v: "menu" })} onOk={() => void attempt(view.run)} />;
+        return <Confirm text={view.text} action={view.action} busy={busy} danger={view.danger} pick={view.pick} choiceRef={choiceRef} onBack={() => setView({ v: "menu" })} onOk={() => void attempt(view.run)} />;
       case "choice": {
         const c = view.c;
         return (
@@ -410,9 +486,9 @@ export default function NoteLinkButton({
             c={c}
             busy={busy}
             onBack={() => setView({ v: "menu" })}
-            onPick={(mode) =>
+            onPick={(mode, nameChoice) =>
               void attempt(async () => {
-                const r = await runLink(c.noteId, c.blockTypeId, mode);
+                const r = await runLink(c.noteId, c.blockTypeId, mode, nameChoice);
                 if (r.done) finish(r.done, r.notice);
               })
             }
@@ -454,7 +530,21 @@ export function ChangeBlockNote({ blockTypeId, blockName, className }: { blockTy
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
   const [items, setItems] = useState<RelatedItem[] | null>(null);
+  const [cur, setCur] = useState<{ title: string | null; previousName: string | null; hasText: boolean } | null>(null);
+  const choiceRef = useRef<NameChoice>("former");
   const ref = useRef<HTMLButtonElement>(null);
+
+  // The current note of this block: its name and the name it had before (for the "Start a new empty note" choice)
+  useEffect(() => {
+    if (!anchor) return;
+    let live = true;
+    void blockNoteNames(blockTypeId)
+      .then((r) => live && r.ok && setCur({ title: r.title, previousName: r.previousName, hasText: r.hasText }))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [anchor, blockTypeId]);
 
   useEffect(() => {
     if (!anchor) return;
@@ -537,13 +627,15 @@ export function ChangeBlockNote({ blockTypeId, blockName, className }: { blockTy
           )}
           {view.v === "new" && (
             <Confirm
-              text={<>“{blockName}” starts with an empty note. If its note has text, it stays in Notes as “Former · {blockName} · today”.</>}
+              text={<>“{blockName}” starts with an empty note. {cur?.hasText ? "Its current note stays in Notes." : "Its current note is empty, so it is simply removed."}</>}
               action="Start new note"
               busy={busy}
+              pick={cur?.hasText ? { former: formerPreviewOf(blockName), previous: cur.previousName, hint: "The name it had before you linked it to the block." } : undefined}
+              choiceRef={choiceRef}
               onBack={() => setView({ v: "pick" })}
               onOk={() =>
                 void attempt(async () => {
-                  const r = await startNewBlockNote(blockTypeId);
+                  const r = await startNewBlockNote(blockTypeId, choiceRef.current);
                   if (!r.ok) throw r;
                   done(r.notice);
                 })
@@ -555,9 +647,9 @@ export function ChangeBlockNote({ blockTypeId, blockName, className }: { blockTy
               c={view.c}
               busy={busy}
               onBack={() => setView({ v: "pick" })}
-              onPick={(mode) =>
+              onPick={(mode, nameChoice) =>
                 void attempt(async () => {
-                  const r = await runLink(view.c.noteId, blockTypeId, mode);
+                  const r = await runLink(view.c.noteId, blockTypeId, mode, nameChoice);
                   done(r.notice);
                 })
               }

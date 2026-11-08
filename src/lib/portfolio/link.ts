@@ -8,6 +8,7 @@ import { computeStatus } from "@/lib/portfolio/status";
 import type { LinkedNote, PublishedInfo, Slot, SlotLangs, SlotMeta, SlotView } from "@/lib/portfolio/types";
 import { isMissingPortfolio } from "@/lib/portfolio/errors";
 import { starterFor } from "@/lib/portfolio/templates";
+import { parseMemory, releaseNaming, titleOnPortfolioLink, type NameChoice } from "@/lib/note-name-memory";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 export type Result<T = object> = ({ ok: true } & T) | { ok: false; error: string };
@@ -154,28 +155,31 @@ export async function deleteSlot(sb: SupabaseClient, userId: string, id: string)
 
 // ---------- notes ----------
 
-type NoteRow = { id: string; title: string; block_name: string | null; is_template: boolean; deleted_at: string | null; portfolio_slot_id: string | null; portfolio_lang: string | null };
+type NoteRow = { id: string; title: string; block_name: string | null; is_template: boolean; deleted_at: string | null; portfolio_slot_id: string | null; portfolio_lang: string | null; name_memory?: unknown };
 
 async function linkedNoteOf(sb: SupabaseClient, userId: string, slotId: string, lang: Lang) {
   const { data } = await sb
     .from("notes")
-    .select("id,title")
+    .select("id,title,name_memory")
     .eq("user_id", userId)
     .eq("portfolio_slot_id", slotId)
     .eq("portfolio_lang", lang)
     .is("deleted_at", null)
     .maybeSingle();
-  return (data as { id: string; title: string } | null) ?? null;
+  return (data as { id: string; title: string; name_memory?: unknown } | null) ?? null;
 }
 
 /**
- * Link a note to a slot + language. When the slot already has a note in that language, `replace` must be true:
- * the old note becomes a normal note titled "Former · <slot> · <lang> · <date>".
+ * Link a note to a slot + language. When the slot already has a note in that language, `replace` must be true and the old note
+ * is released with the user's `nameChoice`:
+ *   · "former" (default): it becomes a normal note titled "Former · <its title> · <lang> · <date>" (its own title is remembered);
+ *   · "previous": it simply keeps its own title.
+ * Linking a note that still has a Former title we gave it (Restore) brings its original title back.
  */
-export async function linkNote(sb: SupabaseClient, userId: string, input: { slotId: string; lang: Lang; noteId: string; replace?: boolean }): Promise<Result<{ released?: string }>> {
+export async function linkNote(sb: SupabaseClient, userId: string, input: { slotId: string; lang: Lang; noteId: string; replace?: boolean; nameChoice?: NameChoice }): Promise<Result<{ released?: string; releasedTitle?: string; restoredTitle?: string }>> {
   const slot = (await allSlots(sb, userId)).find((s) => s.id === input.slotId);
   if (!slot) return fail("This slot no longer exists.");
-  const { data } = await sb.from("notes").select("id,title,block_name,is_template,deleted_at,portfolio_slot_id,portfolio_lang").eq("id", input.noteId).eq("user_id", userId).maybeSingle();
+  const { data } = await sb.from("notes").select("id,title,block_name,is_template,deleted_at,portfolio_slot_id,portfolio_lang,name_memory").eq("id", input.noteId).eq("user_id", userId).maybeSingle();
   const note = data as NoteRow | null;
   if (!note) return fail("That note does not exist.");
   if (note.deleted_at) return fail("That note is in the trash.");
@@ -186,20 +190,27 @@ export async function linkNote(sb: SupabaseClient, userId: string, input: { slot
 
   const current = await linkedNoteOf(sb, userId, input.slotId, input.lang);
   let released: string | undefined;
+  let releasedTitle: string | undefined;
   if (current) {
-    if (!input.replace) return fail("This slot already has a note in this language. Choose replace to keep the old one as a \"Former\" note.");
-    const label = isSingleton(slot.kind) ? KIND_LABEL[slot.kind] : slot.key;
+    if (!input.replace) return fail("This slot already has a note in this language. Choose replace to keep the old one (as a \"Former\" note or with its own name).");
+    const rel = releaseNaming({ title: current.title, mem: parseMemory(current.name_memory), choice: input.nameChoice ?? "former", scope: "portfolio", ymd: todayYmd(), slotId: input.slotId, lang: input.lang });
     const { error } = await sb
       .from("notes")
-      .update({ portfolio_slot_id: null, portfolio_lang: null, title: formerTitle(label, input.lang, todayYmd()) })
+      .update({ portfolio_slot_id: null, portfolio_lang: null, title: rel.title, name_memory: rel.memory })
       .eq("id", current.id)
       .eq("user_id", userId);
     if (error) return fail(error.message);
     released = current.id;
+    releasedTitle = rel.title;
   }
-  const { error } = await sb.from("notes").update({ portfolio_slot_id: input.slotId, portfolio_lang: input.lang }).eq("id", input.noteId).eq("user_id", userId);
+  const mem = parseMemory(note.name_memory);
+  const back = titleOnPortfolioLink(note.title, mem);
+  const patch: Record<string, unknown> = { portfolio_slot_id: input.slotId, portfolio_lang: input.lang };
+  if (mem) patch.name_memory = null; // it is a page again: nothing left to remember
+  if (back !== note.title) patch.title = back;
+  const { error } = await sb.from("notes").update(patch).eq("id", input.noteId).eq("user_id", userId);
   if (error) return fail(error.message);
-  return { ok: true, released };
+  return { ok: true, released, releasedTitle, restoredTitle: back !== note.title ? back : undefined };
 }
 
 /** A new note linked to the slot, filled with a short starter text for the page kind (its title starts as the slot's name). Fails when the language already has a note. */
