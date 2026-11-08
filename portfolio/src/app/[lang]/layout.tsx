@@ -18,7 +18,8 @@ const ui = Atkinson_Hyperlegible({ subsets: ["latin"], weight: ["400", "700"], v
 
 export const metadata: Metadata = { metadataBase: new URL(siteUrl()), robots: noindex() ? { index: false, follow: false } : undefined };
 export const generateStaticParams = () => LANGS.map((lang) => ({ lang }));
-export const dynamicParams = false;
+// NOTE: no `dynamicParams = false` here. It would also apply to the pages below (projects/[slug], writing/[slug]) and make every page
+// published after the last build answer 404 until the next deploy. The language is checked in this layout instead (notFound below).
 
 export default async function LangLayout({ children, params }: { children: ReactNode; params: Promise<{ lang: string }> }) {
   const { lang } = await params;

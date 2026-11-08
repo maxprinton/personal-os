@@ -8,6 +8,8 @@ import { metaFor } from "../../../../lib/seo";
 import { safeUrl } from "../../../../lib/sanitize";
 
 export const revalidate = 3600;
+// pages published after the build are rendered on demand, then cached
+export const dynamicParams = true;
 
 export async function generateStaticParams() {
   return (await liveSlugs("project")).map((p) => ({ lang: p.lang, slug: p.slug }));

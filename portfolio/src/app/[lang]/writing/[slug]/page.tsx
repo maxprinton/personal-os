@@ -10,6 +10,8 @@ import { hrefOf, siteUrl } from "../../../../lib/paths";
 import { metaFor } from "../../../../lib/seo";
 
 export const revalidate = 3600;
+// pages published after the build are rendered on demand, then cached
+export const dynamicParams = true;
 
 export async function generateStaticParams() {
   return (await liveSlugs("article")).map((p) => ({ lang: p.lang, slug: p.slug }));
