@@ -1,23 +1,28 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-
-type RailNote = { id: string; title: string; updated_at: string; block_name?: string | null };
+import NoteRail, { type RailNote } from "@/components/notes-db/NoteRail";
 
 /**
- * Notes in two panels (Blocks design): your recent notes on the left (desktop), the open note on the right.
- * Phones keep the single-note view.
+ * Notes in two panels (Blocks design): your notes on the left (desktop), the open note on the right.
+ * The left list can be searched, sorted and limited to favorites (NoteRail). Phones keep the single-note view.
  */
-export default async function NoteLayout({ children, params }: { children: React.ReactNode; params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export default async function NoteLayout({ children }: { children: React.ReactNode; params: Promise<{ id: string }> }) {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("notes")
-    .select("id,title,updated_at,block_name")
-    .is("deleted_at", null)
-    .order("updated_at", { ascending: false })
-    .limit(80);
-  const notes = (data ?? []) as RailNote[];
-  const day = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const [{ data }, { data: favProp }] = await Promise.all([
+    supabase
+      .from("notes")
+      .select("id,title,updated_at,created_at,block_name,props")
+      .is("deleted_at", null)
+      .order("updated_at", { ascending: false })
+      .limit(300),
+    // "Favorite" is a built-in checkbox property; each note stores its value under that property's id.
+    supabase.from("note_properties").select("id").eq("builtin", true).eq("key", "favorite").is("deleted_at", null).limit(1),
+  ]);
+  const favId = (favProp as { id: string }[] | null)?.[0]?.id;
+  const notes: RailNote[] = ((data ?? []) as (Omit<RailNote, "favorite"> & { props?: Record<string, unknown> | null })[]).map(({ props, ...n }) => ({
+    ...n,
+    favorite: !!favId && props?.[favId] === true,
+  }));
 
   return (
     <div className="lg:flex">
@@ -31,26 +36,7 @@ export default async function NoteLayout({ children, params }: { children: React
               All notes
             </Link>
           </div>
-          <ul className="space-y-0.5">
-            {notes.map((n) => {
-              const active = n.id === id;
-              return (
-                <li key={n.id}>
-                  <Link
-                    href={`/notes/${n.id}`}
-                    aria-current={active ? "page" : undefined}
-                    className={`block rounded-xl px-3 py-2 transition-colors ${active ? "bg-accent-soft" : "hover:bg-subtle"}`}
-                  >
-                    <span className={`block truncate text-[0.9375rem] ${active ? "font-semibold" : "font-medium"}`}>{n.title || "Untitled"}</span>
-                    <span className="block truncate text-sm text-muted">
-                      {n.block_name ? `Block: ${n.block_name}, ` : ""}
-                      {day(n.updated_at)}
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+          <NoteRail notes={notes} />
         </div>
       </aside>
       <div className="min-w-0 flex-1">{children}</div>
