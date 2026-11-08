@@ -73,7 +73,7 @@ export default function WatchlistView({ channels, outliers, apiKey, error }: Pro
           ) : null}
         </div>
         {fresh.length === 0 ? (
-          <p className="text-sm text-muted">Nothing new. {channels.length ? "The next weekly check will look again." : "Add a channel below to start."}</p>
+          <p className="text-sm text-muted">Nothing new. {channels.length ? "The next daily check will look again." : "Add a channel below to start."}</p>
         ) : (
           <ul className="space-y-2">
             {fresh.map((o) => (
@@ -111,7 +111,7 @@ export default function WatchlistView({ channels, outliers, apiKey, error }: Pro
             {busy === "add" && pending ? "Adding…" : "Add channel"}
           </button>
         </form>
-        <p className="text-xs text-faint">Adding a channel checks it right away (≈ 4 quota units). Each weekly check costs ≈ 3 units per channel.</p>
+        <p className="text-xs text-faint">Adding a channel checks it right away (≈ 4 quota units). Each daily check costs ≈ 3 units per channel (20 channels ≈ 60 of your 10,000 daily units).</p>
         {channels.length ? (
           <ul className="divide-y divide-line">
             {channels.map((c) => (
@@ -156,7 +156,7 @@ export default function WatchlistView({ channels, outliers, apiKey, error }: Pro
         ) : (
           <p className="text-sm text-muted">No channels yet. Add 5–15 channels of your niche (similar size or a bit bigger than yours).</p>
         )}
-        <p className="text-xs text-faint">Active channels are checked automatically every {WATCH_CHECK_DAYS} days.</p>
+        <p className="text-xs text-faint">Active channels are checked automatically every {WATCH_CHECK_DAYS === 1 ? "day" : `${WATCH_CHECK_DAYS} days`}.</p>
       </section>
     </div>
   );

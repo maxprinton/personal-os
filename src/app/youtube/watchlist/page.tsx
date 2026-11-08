@@ -22,8 +22,8 @@ export default async function WatchlistPage() {
       <div>
         <h2 className="text-lg font-semibold">Watchlist</h2>
         <p className="text-sm text-muted">
-          Channels in your niche. Once a week their new uploads are checked; videos with ≥ {WATCH_OUTLIER_MIN}× the channel’s usual views show up in “New outliers”
-          (every {WATCH_CHECK_DAYS} days, or press Check now).
+          Channels in your niche. Once a day their new uploads are checked; videos with ≥ {WATCH_OUTLIER_MIN}× the channel’s usual views show up in “New outliers”
+          (every {WATCH_CHECK_DAYS === 1 ? "day" : `${WATCH_CHECK_DAYS} days`}, or press Check now).
         </p>
       </div>
       <WatchlistView

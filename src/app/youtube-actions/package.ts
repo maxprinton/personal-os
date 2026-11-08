@@ -5,6 +5,7 @@
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { aiChat, hasAi } from "@/lib/ai";
+import { patternPrompt } from "@/lib/youtube/patterns";
 import { scopeUsageLine, withAiUsage } from "@/lib/ai-usage";
 import { getSettings } from "@/lib/agenda";
 import { localNow } from "@/lib/time";
@@ -297,7 +298,7 @@ export async function aiSuggestTitles(videoId: string): Promise<{ items?: TitleS
   const [{ data: v }, { data: vars }, { data: refs }] = await Promise.all([
     sb.from("yt_videos").select("idea_name,topic,base_idea,angles,angle_notes,gap_known,gap_want,kind").eq("id", videoId).maybeSingle(),
     sb.from("yt_variants").select("kind,value,thumb_text,gap_type,focal").eq("video_id", videoId).eq("archived", false),
-    sb.from("yt_references").select("title,outlier_score").eq("video_id", videoId).order("position").limit(8),
+    sb.from("yt_references").select("title,outlier_score").eq("video_id", videoId).order("position").limit(20),
   ]);
   if (!v) return { error: "Video not found." };
   const list = (vars ?? []) as Pick<YtVariant, "kind" | "value" | "thumb_text" | "gap_type" | "focal">[];
@@ -313,6 +314,7 @@ export async function aiSuggestTitles(videoId: string): Promise<{ items?: TitleS
     ...list.filter((x) => x.kind === "title").map((x) => `Existing title: ${x.value}`),
     ...list.filter((x) => x.kind === "thumbnail").map((x) => `Thumbnail concept: ${x.value}${x.focal ? ` — focal: ${x.focal}` : ""}${x.thumb_text ? ` — text on it: "${x.thumb_text}"` : ""}`),
     (refs ?? []).length ? `Outlier references:\n${((refs ?? []) as { title: string; outlier_score: number | null }[]).map((r) => `- ${r.title}${r.outlier_score ? ` (${r.outlier_score}×)` : ""}`).join("\n")}` : "",
+    patternPrompt((refs ?? []) as { title: string; outlier_score: number | null }[]),
     v.kind === "short" ? "This is a YouTube Short." : "",
   ]
     .filter(Boolean)

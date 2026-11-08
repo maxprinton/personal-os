@@ -149,9 +149,9 @@ export const CALIBRATION_MIN_VIDEOS = 10;
 export const BASELINE_LAST_N = 10;
 
 export const FINDER_DEFAULTS: FinderFilters = { min_views: 100_000, max_subs: 500_000, min_outlier: 3, min_age_days: 14, max_results: 25 };
-/** Watchlist: an upload counts as an outlier at ≥ 3× the channel median. Checked once a week. */
+/** Watchlist: an upload counts as an outlier at ≥ 3× the channel median. Checked once a day (≈ 3 quota units per channel). */
 export const WATCH_OUTLIER_MIN = 3;
-export const WATCH_CHECK_DAYS = 7;
+export const WATCH_CHECK_DAYS = 1;
 
 // ----- Package -------------------------------------------------------------------------------------
 export const MAX_TITLES = 3;

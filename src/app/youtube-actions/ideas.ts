@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ActionState } from "@/app/actions";
 import { aiChat, hasAi } from "@/lib/ai";
+import { patternPrompt } from "@/lib/youtube/patterns";
 import { scopeUsageLine, withAiUsage } from "@/lib/ai-usage";
 import { getSettings } from "@/lib/agenda";
 import { localNow } from "@/lib/time";
@@ -351,7 +352,7 @@ export type AngleSuggestion = { angle: string; idea: string; titles: string[] };
 async function ideaContext(sb: SupabaseClient, id: string) {
   const [{ data: v }, { data: refs }] = await Promise.all([
     sb.from("yt_videos").select("idea_name,topic,base_idea,formats,angles,angle_notes,kind").eq("id", id).maybeSingle(),
-    sb.from("yt_references").select("title,views,outlier_score").eq("video_id", id).order("position").limit(10),
+    sb.from("yt_references").select("title,views,outlier_score").eq("video_id", id).order("position").limit(20),
   ]);
   if (!v) return null;
   const lines = [
@@ -362,6 +363,7 @@ async function ideaContext(sb: SupabaseClient, id: string) {
     (v.angles as string[])?.length ? `Angles chosen: ${(v.angles as string[]).join(", ")}` : "",
     v.kind === "short" ? "This is a YouTube Short (vertical, under 60 s)." : "",
     (refs ?? []).length ? `Outlier references:\n${((refs ?? []) as { title: string; outlier_score: number | null }[]).map((r) => `- ${r.title}${r.outlier_score ? ` (${r.outlier_score}×)` : ""}`).join("\n")}` : "",
+    patternPrompt((refs ?? []) as { title: string; outlier_score: number | null }[]),
   ].filter(Boolean);
   return lines.join("\n").slice(0, AI_PROMPT_MAX - 2500);
 }
