@@ -5,6 +5,7 @@ const build = (extra: { script?: string; frame?: string; connect?: string } = {}
   `script-src 'self' 'unsafe-inline'${extra.script ? ` ${extra.script}` : ""}`, // Next injects small inline scripts
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' https: data:",
+  "media-src 'self' https:",
   "font-src 'self' data:",
   `frame-src https://www.youtube-nocookie.com${extra.frame ? ` ${extra.frame}` : ""}`,
   `connect-src 'self'${extra.connect ? ` ${extra.connect}` : ""}`,

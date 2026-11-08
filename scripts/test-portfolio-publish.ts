@@ -3,7 +3,7 @@
 // Run: npm run test:publish
 import { fakeDb, type Row } from "./fake-supabase";
 import { buildSnapshot, history, publish, rollback, stage, unpublish, type Deps } from "@/lib/portfolio/publish/engine";
-import { copyMedia, sniffType, stripMetadata, type MediaStore } from "@/lib/portfolio/publish/media";
+import { copyMedia, detectMedia, sniffType, stripMetadata, svgIssue, type MediaStore } from "@/lib/portfolio/publish/media";
 import { findBlocked, highlightWords } from "@/lib/portfolio/publish/check";
 import { sourceHash } from "@/lib/portfolio/publish/hash";
 import { notifySite } from "@/lib/portfolio/publish/notify";
@@ -122,6 +122,70 @@ const files: Record<string, Uint8Array> = {
   ok("copy: pdf as file ok", r.urls.has(`/api/files/${U}/2026-11/22222222-doc.pdf`));
   const again = await copyMedia(st, U, "s1", [{ src: IMG, kind: "image" }]);
   ok("copy: second time uploads nothing", again.copied === 0);
+}
+
+// ——— more formats: Office, ODF, ZIP, audio, text, SVG, AVIF ———
+{
+  const zip = (...inner: (string | number[])[]) => bytes("PK", 3, 4, new Array(26).fill(0), ...inner);
+  const docx = zip("[Content_Types].xml", "word/document.xml");
+  const odt = zip("mimetypeapplication/vnd.oasis.opendocument.text");
+  const d = (b: Uint8Array, n: string) => detectMedia(b, n);
+  ok("detect: docx/xlsx/pptx by content + name", d(docx, "a.docx")?.type.includes("wordprocessingml") === true && d(docx, "a.xlsx")?.type.includes("spreadsheetml") === true && d(docx, "a.pptx")?.type.includes("presentationml") === true);
+  ok("detect: Office files keep metadata (warned)", d(docx, "a.docx")?.keeps === "metadata");
+  ok("detect: odt", d(odt, "x.bin")?.type === "application/vnd.oasis.opendocument.text" && d(odt, "x.odt")?.ext === ".odt");
+  ok("detect: macro file refused", d(zip("[Content_Types].xml", "word/vbaProject.bin"), "a.docx")?.unsafe === true);
+  ok("detect: plain zip only as .zip", d(zip("a.txt"), "a.zip")?.kind === "archive" && d(zip("a.txt"), "a.zip")?.keeps === "archive" && d(zip("a.txt"), "a.docx") === null && d(zip("a.txt"), "a.exe") === null);
+  ok("detect: mp3 (ID3 or frame sync)", d(bytes("ID3", 3, 0, 0, 0, 0, 0, 0), "s.mp3")?.type === "audio/mpeg" && d(bytes(0xff, 0xfb, 0x90, 0, 0), "s.mp3")?.kind === "audio" && d(bytes("hello world"), "s.mp3") === null);
+  ok("detect: m4a", d(bytes(0, 0, 0, 0x20, "ftypM4A ", 0, 0, 0, 0, 0), "s.m4a")?.type === "audio/mp4");
+  ok("detect: avif", d(bytes(0, 0, 0, 0, "ftypavif", 0, 0), "p.avif")?.type === "image/avif");
+  ok("detect: text types", d(bytes("a,b\n1,2"), "t.csv")?.type === "text/csv" && d(bytes("# hi"), "n.md")?.type === "text/markdown" && d(bytes("hello"), "n.txt")?.type === "text/plain");
+  ok("detect: json must parse", d(bytes('{"a":1}'), "d.json")?.type === "application/json" && d(bytes("{nope"), "d.json") === null);
+  ok("detect: html is stored as text/plain (never runs)", d(bytes("<h1>x</h1>"), "p.html")?.type === "text/plain" && d(bytes("<h1>x</h1>"), "p.html")?.ext === ".html");
+  ok("detect: text must be UTF-8, no NUL", d(bytes(0xff, 0xfe, 0xfd), "t.txt") === null && d(bytes("a", 0, "b"), "t.txt") === null);
+  ok("detect: unknown names are refused", d(bytes("MZ......"), "setup.exe") === null && d(bytes("hello"), "noext") === null);
+  const good = '<svg xmlns="http://www.w3.org/2000/svg"><!-- note --><metadata>Max</metadata><rect width="1" height="1"/></svg>';
+  ok("svg: clean one accepted", d(bytes(good), "a.svg")?.type === "image/svg+xml" && d(bytes(good), "a.svg")?.unsafe === undefined);
+  for (const [name, bad] of [["script", "<svg><script>alert(1)</script></svg>"], ["handler", '<svg onload="x()"></svg>'], ["foreignObject", "<svg><foreignObject/></svg>"], ["javascript:", '<svg><a href="javascript:x()"/></svg>'], ["outside href", '<svg><image href="https://evil.test/x.png"/></svg>'], ["css url", '<svg><style>a{background:url(https://evil.test/x)}</style></svg>'], ["entity", '<!DOCTYPE svg [<!ENTITY x "y">]><svg/>']] as const)
+    ok(`svg: ${name} refused`, d(bytes(bad), "a.svg")?.unsafe === true && svgIssue(bad) !== null);
+  ok("svg: inner #links and data:image allowed", svgIssue('<svg><use href="#a"/><image href="data:image/png;base64,AA"/></svg>') === null);
+  const stripped = new TextDecoder().decode(stripMetadata(bytes(good), "image/svg+xml"));
+  ok("svg: comments and <metadata> removed", !stripped.includes("note") && !stripped.includes("Max") && stripped.includes("<rect"));
+
+  const f2: Record<string, Uint8Array> = {
+    [`${U}/m/aaaaaaaa-report.docx`]: docx,
+    [`${U}/m/bbbbbbbb-song.mp3`]: bytes("ID3", 3, 0, 0, 0, 0, 0, 0),
+    [`${U}/m/cccccccc-pack.zip`]: zip("a.txt"),
+    [`${U}/m/dddddddd-evil.svg`]: bytes("<svg><script/></svg>"),
+    [`${U}/m/eeeeeeee-data.json`]: bytes('{"ok":true}'),
+    [`${U}/m/ffffffff-pic.svg`]: bytes(good),
+  };
+  const st = fakeStore(f2);
+  const r = await copyMedia(st, U, "s9", [
+    { src: `/api/files/${U}/m/aaaaaaaa-report.docx`, kind: "file" },
+    { src: `/api/files/${U}/m/bbbbbbbb-song.mp3`, kind: "audio" },
+    { src: `/api/files/${U}/m/cccccccc-pack.zip`, kind: "file" },
+    { src: `/api/files/${U}/m/dddddddd-evil.svg`, kind: "image" },
+    { src: `/api/files/${U}/m/eeeeeeee-data.json`, kind: "file" },
+    { src: `/api/files/${U}/m/ffffffff-pic.svg`, kind: "image" },
+    { src: `/api/files/${U}/m/aaaaaaaa-report.docx`, kind: "image" },
+  ]);
+  const up = [...st.pub.entries()];
+  ok("copy: docx, mp3, zip, json, svg copied with their types", r.copied === 5 && up.some(([k, v]) => k.endsWith("report.docx") && v.type.includes("wordprocessingml")) && up.some(([k, v]) => k.endsWith("song.mp3") && v.type === "audio/mpeg") && up.some(([k, v]) => k.endsWith("pack.zip") && v.type === "application/zip"), JSON.stringify([r.copied, r.failed]));
+  ok("copy: unsafe svg blocked", r.failed.some((f) => f.src.includes("evil.svg") && f.reason === "unsafe"));
+  ok("copy: docx placed as an image is refused", r.failed.some((f) => f.src.includes("report.docx") && f.reason === "type") === false); // same src already copied as a file → not copied twice
+  ok("copy: warns about files that keep metadata / unchecked zips", r.unstripped.some((u) => u.name.endsWith("report.docx") && u.why === "metadata") && r.unstripped.some((u) => u.name.endsWith("song.mp3")) && r.unstripped.some((u) => u.name.endsWith("pack.zip") && u.why === "archive") && !r.unstripped.some((u) => u.name.endsWith(".json")));
+  ok("copy: published svg has no metadata", up.filter(([k]) => k.endsWith("pic.svg")).every(([, v]) => !has(v.bytes, "Max")));
+  const bigAudio = bytes("ID3", 3, 0, 0, 0, 0, 0, 0, new Uint8Array(15 * 1024 * 1024));
+  const hugeAudio = bytes("ID3", 3, 0, 0, 0, 0, 0, 0, new Uint8Array(26 * 1024 * 1024));
+  const bigDoc = bytes(docx, new Uint8Array(11 * 1024 * 1024));
+  const sz = await copyMedia(fakeStore({ [`${U}/m/11111111-ep.mp3`]: bigAudio, [`${U}/m/22222222-huge.mp3`]: hugeAudio, [`${U}/m/33333333-big.docx`]: bigDoc }), U, "s9", [
+    { src: `/api/files/${U}/m/11111111-ep.mp3`, kind: "audio" },
+    { src: `/api/files/${U}/m/22222222-huge.mp3`, kind: "audio" },
+    { src: `/api/files/${U}/m/33333333-big.docx`, kind: "file" },
+  ]);
+  ok("size: 15 MB audio ok, 26 MB audio and 11 MB docx too big", sz.urls.has(`/api/files/${U}/m/11111111-ep.mp3`) && sz.failed.length === 2 && sz.failed.every((f) => f.reason === "too_big"), JSON.stringify(sz.failed));
+  const aud = await copyMedia(fakeStore({ [`${U}/m/aaaaaaaa-report.docx`]: docx }), U, "s9", [{ src: `/api/files/${U}/m/aaaaaaaa-report.docx`, kind: "audio" }]);
+  ok("copy: a docx inside an audio block is refused", aud.failed[0]?.reason === "type");
 }
 
 // ——— engine ———

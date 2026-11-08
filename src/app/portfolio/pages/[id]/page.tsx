@@ -10,6 +10,7 @@ import { loadSlotViews } from "@/lib/portfolio/link";
 import { KIND_LABEL } from "@/lib/portfolio/slots";
 
 export const metadata = { title: "Portfolio slot · Personal OS" };
+export const maxDuration = 60; // ✨ translate runs from this page
 
 export default async function SlotPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

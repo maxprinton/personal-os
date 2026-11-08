@@ -84,7 +84,10 @@ ok("subpage removed", !has(r.html, "Sub page") && code(r, "subpage")?.count === 
 r = renderNote('<page url="/notes/11111111-1111-1111-1111-111111111111">Public one</page>', ctx);
 ok("page link to published note", has(r.html, '<a href="/projects/os" rel="noopener">Public one</a>'));
 r = renderNote('<audio src="/api/files/u/2026-10/a-x.mp3">cap</audio>', ctx);
-ok("audio unsupported", code(r, "unsupported_block")?.count === 1);
+ok("audio: collected for copy, no warning", r.media.some((m) => m.kind === "audio") && !code(r, "unsupported_block") && !code(r, "media_failed"), JSON.stringify(r.warnings));
+r = renderNote('<audio src="/api/files/u/2026-10/a-x.mp3">Episode 1</audio>', { ...ctx, media: (s) => "https://cdn.test/portfolio-media/" + s.split("/").pop() });
+ok("audio: player with controls, no autoplay", has(r.html, '<audio src="https://cdn.test/portfolio-media/a-x.mp3" controls preload="none"></audio>') && has(r.html, "Episode 1") && !has(r.html, "autoplay"), r.html);
+ok("audio: sanitizer drops autoplay and outside schemes", !has(S('<audio src="javascript:x" autoplay onplay="x()"></audio>'), "<audio") && !has(S('<audio src="https://a.test/x.mp3" autoplay onplay="x()"></audio>'), "autoplay") && has(S('<audio src="https://a.test/x.mp3"></audio>'), "controls"));
 r = renderNote("<empty-block/>\n\ntext\n\n<!-- hi -->", ctx);
 ok("empty-block + comment silent", r.warnings.length === 0 && has(r.html, "text"), JSON.stringify(r.warnings));
 

@@ -20,7 +20,7 @@ export type RenderCtx = {
   /** Host names of the private OS: links to them are removed. */
   osHosts?: string[];
 };
-export type MediaRef = { src: string; kind: "image" | "file" };
+export type MediaRef = { src: string; kind: "image" | "file" | "audio" };
 export type TocItem = { level: number; id: string; text: string };
 export type RenderResult = { html: string; toc: TocItem[]; warnings: Warning[]; media: MediaRef[]; hasToc: boolean; sanitize: SanitizeReport };
 
@@ -144,7 +144,7 @@ function youtubeId(url: string): string | null {
 }
 
 /** Public URL (or the same path in pass 1) of an image/file. null = removed (a warning was added). */
-function mapMedia(st: State, src: string, kind: "image" | "file", label?: string): string | null {
+function mapMedia(st: State, src: string, kind: "image" | "file" | "audio", label?: string): string | null {
   const s = src.trim();
   if (/^blob:/i.test(s)) return st.w.add("blob_upload", label), null;
   if (/^data:/i.test(s)) return st.w.add("data_url", label), null;
@@ -364,8 +364,12 @@ function renderTag(st: State, tag: string, mt: { attrs: Attrs; inner: string }, 
       if (tag === "video" && (/^\/api\/files\//.test(a.src ?? "") || isOsHost(st, hostOf(a.src ?? "")))) return st.w.add("video_file", caption || a.src?.split("/").pop()), "";
       return st.w.add("iframe_blocked", hostOf(a.src ?? "") ?? a.src?.slice(0, 40)), "";
     }
-    case "audio":
-      return st.w.add("unsupported_block", "audio"), "";
+    case "audio": {
+      const name = a.name || caption || decodeURIComponent((a.src ?? "").split("/").pop() ?? "").replace(/^[0-9a-f]{8}-/, "") || "audio";
+      const url = mapMedia(st, a.src ?? "", "audio", name);
+      if (!url) return "";
+      return `<figure class="n-audio"><audio src="${escapeAttr(url)}" controls preload="none"></audio><figcaption>${escapeText(caption || name)}</figcaption></figure>\n`;
+    }
     case "file":
     case "pdf": {
       const name = a.name || caption || decodeURIComponent((a.src ?? "").split("/").pop() ?? "").replace(/^[0-9a-f]{8}-/, "") || "file";
@@ -458,7 +462,33 @@ function renderBlocks(st: State, src: string, depth: number): string {
     i++;
   }
   flush();
-  return out.join("");
+  return groupGalleries(out).join("");
+}
+
+/** A row of this many pictures (or more) in a row, with no text between them, is shown as a gallery grid. */
+export const GALLERY_MIN = 3;
+const IS_PICTURE = (h: string) => h.startsWith('<figure class="n-figure');
+
+/**
+ * Pictures that follow each other with nothing in between (3 or more) become one `<div class="n-gallery">`.
+ * Two pictures, or pictures with text between them, stay as they are. Needs no special syntax in the editor.
+ */
+export function groupGalleries(blocks: string[]): string[] {
+  // empty entries and empty paragraphs (what a removed picture leaves behind) do not break a row
+  const parts = blocks.filter((b) => b !== "" && !/^<p>\s*<\/p>\s*$/.test(b));
+  const out: string[] = [];
+  for (let i = 0; i < parts.length; ) {
+    if (!IS_PICTURE(parts[i])) {
+      out.push(parts[i++]);
+      continue;
+    }
+    let j = i;
+    while (j < parts.length && IS_PICTURE(parts[j])) j++;
+    if (j - i >= GALLERY_MIN) out.push(`<div class="n-gallery">${parts.slice(i, j).join("")}</div>\n`);
+    else out.push(...parts.slice(i, j));
+    i = j;
+  }
+  return out;
 }
 
 /** Markdown of a note → clean public HTML + table of contents + warnings + the media files it uses. */

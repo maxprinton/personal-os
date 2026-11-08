@@ -32,6 +32,7 @@ const CSS = `.pf-preview{font-size:15px;line-height:1.65;overflow-wrap:anywhere}
 .pf-preview pre{background:rgba(127,127,127,.12);padding:.8em;border-radius:8px;overflow:auto}.pf-preview pre code{background:none;padding:0}
 .pf-preview hr{margin:1.2em 0;border-color:rgba(127,127,127,.3)}
 .pf-preview figcaption{font-size:.85em;opacity:.7;margin-top:.3em}
+.pf-preview .n-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,150px),1fr));gap:.5em}.pf-preview .n-gallery .n-figure{margin:0}.pf-preview .n-gallery img{width:100%;aspect-ratio:4/3;object-fit:cover}
 .pf-preview .n-align-center{text-align:center}.pf-preview .n-align-right{text-align:right}
 .pf-preview .n-callout{display:flex;gap:.7em;padding:.8em 1em;border-radius:8px;background:rgba(127,127,127,.12)}
 .pf-preview .n-callout-body{flex:1;min-width:0}.pf-preview .n-callout-body>:first-child{margin-top:0}

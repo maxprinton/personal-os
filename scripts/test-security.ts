@@ -121,7 +121,7 @@ function walk(dir: string, out: string[] = []) {
   ok("no private OS code imported", !allText.some(([f, t]) => /\.(ts|tsx)$/.test(f) && /from\s+["'](\.\.\/)+src\/|from\s+["']@\//.test(t) && !/lib\/sign|lib\/sanitize/.test(t)), allText.filter(([, t]) => /from\s+["']@\//.test(t)).map(([f]) => f).join());
   ok("no secrets written into files", !allText.some(([, t]) => /eyJ[A-Za-z0-9_-]{30,}|sk_live|AKIA[0-9A-Z]{12}/.test(t)));
   const pkg = JSON.parse(readFileSync(join(root, "portfolio/package.json"), "utf8"));
-  ok("site dependencies are small and expected", Object.keys(pkg.dependencies).sort().join() === "@supabase/supabase-js,katex,next,react,react-dom");
+  ok("site dependencies are small and expected", Object.keys(pkg.dependencies).sort().join() === "@fontsource/source-serif-4,@supabase/supabase-js,katex,next,react,react-dom");
   ok("dangerouslySetInnerHTML only with sanitized or JSON-LD content", allText.filter(([, t]) => /dangerouslySetInnerHTML/.test(t)).every(([f, t]) => /safeBody|jsonLd\(|JSON\.stringify/.test(t)));
   const searchPage = readFileSync(join(root, "portfolio/src/app/[lang]/search/page.tsx"), "utf8");
   const dataTs = readFileSync(join(root, "portfolio/src/lib/data.ts"), "utf8");

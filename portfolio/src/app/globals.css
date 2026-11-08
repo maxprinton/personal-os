@@ -1,5 +1,3 @@
-/* Body font: @fontsource/source-serif-4 (imported in the layout) */
-:root { --f-body: "Source Serif 4"; }
 /* Classic theme: a light paper notebook (spiral-bound) on a dark green board. Tokens from the design decision (Phase 0). */
 :root {
   --board: #17302a;
@@ -146,6 +144,8 @@ a { color: inherit; }
 .page .n-bookmark span, .page .n-bookmark small { display: block; color: var(--ink2); }
 .page .n-bookmark img { float: right; width: 96px; margin-left: 12px; }
 .page .n-file a::before { content: "↓ "; }
+.page .n-audio { margin: 1.5rem 0; }
+.page .n-audio audio { width: 100%; display: block; }
 .page .n-math { overflow-x: auto; overflow-y: hidden; text-align: center; }
 .page .n-check { font-family: var(--f-ui), sans-serif; }
 .page ul:has(.n-check) { list-style: none; padding-left: 0; }
@@ -253,3 +253,12 @@ a { color: inherit; }
   .dot { animation: none; }
   * { scroll-behavior: auto !important; transition: none !important; }
 }
+
+/* Gallery: 3+ pictures in a row in a page (Phase 8) */
+.n-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,180px),1fr));gap:.6rem;margin:1rem 0}
+.n-gallery .n-figure{margin:0}
+.n-gallery img{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:cover;border-radius:6px}
+.n-gallery figcaption{font-size:.85em;opacity:.75;margin-top:.25rem}
+
+/* Body font: @fontsource/source-serif-4 (imported in the layout) */
+:root { --f-body: "Source Serif 4"; }

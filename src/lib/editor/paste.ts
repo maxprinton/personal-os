@@ -12,10 +12,12 @@ const URL_RE = /^https?:\/\/[^\s<>"]+$/i;
 
 export function mediaTypeFor(file: File): MediaType {
   const t = file.type;
-  if (t.startsWith("image/")) return "image";
+  const ext = file.name.toLowerCase().split(".").pop() ?? "";
+  if (t.startsWith("image/") || ext === "avif" || ext === "svg") return "image";
   if (t.startsWith("video/")) return "video";
-  if (t.startsWith("audio/")) return "audio";
-  if (t === "application/pdf") return "pdf";
+  // Windows often gives .m4a / .mp3 an empty or odd type: go by the extension too
+  if (t.startsWith("audio/") || ext === "mp3" || ext === "m4a") return "audio";
+  if (t === "application/pdf" || ext === "pdf") return "pdf";
   return "file";
 }
 
@@ -28,9 +30,10 @@ const TEXT_TYPES = /^(text\/|application\/(json|xml|javascript|x-javascript|ecma
 
 /** A plain-text file (by type or by extension): dropped / pasted, it becomes a code block. */
 export function isTextFile(file: { name: string; type: string }): boolean {
-  if (TEXT_TYPES.test(file.type)) return true;
   const name = file.name.toLowerCase();
   const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : name;
+  if (ext === "svg" || file.type === "image/svg+xml") return false; // SVG is a picture: it becomes an image block
+  if (TEXT_TYPES.test(file.type)) return true;
   return TEXT_EXT.has(ext);
 }
 

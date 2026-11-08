@@ -24,6 +24,7 @@ import { undoLast } from "@/lib/bot/undo";
 import { categorizeView, proposalsView } from "@/lib/bot/categorize";
 import { markVideo, workView } from "@/lib/bot/work";
 import { parseVideoCmd } from "@/lib/work-log";
+import { inboxView, isInboxRequest, isPortfolioSummary, portfolioView } from "@/lib/bot/portfolio";
 import { handleYoutubeCapture, isYoutubeSummary, parseYoutubeCapture, youtubeView } from "@/lib/bot/youtube-capture";
 import { markUsageReported, refreshFromGroq, scopeUsageLine, startOfDay, usageReport, usageSummary, withAiUsage } from "@/lib/ai-usage";
 import { addDays } from "@/lib/time";
@@ -294,6 +295,8 @@ async function views(c: Ctx, text: string): Promise<boolean> {
     if (isOneOf(text, W.habits)) return await hit(habitsView(c));
     if (isOneOf(text, W.work)) return await hit(workView(c));
     if (isYoutubeSummary(text)) return await hit(youtubeView(c));
+    if (isPortfolioSummary(text)) return await hit(portfolioView(c));
+    if (isInboxRequest(text)) return await hit(inboxView(c));
     if (isOneOf(text, W.insights)) return await hit(insightsView(c));
     if (isOneOf(text, W.metrics)) return await hit(metricsView(c));
     if (isOneOf(text, W.settings)) return await hit(settingsView(c));

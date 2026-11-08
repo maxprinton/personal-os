@@ -36,6 +36,7 @@ import { localNow } from "@/lib/time";
 import { workVideoReminders } from "@/lib/bot/work";
 import { runYoutubeCron } from "@/lib/youtube/server/cron";
 import { runSearchCron } from "@/lib/search/server";
+import { runPortfolioNudge } from "@/lib/bot/portfolio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -313,6 +314,15 @@ export async function POST(req: Request) {
       sent += await runForUser(admin, { ...s, blockEnd: blockEnd.get(s.user_id) ?? true });
     } catch {
       // one user's problem must not stop the others
+    }
+    try {
+      // 🌐 Portfolio add-on: Monday-morning check for pages changed but not republished (optional)
+      sent += await runPortfolioNudge(admin, s, nowFor(s), {
+        claim: (userId, kind, ref) => claim(admin, userId, kind, ref),
+        deliver: (chatId, text) => send(chatId, text),
+      });
+    } catch {
+      // the portfolio add-on is optional; its errors are ignored
     }
   }
   return NextResponse.json({ ok: true, sent: sent + youtube.sent, notesMade, youtube, search });

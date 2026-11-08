@@ -15,8 +15,9 @@ export const WARN_DEFS: Record<string, { level: Level; text: (n: number) => stri
   note_trashed: { level: "error", text: () => "The linked note is in the trash." },
   duplicate_slug: { level: "error", text: () => "Another page in this language already uses this address." },
   blob_upload: { level: "error", text: (n) => `${n} ${s(n, "image is", "images are")} still uploading or unsaved. Wait for it to finish, then try again.` },
-  media_too_big: { level: "error", text: (n) => `${n} ${s(n, "file is", "files are")} over the size limit (10 MB).` },
+  media_too_big: { level: "error", text: (n) => `${n} ${s(n, "file is", "files are")} over the size limit (10 MB, or 25 MB for audio and ZIP).` },
   media_failed: { level: "error", text: (n) => `${n} ${s(n, "file", "files")} could not be copied to the public site.` },
+  media_unsafe: { level: "error", text: (n) => `${n} ${s(n, "file was", "files were")} blocked because ${s(n, "it contains", "they contain")} scripts, macros or outside links.` },
   media_type: { level: "error", text: (n) => `${n} ${s(n, "file has", "files have")} a type the public site does not accept.` },
   video_file: { level: "error", text: (n) => `${n} uploaded ${s(n, "video", "videos")} can't be published. Upload to YouTube and embed the link instead.` },
   // — needs a confirm —
@@ -34,6 +35,8 @@ export const WARN_DEFS: Record<string, { level: Level; text: (n: number) => stri
   math_error: { level: "warning", text: (n) => `${n} ${s(n, "equation", "equations")} could not be drawn and ${s(n, "shows", "show")} as code.` },
   nesting_limit: { level: "warning", text: () => "Some blocks are nested too deep and were flattened." },
   never_public: { level: "warning", text: (n) => `${n} ${s(n, "match", "matches")} for words you marked as never public.` },
+  metadata_kept: { level: "warning", text: (n) => `${n} ${s(n, "file may", "files may")} still carry author, camera or location info (Office, audio and AVIF files are copied as they are).` },
+  archive_unchecked: { level: "warning", text: (n) => `${n} ZIP ${s(n, "file is", "files are")} published without checking what is inside.` },
   // — FYI —
   locked_removed: { level: "info", text: (n) => `${n} 🔒 ${s(n, "block was", "blocks were")} removed on purpose.` },
   media_copied: { level: "info", text: (n) => `${n} ${s(n, "file was", "files were")} copied to the public site.` },

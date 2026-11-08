@@ -4,6 +4,9 @@ import { createHash } from "node:crypto";
 import type { MediaRef } from "./render";
 
 export const MEDIA_MAX = 10 * 1024 * 1024;
+/** Audio and ZIP files may be bigger (podcasts, bundles). */
+export const MEDIA_MAX_LARGE = 25 * 1024 * 1024;
+export const maxBytesFor = (kind: string) => (kind === "audio" || kind === "archive" ? MEDIA_MAX_LARGE : MEDIA_MAX);
 export const MEDIA_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"] as const;
 export type MediaType = (typeof MEDIA_TYPES)[number];
 
@@ -27,6 +30,96 @@ export function sniffType(b: Uint8Array): MediaType | "image/avif" | null {
   if (b.length > 12 && s(0, "RIFF") && s(8, "WEBP")) return "image/webp";
   if (b.length > 12 && s(4, "ftyp") && (s(8, "avif") || s(8, "avis"))) return "image/avif";
   if (b.length > 5 && s(0, "%PDF-")) return "application/pdf";
+  return null;
+}
+
+// ——— every format the public site accepts ———
+export type MediaKind = "image" | "audio" | "document" | "text" | "archive";
+/** `keeps`: the file may still carry author / camera info we can't remove without re-encoding it. `unsafe`: refuse it. */
+export interface Detected { type: string; ext: string; kind: MediaKind; keeps?: "metadata" | "archive"; unsafe?: boolean }
+
+const OOXML: Record<string, string> = {
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+};
+const ODF: Record<string, [string, string]> = {
+  text: ["application/vnd.oasis.opendocument.text", ".odt"],
+  spreadsheet: ["application/vnd.oasis.opendocument.spreadsheet", ".ods"],
+  presentation: ["application/vnd.oasis.opendocument.presentation", ".odp"],
+};
+// HTML is stored as text/plain on purpose: from the public bucket it can be read but never runs scripts.
+const TEXT: Record<string, string> = { txt: "text/plain", csv: "text/csv", md: "text/markdown", json: "application/json", html: "text/plain", htm: "text/plain" };
+
+const latin1 = (b: Uint8Array, from: number, to: number) => {
+  let o = "";
+  for (let i = from; i < Math.min(to, b.length); i++) o += String.fromCharCode(b[i]);
+  return o;
+};
+const utf8 = (b: Uint8Array): string | null => {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(b);
+  } catch {
+    return null;
+  }
+};
+const hasText = (b: Uint8Array, needle: string) => Buffer.from(b.buffer, b.byteOffset, b.length).includes(needle);
+
+/** Things an SVG must not contain: scripts, event handlers, outside links. null = looks fine. */
+export function svgIssue(text: string): string | null {
+  if (!/<svg[\s>/]/i.test(text)) return "no <svg>";
+  const bad: [RegExp, string][] = [
+    [/<\s*script/i, "script"],
+    [/<\s*(foreignObject|iframe|embed|object)/i, "embedded content"],
+    [/\son[a-z]+\s*=/i, "event handler"],
+    [/javascript:/i, "javascript: link"],
+    [/<!ENTITY|<!DOCTYPE[^>]*\[/i, "entity"],
+    [/(?:xlink:)?href\s*=\s*["'](?!#|data:image\/(?:png|jpe?g|gif|webp);)/i, "outside link"],
+    [/@import|url\(\s*["']?(?!#|data:image\/)/i, "outside link"],
+  ];
+  for (const [re, why] of bad) if (re.test(text)) return why;
+  return null;
+}
+
+/** What is this file? Pictures and PDFs are recognised by their content; Office / ZIP / audio by content + extension; text by extension + being valid. */
+export function detectMedia(b: Uint8Array, name: string): Detected | null {
+  const m = sniffType(b);
+  if (m === "application/pdf") return { type: m, ext: ".pdf", kind: "document" };
+  if (m === "image/avif") return { type: m, ext: ".avif", kind: "image", keeps: "metadata" };
+  if (m) return { type: m, ext: EXT[m], kind: "image" };
+  const ext = (/\.([a-z0-9]{1,5})$/i.exec(name)?.[1] ?? "").toLowerCase();
+
+  if (b.length > 30 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 3 && b[3] === 4) {
+    const head = latin1(b, 0, 4096);
+    const odf = /mimetypeapplication\/vnd\.oasis\.opendocument\.(text|spreadsheet|presentation)/.exec(head);
+    if (odf) {
+      const [type, e] = ODF[odf[1]];
+      return { type, ext: e, kind: "document", keeps: "metadata" };
+    }
+    if (OOXML[ext] && head.includes("[Content_Types].xml")) return { type: OOXML[ext], ext: "." + ext, kind: "document", keeps: "metadata", unsafe: hasText(b, "vbaProject.bin") || undefined };
+    if (ext === "zip") return { type: "application/zip", ext: ".zip", kind: "archive", keeps: "archive" };
+    return null;
+  }
+  if (ext === "mp3" && b.length > 4 && ((b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0))) return { type: "audio/mpeg", ext: ".mp3", kind: "audio", keeps: "metadata" };
+  if (ext === "m4a" && b.length > 12 && latin1(b, 4, 8) === "ftyp") return { type: "audio/mp4", ext: ".m4a", kind: "audio", keeps: "metadata" };
+
+  if (ext === "svg" || TEXT[ext]) {
+    if (b.subarray(0, 8192).includes(0)) return null;
+    const text = utf8(b);
+    if (text === null) return null;
+    if (ext === "svg") {
+      if (!/<svg[\s>/]/i.test(text)) return null;
+      return { type: "image/svg+xml", ext: ".svg", kind: "image", unsafe: svgIssue(text) ? true : undefined };
+    }
+    if (ext === "json") {
+      try {
+        JSON.parse(text.replace(/^\uFEFF/, ""));
+      } catch {
+        return null;
+      }
+    }
+    return { type: TEXT[ext], ext: ext === "htm" ? ".html" : "." + ext, kind: "text" };
+  }
   return null;
 }
 
@@ -165,8 +258,12 @@ function stripGif(b: Uint8Array): Uint8Array {
   throw new Error("bad gif");
 }
 
-/** Same picture, without camera / GPS / text metadata. Throws if the file is damaged. PDFs are copied as they are. */
-export function stripMetadata(bytes: Uint8Array, type: MediaType): Uint8Array {
+/** Same picture, without camera / GPS / text metadata. Throws if the file is damaged. SVG loses comments and <metadata>. PDFs, audio, Office files, text and ZIPs are copied as they are (see `keeps`). */
+export function stripMetadata(bytes: Uint8Array, type: string): Uint8Array {
+  if (type === "image/svg+xml") {
+    const t = utf8(bytes) ?? "";
+    return new TextEncoder().encode(t.replace(/<!--[\s\S]*?-->/g, "").replace(/<metadata[\s\S]*?<\/metadata>/gi, "").replace(/<\?xml-stylesheet[^>]*\?>/gi, ""));
+  }
   if (type === "image/jpeg") return stripJpeg(bytes);
   if (type === "image/png") return stripPng(bytes);
   if (type === "image/webp") return stripWebp(bytes);
@@ -175,15 +272,16 @@ export function stripMetadata(bytes: Uint8Array, type: MediaType): Uint8Array {
 }
 
 // ——— copy ———
-export type MediaFailure = { src: string; reason: "missing" | "too_big" | "type" | "failed" };
-export type CopyResult = { urls: Map<string, string>; paths: Map<string, string>; failed: MediaFailure[]; copied: number };
+export type MediaFailure = { src: string; reason: "missing" | "too_big" | "type" | "unsafe" | "failed" };
+export type Unstripped = { src: string; name: string; why: "metadata" | "archive" };
+export type CopyResult = { urls: Map<string, string>; paths: Map<string, string>; failed: MediaFailure[]; copied: number; unstripped: Unstripped[] };
 
 const decodeKey = (src: string) => src.replace(/^\/api\/files\//, "").split("/").map((p) => { try { return decodeURIComponent(p); } catch { return p; } }).join("/");
 const safeName = (name: string) => name.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w.-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(-80) || "file";
 const EXT: Record<string, string> = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "application/pdf": ".pdf" };
 
 export async function copyMedia(store: MediaStore, userId: string, slotId: string, refs: MediaRef[]): Promise<CopyResult> {
-  const res: CopyResult = { urls: new Map(), paths: new Map(), failed: [], copied: 0 };
+  const res: CopyResult = { urls: new Map(), paths: new Map(), failed: [], copied: 0, unstripped: [] };
   for (const ref of refs) {
     if (res.urls.has(ref.src)) continue;
     const fail = (reason: MediaFailure["reason"]) => void res.failed.push({ src: ref.src, reason });
@@ -195,17 +293,21 @@ export async function copyMedia(store: MediaStore, userId: string, slotId: strin
     try {
       const raw = await store.download(key);
       if (!raw) fail("missing");
-      else if (raw.length > MEDIA_MAX) fail("too_big");
+      else if (raw.length > MEDIA_MAX_LARGE) fail("too_big");
       else {
-        const type = sniffType(raw);
-        if (!type || type === "image/avif" || (ref.kind === "image" && type === "application/pdf")) fail("type");
+        const base = key.split("/").pop() ?? "file";
+        const det = detectMedia(raw, base);
+        if (!det) fail(raw.length > MEDIA_MAX ? "too_big" : "type");
+        else if (det.unsafe) fail("unsafe");
+        else if ((ref.kind === "image" && det.kind !== "image") || (ref.kind === "audio" && det.kind !== "audio")) fail("type");
         else {
+          const type = det.type;
           const out = stripMetadata(raw, type);
-          if (out.length > MEDIA_MAX) fail("too_big");
+          if (out.length > maxBytesFor(det.kind)) fail("too_big");
           else {
             const hash = createHash("sha256").update(out).digest("hex").slice(0, 16);
-            let name = safeName((key.split("/").pop() ?? "file").replace(/^[0-9a-f]{8}-/, ""));
-            if (!/\.[a-z0-9]{2,5}$/i.test(name)) name += EXT[type];
+            let name = safeName(base.replace(/^[0-9a-f]{8}-/, ""));
+            if (!/\.[a-z0-9]{2,5}$/i.test(name)) name += det.ext;
             const dest = `${slotId}/${hash}-${name}`;
             if (!(await store.exists(dest))) {
               if (!(await store.upload(dest, out, type))) {
@@ -214,6 +316,7 @@ export async function copyMedia(store: MediaStore, userId: string, slotId: strin
               }
               res.copied++;
             }
+            if (det.keeps) res.unstripped.push({ src: ref.src, name, why: det.keeps });
             res.urls.set(ref.src, store.publicBase + dest);
             res.paths.set(ref.src, dest);
           }

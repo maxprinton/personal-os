@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useState } from "react";
 import { linkNoteAction, newNoteAction, unlinkNoteAction } from "@/app/portfolio-actions";
 import { LANG_LABEL, type Lang } from "@/lib/portfolio/constants";
+import { otherLang } from "@/lib/portfolio/translate";
 import type { SlotView } from "@/lib/portfolio/types";
 import PublishPanel from "./PublishPanel";
+import TranslateButton from "./TranslateButton";
 import { ActForm, BOX, BTN_DANGER, BTN_PLAIN, BTN_PRIMARY, INPUT, LABEL, StatusBadge } from "./ui";
 
 export type NoteChoice = { id: string; title: string };
@@ -50,6 +52,7 @@ export default function LangCard({ slot, lang, choices }: { slot: SlotView; lang
         <button type="button" onClick={() => setPicking((v) => !v)} className={BTN_PLAIN}>
           {note ? "Replace with another note" : "Link an existing note"}
         </button>
+        {note && !note.deleted_at && !slot.pages[otherLang(lang)].note && <TranslateButton slotId={slot.id} from={lang} to={otherLang(lang)} />}
         {note && (
           <ActForm action={unlinkNoteAction} saved="" confirm="Unlink this note? It stays in Notes as a normal note, and the live page does not change.">
             {(pending) => (

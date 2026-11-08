@@ -122,8 +122,9 @@ export async function buildSnapshot(d: Deps, slotId: string, lang: Lang): Promis
   const icon = assetOf(note.page?.icon, "icon");
   const refs = [...first.media, ...(cover.ref ? [cover.ref] : []), ...(icon.ref ? [icon.ref] : [])];
   const copy = await copyMedia(d.store, d.userId, slotId, refs);
-  const FAIL = { missing: "media_failed", failed: "media_failed", too_big: "media_too_big", type: "media_type" } as const;
+  const FAIL = { missing: "media_failed", failed: "media_failed", too_big: "media_too_big", type: "media_type", unsafe: "media_unsafe" } as const;
   for (const f of copy.failed) w.add(FAIL[f.reason], decodeURIComponent(f.src.split("/").pop() ?? f.src));
+  for (const u of copy.unstripped) w.add(u.why === "archive" ? "archive_unchecked" : "metadata_kept", u.name);
   if (copy.copied) w.add("media_copied", undefined, copy.copied);
 
   const out = renderNote(content, { ...ctx, media: (s) => copy.urls.get(s) ?? null });

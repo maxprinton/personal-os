@@ -12,7 +12,7 @@ const VOID = new Set(["br", "hr", "img", "wbr"]);
 const TAGS = new Set([
   "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "b", "i", "u", "s", "del", "ins", "code", "pre", "span", "a", "ul", "ol", "li",
   "blockquote", "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption", "colgroup", "col", "img", "figure", "figcaption", "div", "details", "summary",
-  "iframe", "sup", "sub", "mark", "time", "section", "aside", "kbd", "small", "abbr", "wbr", "cite", "dl", "dt", "dd",
+  "iframe", "audio", "sup", "sub", "mark", "time", "section", "aside", "kbd", "small", "abbr", "wbr", "cite", "dl", "dt", "dd",
 ]);
 /** Removed together with everything inside them. */
 const DROP_WITH_CONTENT = new Set(["script", "style", "template", "noscript", "title", "head", "object", "embed", "applet", "svg", "math", "textarea", "select", "option", "button", "form", "link", "meta", "base", "frameset", "frame"]);
@@ -22,6 +22,7 @@ const TAG_ATTRS: Record<string, Set<string>> = {
   a: new Set(["href", "rel", "target", "download"]),
   img: new Set(["src", "alt", "width", "height", "loading", "decoding"]),
   iframe: new Set(["src", "allowfullscreen", "loading", "width", "height", "referrerpolicy", "allow"]),
+  audio: new Set(["src", "controls", "preload"]),
   details: new Set(["open"]),
   td: new Set(["colspan", "rowspan", "align"]),
   th: new Set(["colspan", "rowspan", "align", "scope"]),
@@ -268,11 +269,15 @@ export function sanitizeHtml(html: string, opts: SanitizeOptions = {}): { html: 
         case "loading":
           kept.push('loading="lazy"');
           break;
+        case "preload":
+          kept.push('preload="none"');
+          break;
         case "decoding":
         case "referrerpolicy":
         case "allow":
           break;
         case "allowfullscreen":
+        case "controls":
         case "open":
         case "download":
           kept.push(a.name);
@@ -296,6 +301,10 @@ export function sanitizeHtml(html: string, opts: SanitizeOptions = {}): { html: 
       bump(report.removedTags, "iframe");
       continue;
     }
+    if (name === "audio" && !src) {
+      bump(report.removedTags, "audio");
+      continue;
+    }
     if (name === "img" && !src) {
       bump(report.removedTags, "img");
       continue;
@@ -304,6 +313,8 @@ export function sanitizeHtml(html: string, opts: SanitizeOptions = {}): { html: 
     if (src !== null) kept.unshift(`src="${escapeAttr(src)}"`);
     if (name === "a" && href !== null) kept.push(external ? 'rel="noopener noreferrer" target="_blank"' : 'rel="noopener"');
     if (name === "iframe") kept.push('loading="lazy"', 'referrerpolicy="strict-origin-when-cross-origin"', 'allow="encrypted-media; picture-in-picture; fullscreen"');
+    if (name === "audio" && !kept.includes("controls")) kept.push("controls");
+    if (name === "audio" && !kept.includes('preload="none"')) kept.push('preload="none"');
     if (name === "img" && !tag.attrs.some((a) => a.name === "loading")) kept.push('loading="lazy"');
 
     if (stack.length >= 60) {

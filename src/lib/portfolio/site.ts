@@ -14,6 +14,8 @@ export type SiteSettings = {
   contact_enabled: boolean;
   analytics_enabled: boolean;
   blocked_words: string[];
+  /** weekly Telegram message about pages changed but not republished */
+  nudge_weekly: boolean;
 };
 
 export const SITE_DEFAULTS: SiteSettings = {
@@ -27,6 +29,7 @@ export const SITE_DEFAULTS: SiteSettings = {
   contact_enabled: true,
   analytics_enabled: true,
   blocked_words: [],
+  nudge_weekly: true,
 };
 
 export async function loadSite(sb: SupabaseClient, userId: string): Promise<{ site: SiteSettings; saved: boolean; missing: boolean }> {

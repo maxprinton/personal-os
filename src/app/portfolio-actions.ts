@@ -162,6 +162,7 @@ export async function saveSiteAction(_p: ActionState, f: FormData): Promise<Acti
       default_lang,
       contact_enabled: s(f, "contact_enabled") === "on",
       analytics_enabled: s(f, "analytics_enabled") === "on",
+      nudge_weekly: s(f, "nudge_weekly") === "on",
       blocked_words: parseWords(s(f, "blocked_words")),
     };
     const err = await saveSite(sb, userId, site);

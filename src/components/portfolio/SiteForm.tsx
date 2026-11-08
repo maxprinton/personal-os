@@ -53,6 +53,9 @@ export default function SiteForm({ site }: { site: SiteSettings }) {
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" name="analytics_enabled" defaultChecked={site.analytics_enabled} /> Visitor analytics (no cookies)
             </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="nudge_weekly" defaultChecked={site.nudge_weekly} /> Weekly Telegram reminder about pages changed but not republished
+            </label>
           </div>
 
           <div className={`${BOX} space-y-2`}>

@@ -1,0 +1,1 @@
+Portafolio: arreglo de build en Vercel. Agrega portfolio/postcss.config.mjs vacio para que no use el postcss.config.mjs del OS (que pide @tailwindcss/postcss, no instalado en el sitio publico).
