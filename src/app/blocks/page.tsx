@@ -5,6 +5,7 @@ import { userTimezone } from "@/lib/calendar/load";
 import { formatDateLong, formatMinutes, localNow, timeToMinutes } from "@/lib/time";
 import { dayList } from "@/lib/blocks-summary";
 import BlockTypeCard from "@/components/BlockTypeCard";
+import { keepTypeIds } from "@/lib/calendar/freedays";
 import type { Slot } from "@/lib/calendar/types";
 import { isMobileRequest } from "@/lib/device";
 import Icon from "@/components/ui/Icon";
@@ -38,6 +39,7 @@ export default async function BlocksPage() {
   if (!userId) return null;
   const today = localNow(await userTimezone(supabase, userId)).date;
   const [types, slots] = await Promise.all([getBlockTypes(supabase, userId), getSlots(supabase, userId, today)]);
+  const keepIds = new Set(await keepTypeIds(supabase, userId));
   const mobile = await isMobileRequest();
 
   return (
@@ -83,6 +85,7 @@ export default async function BlocksPage() {
               name={t.name}
               color={t.color}
               slots={describeAll(slots.filter((s) => s.block_type_id === t.id), today)}
+              freeDay={keepIds.has(t.id) ? "keep" : "pause"}
               readOnly={mobile}
             />
           ))}

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { removeBlockType, renameBlockType, setBlockTypeColor } from "@/app/calendar-actions";
+import { removeBlockType, renameBlockType, setBlockTypeColor, setBlockTypeFreeDayBehavior } from "@/app/calendar-actions";
 import { emitCalendarChanged } from "@/components/calendar/util";
 
 /** One block (as a concept): rename and recolor apply everywhere it appears. */
@@ -11,6 +11,7 @@ export default function BlockTypeCard({
   name,
   color,
   slots,
+  freeDay = "pause",
   readOnly = false,
   children,
 }: {
@@ -18,6 +19,7 @@ export default function BlockTypeCard({
   name: string;
   color: string;
   slots: string[];
+  freeDay?: "pause" | "keep";
   readOnly?: boolean;
   children?: React.ReactNode;
 }) {
@@ -26,6 +28,24 @@ export default function BlockTypeCard({
   const [c, setC] = useState(color);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [fd, setFd] = useState<"pause" | "keep">(freeDay);
+
+  async function changeFreeDay(v: "pause" | "keep") {
+    const prev = fd;
+    setFd(v);
+    setBusy(true);
+    setMsg(null);
+    const r = await setBlockTypeFreeDayBehavior({ id, behavior: v });
+    setBusy(false);
+    if ("error" in r && r.error) {
+      setFd(prev);
+      setMsg(r.error);
+    } else {
+      setMsg(("notice" in r && r.notice) || "Saved.");
+      emitCalendarChanged();
+      router.refresh();
+    }
+  }
 
   async function save() {
     setBusy(true);
@@ -74,6 +94,18 @@ export default function BlockTypeCard({
         ))}
         {slots.length === 0 && <li className="text-faint">Not on the calendar from today on.</li>}
       </ul>
+      <label className="flex flex-wrap items-center gap-2 text-sm text-muted">
+        <span>On free days</span>
+        <select
+          value={fd}
+          disabled={busy || readOnly}
+          onChange={(e) => changeFreeDay(e.target.value as "pause" | "keep")}
+          className="rounded-md border border-line-strong bg-transparent px-2 py-1 text-sm text-fg disabled:opacity-60"
+        >
+          <option value="pause">Pause it (ghosted, streak paused)</option>
+          <option value="keep">Keep it (stays active)</option>
+        </select>
+      </label>
       {children}
       {msg && <p className="text-xs text-muted">{msg}</p>}
     </li>

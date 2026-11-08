@@ -22,7 +22,7 @@ import { userTimezone } from "@/lib/calendar/load";
 import { getChecks, getHabits, recomputeOccurrenceStatus, setHabitCheck } from "@/lib/calendar/habits";
 import { habitsForOccurrence } from "@/lib/calendar/habitview";
 import { autoPlaceTasks, countMove, getTask, nextOccurrenceAfter } from "@/lib/calendar/tasks";
-import { applyFreeDays, undoFreeDays } from "@/lib/calendar/freedays";
+import { applyFreeDays, syncTypeWithFreeDays, undoFreeDays } from "@/lib/calendar/freedays";
 import { ensurePaymentEvents, reschedulePaymentEvents, TEMPLATE_COLS } from "@/lib/calendar/payments";
 import type { RepeatUnit } from "@/lib/calendar/recurrence";
 import { isMobileRequest, READ_ONLY_MESSAGE } from "@/lib/device";
@@ -677,6 +677,26 @@ export async function setBlockTypeColor(input: { id: string; color: string }): P
       .eq("user_id", c.userId);
     if (error) return { error: error.message };
     return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** What a block does on free days: "pause" (default) or "keep" (stays active). Today and later free days follow at once. */
+export async function setBlockTypeFreeDayBehavior(input: { id: string; behavior: "pause" | "keep" }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    if (input.behavior !== "pause" && input.behavior !== "keep") return { error: "Pick pause or keep." };
+    const { error } = await c.sb
+      .from("block_types")
+      .update({ free_day_behavior: input.behavior })
+      .eq("id", input.id)
+      .eq("user_id", c.userId);
+    if (error) {
+      return { error: error.message.includes("free_day_behavior") ? "Run MIGRACION-0047-bloques-en-dias-libres.sql in Supabase first." : error.message };
+    }
+    const n = await syncTypeWithFreeDays(c.sb, c.userId, input.id, input.behavior, c.today);
+    return done(n ? (input.behavior === "keep" ? `Active again on ${n} free ${n === 1 ? "day" : "days"}.` : `Paused on ${n} free ${n === 1 ? "day" : "days"}.`) : undefined);
   } catch (e) {
     return fail(e);
   }
