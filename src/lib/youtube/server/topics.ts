@@ -28,7 +28,7 @@ export async function ensureTopic(sb: SupabaseClient, userId: string, raw: strin
 export async function loadTopics(sb: SupabaseClient, userId: string): Promise<{ topics: TopicWithIdeas[]; channelVideos: number; missing: boolean; error?: string }> {
   const [t, v, pub] = await Promise.all([
     sb.from("yt_topics").select("id,name,name_key,notes,created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(1000),
-    sb.from("yt_videos").select("id,code,idea_name,stage,kind,format,angle,published_at,topic_id").eq("user_id", userId).not("topic_id", "is", null).limit(3000),
+    sb.from("yt_videos").select("id,code,idea_name,stage,kind,format,angle,formats,angles,published_at,topic_id").eq("user_id", userId).not("topic_id", "is", null).limit(3000),
     sb.from("yt_videos").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("kind", "long").not("published_at", "is", null),
   ]);
   const err = t.error ?? v.error;

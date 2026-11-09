@@ -7,7 +7,7 @@ import { addTitleCandidate, aiSuggestAngles, aiSuggestFormats, updateIdea, type 
 import { showAiUsage } from "@/lib/ai-usage-client";
 import Link from "next/link";
 import { ANGLES, FORMATS, videoHref } from "@/lib/youtube/constants";
-import { takenBy, usedAngles, type TopicIdea } from "@/lib/youtube/topics";
+import { MAX_EXTRAS, extrasOf, sameMix, takenBy, usedAngles, type TopicIdea } from "@/lib/youtube/topics";
 import type { YtVideo } from "@/lib/youtube/types";
 import { AI_BTN, AiPreview, AutoField, BOX, BTN_SM, Chip, LABEL, Msg } from "@/components/youtube/idea/ui";
 
@@ -15,6 +15,7 @@ type Save = (p: Parameters<typeof updateIdea>[1]) => Promise<string | null>;
 
 export function FormatStep({ video, siblings, aiReady, onSave }: { video: YtVideo; siblings: TopicIdea[]; aiReady: boolean; onSave: Save }) {
   const [format, setFormat] = useState<string | null>(video.format ?? null);
+  const [mixed, setMixed] = useState<string[]>(extrasOf(video.formats, video.format));
   const [items, setItems] = useState<FormatSuggestion[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -27,8 +28,20 @@ export function FormatStep({ video, siblings, aiReady, onSave }: { video: YtVide
     setErr(null);
     const e = await onSave({ format: next });
     if (e) setErr(e);
-    else setFormat(next);
+    else {
+      setFormat(next);
+      setMixed((m) => (next ? m.filter((x) => x !== next) : []));
+    }
   };
+  const toggleMix = async (id: string) => {
+    const next = mixed.includes(id) ? mixed.filter((x) => x !== id) : [...mixed, id];
+    if (next.length > MAX_EXTRAS) return setErr(`Mix in at most ${MAX_EXTRAS} formats.`);
+    setErr(null);
+    const e = await onSave({ formats_extra: next });
+    if (e) setErr(e);
+    else setMixed(next);
+  };
+  const dupMix = isLong ? sameMix(siblings, format, mixed, video.id) : null;
   const ask = () =>
     start(async () => {
       setErr(null);
@@ -72,7 +85,19 @@ export function FormatStep({ video, siblings, aiReady, onSave }: { video: YtVide
             );
           })}
         </div>
-        <p className="text-xs text-muted">{FORMATS.find((f) => f.id === format)?.hint ?? "Pick one."}</p>
+        <p className="text-xs text-muted">{FORMATS.find((f) => f.id === format)?.hint ?? "Pick the main format."}</p>
+        <div className="space-y-1.5 rounded-md bg-subtle px-3 py-2">
+          <p className="text-xs font-medium text-muted">Mix in another format (optional, up to {MAX_EXTRAS})</p>
+          <div className="flex flex-wrap gap-2">
+            {FORMATS.filter((f) => f.id !== format).map((f) => (
+              <Chip key={f.id} on={mixed.includes(f.id)} onClick={() => void toggleMix(f.id)} disabled={!format} title={format ? f.hint : "Pick the main format first"}>
+                + {f.label}
+              </Chip>
+            ))}
+          </div>
+          <p className="text-[11px] text-faint">Only the main format counts for “used once”. The mix is saved with the idea and shown as tags, so you can compare mixes later.</p>
+          {dupMix && <p className="text-xs text-warning">⚠ Same mix as “{dupMix.code ? `${dupMix.code} · ` : ""}{dupMix.idea_name}”, just with another main format. Allowed — make sure it’s really a different video.</p>}
+        </div>
         <label className={LABEL}>
           Base idea = Topic + Format (one sentence)
           <AutoField key={baseKey} value={base} multiline rows={2} maxLength={2000} label="Base idea" onSave={(v) => onSave({ base_idea: v })} />
@@ -113,6 +138,7 @@ export function FormatStep({ video, siblings, aiReady, onSave }: { video: YtVide
 export function AngleStep({ video, siblings, aiReady, titles, onSave }: { video: YtVideo; siblings: TopicIdea[]; aiReady: boolean; titles: number; onSave: Save }) {
   const router = useRouter();
   const [angle, setAngle] = useState<string | null>(video.angle ?? null);
+  const [support, setSupport] = useState<string[]>(extrasOf(video.angles, video.angle));
   const [items, setItems] = useState<AngleSuggestion[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -126,7 +152,18 @@ export function AngleStep({ video, siblings, aiReady, titles, onSave }: { video:
     setErr(null);
     const e = await onSave({ angle: next });
     if (e) setErr(e);
-    else setAngle(next);
+    else {
+      setAngle(next);
+      setSupport((m) => (next ? m.filter((x) => x !== next) : []));
+    }
+  };
+  const toggleSupport = async (id: string) => {
+    const next = support.includes(id) ? support.filter((x) => x !== id) : [...support, id];
+    if (next.length > MAX_EXTRAS) return setErr(`Use at most ${MAX_EXTRAS} supporting angles.`);
+    setErr(null);
+    const e = await onSave({ angles_extra: next });
+    if (e) setErr(e);
+    else setSupport(next);
   };
   const ask = () =>
     start(async () => {
@@ -161,8 +198,8 @@ export function AngleStep({ video, siblings, aiReady, titles, onSave }: { video:
     <div className={BOX}>
       <h3 className="text-sm font-semibold">Angle — Idea + Angle = Killer idea</h3>
       <p className="text-xs text-muted">
-        {video.format ? `The idea is “${video.idea_name}” (${FORMATS.find((f) => f.id === video.format)?.label}).` : "Pick the format first."} Choose the one angle that makes
-        <i> this</i> topic in <i>this</i> format worth clicking. Mixing formats? Describe it in the notes.
+        {video.format ? `The idea is “${video.idea_name}” (${[video.format, ...extrasOf(video.formats, video.format)].map((f) => FORMATS.find((x) => x.id === f)?.label ?? f).join(" + ")}).` : "Pick the format first."} Choose the <b>lead angle</b>:
+        the one that makes <i>this</i> topic in <i>this</i> format worth clicking. It shapes the title and thumbnail. You can add up to {MAX_EXTRAS} supporting angles below.
       </p>
       <div className="grid gap-2 sm:grid-cols-3">
         {ANGLES.map((a) => (
@@ -180,6 +217,16 @@ export function AngleStep({ video, siblings, aiReady, titles, onSave }: { video:
             <span className="text-[11px] opacity-80">{a.example}</span>
           </button>
         ))}
+      </div>
+      <div className="space-y-1.5 rounded-md bg-subtle px-3 py-2">
+        <p className="text-xs font-medium text-muted">Supporting angles (optional, up to {MAX_EXTRAS})</p>
+        <div className="flex flex-wrap gap-2">
+          {ANGLES.filter((a) => a.id !== angle).map((a) => (
+            <Chip key={a.id} on={support.includes(a.id)} onClick={() => void toggleSupport(a.id)} disabled={!angle} title={angle ? a.example : "Pick the lead angle first"}>
+              + {a.label}
+            </Chip>
+          ))}
+        </div>
       </div>
       <label className={LABEL}>
         How the angle plays out (notes)

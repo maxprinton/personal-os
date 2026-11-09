@@ -82,6 +82,7 @@ export default function TopicsView({ topics, channelVideos, error }: { topics: T
                         <Link href={videoHref(c.ideaId, "idea")} className="mt-0.5 line-clamp-2 text-muted hover:text-accent">
                           {c.label}
                           {angle ? ` · ${angle}` : ""}
+                          {c.mixed.length > 0 && <span className="ml-1 rounded bg-subtle px-1 text-[10px] text-muted">mixed with {c.mixed.map((m) => FORMATS.find((x) => x.id === m)?.label ?? m).join(" + ")}</span>}
                         </Link>
                       ) : (
                         <button type="button" disabled={pending} onClick={() => make(t.id, c.format)} className="mt-0.5 text-accent hover:underline disabled:opacity-50">

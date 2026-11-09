@@ -8,7 +8,7 @@ import { updateIdea } from "@/app/youtube-actions/ideas";
 import { IDEA_STEPS, SHORT_ROLES, videoHref } from "@/lib/youtube/constants";
 import type { IdeaStep, YtReference, YtVideo } from "@/lib/youtube/types";
 import { FORMATS, ANGLES } from "@/lib/youtube/constants";
-import type { TopicIdea, TopicStatus } from "@/lib/youtube/topics";
+import { extrasOf, type TopicIdea, type TopicStatus } from "@/lib/youtube/topics";
 import { AutoField, LABEL } from "@/components/youtube/idea/ui";
 import TopicStep from "@/components/youtube/idea/TopicStep";
 import { AngleStep, FormatStep } from "@/components/youtube/idea/FormatAngle";
@@ -117,8 +117,8 @@ export default function IdeaStepper({ data }: { data: IdeaPageData }) {
       <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-2 text-xs" aria-label="Killer idea formula">
         {([
           ["topic", "Topic", data.topic?.name ?? video.topic ?? null],
-          ["format", "Format", FORMATS.find((f) => f.id === video.format)?.label ?? null],
-          ["angle", "Angle", ANGLES.find((a) => a.id === video.angle)?.label ?? null],
+          ["format", "Format", video.format ? [video.format, ...extrasOf(video.formats, video.format)].map((f) => FORMATS.find((x) => x.id === f)?.label ?? f).join(" + ") : null],
+          ["angle", "Angle", video.angle ? [video.angle, ...extrasOf(video.angles, video.angle)].map((a) => ANGLES.find((x) => x.id === a)?.label ?? a).join(" + ") : null],
         ] as const).map(([stepId, label, val], i) => (
           <span key={stepId} className="flex items-center gap-1.5">
             {i > 0 && <span className="text-faint">{i === 2 ? "+ ➜" : "+"}</span>}

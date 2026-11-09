@@ -11,7 +11,7 @@ import { getSettings } from "@/lib/agenda";
 import { localNow } from "@/lib/time";
 import { ytServer, isMissingTable, withSettingsDefaults } from "@/lib/youtube/db";
 import { ensureTopic } from "@/lib/youtube/server/topics";
-import { freeFormats, takenBy, topicKey, topicNameFrom, usedAngles, type TopicIdea } from "@/lib/youtube/topics";
+import { cleanExtras, extrasOf, freeFormats, takenBy, topicKey, topicNameFrom, usedAngles, type TopicIdea } from "@/lib/youtube/topics";
 import { AI_PROMPT_MAX, ANGLES, FORMATS, IDEA_STEPS, MIGRATION_FILE, SHORT_ROLES, isStage, stageLabel, videoHref } from "@/lib/youtube/constants";
 import { addsToWip, canApprove, cleanRatings, dataScore, gateStatus, ideaFromText, ideaScore, parseCapture, parseCount, parseYoutubeLinks, wipStatus, ytThumb } from "@/lib/youtube/scoring";
 import type { Gates, IdeaStep, YtReference, YtSettings, YtStage, YtVideo } from "@/lib/youtube/types";
@@ -23,7 +23,7 @@ const fail = (e: { code?: string; message?: string } | null | undefined, fallbac
 /** Other ideas of a topic (to check "Topic + Format = Idea" is used once). */
 async function topicIdeas(sb: SupabaseClient, topicId: string | null): Promise<TopicIdea[]> {
   if (!topicId) return [];
-  const { data } = await sb.from("yt_videos").select("id,code,idea_name,stage,kind,format,angle,published_at").eq("topic_id", topicId).limit(300);
+  const { data } = await sb.from("yt_videos").select("id,code,idea_name,stage,kind,format,angle,formats,angles,published_at").eq("topic_id", topicId).limit(300);
   return (data ?? []) as TopicIdea[];
 }
 const formatLabel = (id: string) => FORMATS.find((f) => f.id === id)?.label ?? id;
@@ -147,8 +147,12 @@ export type IdeaPatch = Partial<{
   base_idea: string | null;
   /** the ONE main format (Topic + Format = Idea); must be free for the topic */
   format: string | null;
-  /** the ONE main angle (Idea + Angle = Killer idea) */
+  /** mixed-in formats (max 2, besides the main one); they don't count for the "used once" rule */
+  formats_extra: string[];
+  /** the lead angle (Idea + Angle = Killer idea) */
   angle: string | null;
+  /** supporting angles (max 2, besides the lead one) */
+  angles_extra: string[];
   /** renames the topic this idea belongs to */
   topic_name: string;
   angle_notes: string | null;
@@ -185,7 +189,6 @@ export async function updateIdea(id: string, patch: IdeaPatch): Promise<{ ok?: b
     const a = patch.angle ?? null;
     if (a !== null && !ANGLE_IDS.includes(a)) return { error: "Unknown angle." };
     row.angle = a;
-    row.angles = a ? [a] : [];
   }
   if ("tags" in patch) row.tags = [...new Set((patch.tags ?? []).map((t) => t.trim()).filter(Boolean))].slice(0, 30);
   if ("step" in patch) {
@@ -195,7 +198,7 @@ export async function updateIdea(id: string, patch: IdeaPatch): Promise<{ ok?: b
   if ("kind" in patch) row.kind = patch.kind === "short" ? "short" : "long";
   if ("short_role" in patch) row.short_role = SHORT_ROLES.some((r) => r.id === patch.short_role) ? patch.short_role : null;
   if (!Object.keys(row).length) return { ok: true };
-  const { data: cur, error: e0 } = await sb.from("yt_videos").select("stage,kind,topic_id").eq("id", id).maybeSingle();
+  const { data: cur, error: e0 } = await sb.from("yt_videos").select("stage,kind,topic_id,format,angle,formats,angles").eq("id", id).maybeSingle();
   if (e0 || !cur) return { error: fail(e0, "Video not found.") };
   const kindNow = (row.kind as string | undefined) ?? (cur.kind as string);
   if ("format" in patch) {
@@ -206,7 +209,17 @@ export async function updateIdea(id: string, patch: IdeaPatch): Promise<{ ok?: b
       if (hit) return { error: `This topic already has a ${formatLabel(f)} idea: “${hit.code ? `${hit.code} · ` : ""}${hit.idea_name}”. Pick another format (or change that idea).`, existingId: hit.id };
     }
     row.format = f;
-    row.formats = f ? [f] : [];
+  }
+  // Mixes: formats = [main, ...mixed-in], angles = [lead, ...supporting]; extras need their main one.
+  if ("format" in patch || "formats_extra" in patch) {
+    const main = ("format" in patch ? patch.format : (cur.format as string | null)) ?? null;
+    const extras = cleanExtras("formats_extra" in patch ? patch.formats_extra : extrasOf(cur.formats as string[], cur.format as string | null), main, FORMAT_IDS);
+    row.formats = main ? [main, ...extras] : [];
+  }
+  if ("angle" in patch || "angles_extra" in patch) {
+    const lead = ("angle" in patch ? patch.angle : (cur.angle as string | null)) ?? null;
+    const extras = cleanExtras("angles_extra" in patch ? patch.angles_extra : extrasOf(cur.angles as string[], cur.angle as string | null), lead, ANGLE_IDS);
+    row.angles = lead ? [lead, ...extras] : [];
   }
   if ("topic_name" in patch) {
     const name = topicNameFrom(String(patch.topic_name ?? ""));

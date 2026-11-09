@@ -27,15 +27,20 @@ export type TopicIdea = {
   idea_name: string;
   stage: string;
   kind?: string;
+  /** main format: the only one that counts for "Topic + Format is used once" */
   format: string | null;
+  /** lead angle */
   angle: string | null;
+  /** [main, ...mixed-in] and [lead, ...supporting] (mirrors kept by the app) */
+  formats?: string[];
+  angles?: string[];
   published_at: string | null;
   /** verdict of the 30-day check-in, when it is done */
   verdict30?: string | null;
 };
 
 export type FormatState = "free" | "active" | "parked" | "published";
-export type FormatCell = { format: string; state: FormatState; ideaId: string | null; label: string | null; verdict: string | null; angle: string | null };
+export type FormatCell = { format: string; state: FormatState; ideaId: string | null; label: string | null; verdict: string | null; angle: string | null; mixed: string[]; extraAngles: string[] };
 
 const isPublished = (i: Pick<TopicIdea, "stage" | "published_at">) => i.stage === "published" || !!i.published_at;
 
@@ -49,10 +54,36 @@ export function formatGrid(formats: string[], ideas: TopicIdea[]): FormatCell[] 
     const live = mine.find((i) => i.stage !== "archived") ?? null;
     const parked = mine.find((i) => i.stage === "archived") ?? null;
     const it = live ?? parked;
-    if (!it) return { format: f, state: "free", ideaId: null, label: null, verdict: null, angle: null };
+    if (!it) return { format: f, state: "free", ideaId: null, label: null, verdict: null, angle: null, mixed: [], extraAngles: [] };
     const state: FormatState = live ? (isPublished(live) ? "published" : "active") : "parked";
-    return { format: f, state, ideaId: it.id, label: it.code ? `${it.code} · ${it.idea_name}` : it.idea_name, verdict: it.verdict30 ?? null, angle: it.angle };
+    return { format: f, state, ideaId: it.id, label: it.code ? `${it.code} · ${it.idea_name}` : it.idea_name, verdict: it.verdict30 ?? null, angle: it.angle, mixed: extrasOf(it.formats, it.format), extraAngles: extrasOf(it.angles, it.angle) };
   });
+}
+
+export const MAX_EXTRAS = 2;
+
+/** The mixed-in formats / supporting angles: everything in the list except the main one (max 2, no duplicates). */
+export function extrasOf(list: string[] | null | undefined, main: string | null | undefined): string[] {
+  if (!main) return [];
+  return [...new Set((list ?? []).filter((x) => x && x !== main))].slice(0, MAX_EXTRAS);
+}
+
+/** Cleans the extras typed by the user against the allowed ids: valid, unique, not the main one, at most 2. */
+export function cleanExtras(extras: string[] | null | undefined, main: string | null | undefined, allowed: string[]): string[] {
+  if (!main) return [];
+  return [...new Set((extras ?? []).filter((x) => allowed.includes(x) && x !== main))].slice(0, MAX_EXTRAS);
+}
+
+/**
+ * An idea of the topic with the SAME mix of formats (same set) but another main format, e.g. "Vlog + Challenge" when
+ * "Challenge + Vlog" exists. Not blocked — only a warning. A mix of one format (no extras) never warns.
+ */
+export function sameMix(ideas: TopicIdea[], main: string | null, extras: string[], exceptId?: string): TopicIdea | null {
+  if (!main || !extras.length) return null;
+  const key = [main, ...extras].sort().join("+");
+  return (
+    longs(ideas).find((i) => i.id !== exceptId && i.stage !== "archived" && i.format && i.format !== main && [i.format, ...extrasOf(i.formats, i.format)].sort().join("+") === key) ?? null
+  );
 }
 
 /** The idea that already uses this topic + format (not counting `exceptId` nor parked ideas), or null. */
