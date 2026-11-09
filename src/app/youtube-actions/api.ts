@@ -5,6 +5,7 @@
 import { revalidatePath } from "next/cache";
 import { MIGRATION_FILE, videoHref } from "@/lib/youtube/constants";
 import { isMissingTable, withSettingsDefaults, ytServer } from "@/lib/youtube/db";
+import { ensureTopic } from "@/lib/youtube/server/topics";
 import { referenceRow, withFilterDefaults, type OutlierCandidate } from "@/lib/youtube/outliers";
 import { checkDueWatchChannels, addWatchChannel as addWatch, type WatchCheck } from "@/lib/youtube/server/watchlist";
 import {
@@ -251,9 +252,10 @@ export async function watchOutlierToIdea(id: string): Promise<{ ok?: boolean; er
   if (!c) return SIGNED_OUT;
   const r = await outlierOf(c, id);
   if ("error" in r) return { error: r.error };
+  const tp = await ensureTopic(c.sb, c.userId, r.o.title);
   const { data: v, error } = await c.sb
     .from("yt_videos")
-    .insert({ user_id: c.userId, idea_name: r.o.title.slice(0, 200), topic: r.o.title.slice(0, 200), stage: "bank", source: "watchlist", source_quote: r.o.url })
+    .insert({ user_id: c.userId, idea_name: r.o.title.slice(0, 200), topic: r.o.title.slice(0, 200), topic_id: "error" in tp ? null : tp.id, stage: "bank", source: "watchlist", source_quote: r.o.url })
     .select("id")
     .single();
   if (error || !v) return { error: dbFail(error, "Could not create the idea.") };

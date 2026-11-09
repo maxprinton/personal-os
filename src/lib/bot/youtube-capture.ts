@@ -8,6 +8,7 @@ import type { Ctx } from "@/lib/bot/core";
 import type { Kb } from "@/lib/bot/tg";
 import { BANK_STAGES, MIGRATION_FILE, WIP_STAGES, stageLabel, videoLabel } from "@/lib/youtube/constants";
 import { nextStep, parseCapture, wipStatus, ytThumb, type BoardVideo } from "@/lib/youtube/scoring";
+import { ensureTopic } from "@/lib/youtube/server/topics";
 
 type Reply = { text: string; kb: Kb };
 
@@ -66,12 +67,14 @@ export async function handleYoutubeCapture(c: Ctx, idea: string): Promise<Reply>
   if (dupErr && isMissing(dupErr)) return { text: MISSING, kb: [] };
   if (dup?.length && !cap.links.length) return { text: `💡 That idea is already in the bank: “${dup[0].idea_name}”.`, kb: [] };
 
+  const tp = await ensureTopic(c.admin, c.userId, cap.topic || name);
   const { data, error } = await c.admin
     .from("yt_videos")
     .insert({
       user_id: c.userId,
       idea_name: name,
       topic: cap.topic || name,
+      topic_id: "error" in tp ? null : tp.id,
       kind: cap.kind,
       stage: "bank",
       step: "topic",

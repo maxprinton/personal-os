@@ -123,7 +123,7 @@ export async function readCheckin(ctx: YtCtx, checkin: YtCheckin, video: YtVideo
   if (video.kind === "short" && video.short_role === "test" && checkin.kind === "7d" && shortTestPassed(metrics.views, base)) {
     const { data: had } = await ctx.sb.from("yt_videos").select("id").eq("user_id", ctx.userId).eq("origin_video_id", video.id).eq("source", "short_test").limit(1);
     if (!had?.length)
-      await ctx.sb.from("yt_videos").insert({ user_id: ctx.userId, idea_name: `${video.idea_name} (long version)`.slice(0, 200), topic: video.topic, stage: "bank", source: "short_test", origin_video_id: video.id, quick_notes: `The test Short got ${line}.` });
+      await ctx.sb.from("yt_videos").insert({ user_id: ctx.userId, idea_name: `${video.idea_name} (long version)`.slice(0, 200), topic: video.topic, topic_id: video.topic_id ?? null, stage: "bank", source: "short_test", origin_video_id: video.id, quick_notes: `The test Short got ${line}.` });
     notes.push("Test passed: a long-video idea was added to the bank.");
   }
   return { metrics, base, verdict, line, notes };

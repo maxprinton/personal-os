@@ -5,27 +5,29 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addTitleCandidate, aiSuggestAngles, aiSuggestFormats, updateIdea, type AngleSuggestion, type FormatSuggestion } from "@/app/youtube-actions/ideas";
 import { showAiUsage } from "@/lib/ai-usage-client";
-import { ANGLES, FORMATS } from "@/lib/youtube/constants";
+import Link from "next/link";
+import { ANGLES, FORMATS, videoHref } from "@/lib/youtube/constants";
+import { takenBy, usedAngles, type TopicIdea } from "@/lib/youtube/topics";
 import type { YtVideo } from "@/lib/youtube/types";
 import { AI_BTN, AiPreview, AutoField, BOX, BTN_SM, Chip, LABEL, Msg } from "@/components/youtube/idea/ui";
 
 type Save = (p: Parameters<typeof updateIdea>[1]) => Promise<string | null>;
 
-function toggle(list: string[], id: string) {
-  return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
-}
-
-export function FormatStep({ video, aiReady, onSave }: { video: YtVideo; aiReady: boolean; onSave: Save }) {
-  const [formats, setFormats] = useState<string[]>(video.formats ?? []);
+export function FormatStep({ video, siblings, aiReady, onSave }: { video: YtVideo; siblings: TopicIdea[]; aiReady: boolean; onSave: Save }) {
+  const [format, setFormat] = useState<string | null>(video.format ?? null);
   const [items, setItems] = useState<FormatSuggestion[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [baseKey, setBaseKey] = useState(0);
   const [base, setBase] = useState(video.base_idea ?? "");
-  const pick = (id: string) => {
-    const next = toggle(formats, id);
-    setFormats(next);
-    void onSave({ formats: next });
+  const isLong = video.kind !== "short";
+  const holder = (id: string) => (isLong ? takenBy(siblings, id, video.id) : null);
+  const pick = async (id: string) => {
+    const next = format === id ? null : id;
+    setErr(null);
+    const e = await onSave({ format: next });
+    if (e) setErr(e);
+    else setFormat(next);
   };
   const ask = () =>
     start(async () => {
@@ -36,11 +38,11 @@ export function FormatStep({ video, aiReady, onSave }: { video: YtVideo; aiReady
       else setItems(r.items ?? []);
     });
   const accept = async (s: FormatSuggestion) => {
-    const next = formats.includes(s.format) ? formats : [...formats, s.format];
-    setFormats(next);
-    const e = await onSave({ formats: next, base_idea: s.base_idea });
+    setErr(null);
+    const e = await onSave({ format: s.format, base_idea: s.base_idea });
     if (e) setErr(e);
     else {
+      setFormat(s.format);
       setBase(s.base_idea);
       setBaseKey((k) => k + 1);
       setItems((l) => (l ?? []).filter((x) => x !== s));
@@ -49,25 +51,38 @@ export function FormatStep({ video, aiReady, onSave }: { video: YtVideo; aiReady
   return (
     <div className="space-y-4">
       <div className={BOX}>
-        <h3 className="text-sm font-semibold">Format — you can mix them</h3>
+        <h3 className="text-sm font-semibold">Format — Topic + Format = Idea</h3>
+        <p className="text-xs text-muted">
+          One format per idea. The same topic can be tried in other formats (that’s how you test it on your channel), but a topic + format pair is used once.
+        </p>
         <div className="flex flex-wrap gap-2">
-          {FORMATS.map((f) => (
-            <Chip key={f.id} on={formats.includes(f.id)} onClick={() => pick(f.id)} title={f.hint}>
-              {f.label}
-            </Chip>
-          ))}
+          {FORMATS.map((f) => {
+            const used = holder(f.id);
+            return (
+              <span key={f.id} className="inline-flex items-center gap-1">
+                <Chip on={format === f.id} onClick={() => void pick(f.id)} disabled={!!used} title={used ? `Already used by “${used.idea_name}”` : f.hint}>
+                  {f.label}
+                </Chip>
+                {used && (
+                  <Link href={videoHref(used.id, "idea")} className="text-[11px] text-accent hover:underline" title={used.idea_name}>
+                    {used.code ?? "open"} ↗
+                  </Link>
+                )}
+              </span>
+            );
+          })}
         </div>
-        <p className="text-xs text-muted">{FORMATS.filter((f) => formats.includes(f.id)).map((f) => `${f.label}: ${f.hint}`).join(" · ") || "Pick at least one."}</p>
+        <p className="text-xs text-muted">{FORMATS.find((f) => f.id === format)?.hint ?? "Pick one."}</p>
         <label className={LABEL}>
           Base idea = Topic + Format (one sentence)
           <AutoField key={baseKey} value={base} multiline rows={2} maxLength={2000} label="Base idea" onSave={(v) => onSave({ base_idea: v })} />
         </label>
         <p className="rounded-md bg-subtle px-3 py-2 text-xs text-muted">
-          <b>Be remarkable:</b> make it <i>better</i> (title, thumbnail, quality) or <i>different</i> (a mix of formats or an unexpected angle).
+          <b>Be remarkable:</b> make it <i>better</i> (title, thumbnail, quality) or <i>different</i> (an unexpected angle — the next step).
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={ask} disabled={pending || !aiReady} className={AI_BTN} title={aiReady ? "" : "Connect the AI (GROQ_API_KEY) first"}>
-            {pending ? "Thinking…" : "✨ One base idea per format"}
+            {pending ? "Thinking…" : "✨ A base idea for each free format"}
           </button>
           <Msg error={err} />
         </div>
@@ -95,9 +110,9 @@ export function FormatStep({ video, aiReady, onSave }: { video: YtVideo; aiReady
   );
 }
 
-export function AngleStep({ video, aiReady, titles, onSave }: { video: YtVideo; aiReady: boolean; titles: number; onSave: Save }) {
+export function AngleStep({ video, siblings, aiReady, titles, onSave }: { video: YtVideo; siblings: TopicIdea[]; aiReady: boolean; titles: number; onSave: Save }) {
   const router = useRouter();
-  const [angles, setAngles] = useState<string[]>(video.angles ?? []);
+  const [angle, setAngle] = useState<string | null>(video.angle ?? null);
   const [items, setItems] = useState<AngleSuggestion[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -105,10 +120,13 @@ export function AngleStep({ video, aiReady, titles, onSave }: { video: YtVideo; 
   const [notesKey, setNotesKey] = useState(0);
   const [added, setAdded] = useState<string[]>([]);
   const [pending, start] = useTransition();
-  const pick = (id: string) => {
-    const next = toggle(angles, id);
-    setAngles(next);
-    void onSave({ angles: next });
+  const taken = usedAngles(siblings, video.id);
+  const pick = async (id: string) => {
+    const next = angle === id ? null : id;
+    setErr(null);
+    const e = await onSave({ angle: next });
+    if (e) setErr(e);
+    else setAngle(next);
   };
   const ask = () =>
     start(async () => {
@@ -119,12 +137,12 @@ export function AngleStep({ video, aiReady, titles, onSave }: { video: YtVideo; 
       else setItems(r.items ?? []);
     });
   const accept = async (s: AngleSuggestion) => {
-    const next = angles.includes(s.angle) ? angles : [...angles, s.angle];
     const label = ANGLES.find((a) => a.id === s.angle)?.label ?? s.angle;
     const nextNotes = `${notes.trim()}${notes.trim() ? "\n" : ""}${label}: ${s.idea}`;
-    setAngles(next);
-    const e = await onSave({ angles: next, angle_notes: nextNotes });
+    setErr(null);
+    const e = await onSave({ angle: s.angle, angle_notes: nextNotes });
     if (e) return setErr(e);
+    setAngle(s.angle);
     setNotes(nextNotes);
     setNotesKey((k) => k + 1);
     setItems((l) => (l ?? []).filter((x) => x !== s));
@@ -141,17 +159,24 @@ export function AngleStep({ video, aiReady, titles, onSave }: { video: YtVideo; 
   };
   return (
     <div className={BOX}>
-      <h3 className="text-sm font-semibold">Angle — the specific way in</h3>
+      <h3 className="text-sm font-semibold">Angle — Idea + Angle = Killer idea</h3>
+      <p className="text-xs text-muted">
+        {video.format ? `The idea is “${video.idea_name}” (${FORMATS.find((f) => f.id === video.format)?.label}).` : "Pick the format first."} Choose the one angle that makes
+        <i> this</i> topic in <i>this</i> format worth clicking. Mixing formats? Describe it in the notes.
+      </p>
       <div className="grid gap-2 sm:grid-cols-3">
         {ANGLES.map((a) => (
           <button
             key={a.id}
             type="button"
-            aria-pressed={angles.includes(a.id)}
-            onClick={() => pick(a.id)}
-            className={`rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors ${angles.includes(a.id) ? "border-accent bg-accent-soft text-accent" : "border-line text-muted hover:bg-subtle"}`}
+            aria-pressed={angle === a.id}
+            onClick={() => void pick(a.id)}
+            className={`rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors ${angle === a.id ? "border-accent bg-accent-soft text-accent" : "border-line text-muted hover:bg-subtle"}`}
           >
-            <span className="block font-semibold">{a.label}</span>
+            <span className="block font-semibold">
+              {a.label}
+              {taken.includes(a.id) && <span className="ml-1 rounded bg-subtle px-1 text-[10px] font-normal text-muted">used on this topic</span>}
+            </span>
             <span className="text-[11px] opacity-80">{a.example}</span>
           </button>
         ))}

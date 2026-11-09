@@ -158,6 +158,12 @@ export type YtVideo = {
   idea_name: string;
   topic: string | null;
   base_idea: string | null;
+  /** Topic + Format = Idea: the topic (yt_topics) and the ONE main format; the pair is unique among long videos */
+  topic_id: Uuid | null;
+  format: string | null;
+  /** Idea + Angle = Killer idea: the ONE main angle */
+  angle: string | null;
+  /** mirrors of format / angle, kept for the rest of the add-on */
   formats: string[];
   angles: string[];
   angle_notes: string | null;

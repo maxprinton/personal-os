@@ -11,7 +11,7 @@ import type { Gates, Ratings } from "@/lib/youtube/types";
 import type { IdeaPageData } from "@/components/youtube/idea/IdeaStepper";
 import { BOX, INPUT, Msg, PRIMARY, BTN } from "@/components/youtube/idea/ui";
 
-export default function CriteriaStep({ data }: { data: IdeaPageData }) {
+export default function CriteriaStep({ data, onGo }: { data: IdeaPageData; onGo: (s: "topic" | "format" | "angle" | "criteria") => void }) {
   const { video } = data;
   const router = useRouter();
   const [gates, setGates] = useState<Gates>(video.gates ?? {});
@@ -26,7 +26,9 @@ export default function CriteriaStep({ data }: { data: IdeaPageData }) {
   const score = useMemo(() => ideaScore(ratings, vp, data.weights), [ratings, vp, data.weights]);
   const g = gateStatus(gates);
   const isBank = video.stage === "bank" || video.stage === "idea";
-  const check = canApprove({ stage: video.stage, gates, idea_name: video.idea_name });
+  const baseCheck = canApprove({ stage: video.stage, gates, idea_name: video.idea_name });
+  const killerReason = video.kind === "short" ? null : !video.format ? "Pick a format first: Topic + Format = Idea." : !video.angle ? "Add an angle: an idea needs one to be a killer idea." : null;
+  const check = baseCheck.ok && killerReason ? { ok: false as const, reason: killerReason } : baseCheck;
 
   const setGate = (k: keyof Gates, v: boolean | null) => {
     setGates((x) => ({ ...x, [k]: v }));
@@ -107,7 +109,19 @@ export default function CriteriaStep({ data }: { data: IdeaPageData }) {
           className={INPUT}
           aria-label="Gate notes"
         />
-        {g === "fail" && <p className="rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">A gate says no: the idea stays in the bank (never deleted). Try another angle or format, or park it.</p>}
+        {g === "fail" && (
+          <div className="space-y-2 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">
+            <p>A gate says no: the idea stays in the bank (never deleted). Change the angle or the format to make it pass — or park it.</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className={BTN} onClick={() => onGo("angle")}>
+                Change angle
+              </button>
+              <button type="button" className={BTN} onClick={() => onGo("format")}>
+                Change format
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className={BOX}>
@@ -164,7 +178,16 @@ export default function CriteriaStep({ data }: { data: IdeaPageData }) {
         </div>
       </div>
       <Msg {...msg} />
-      {isBank && !check.ok && <p className="text-xs text-muted">{check.reason}</p>}
+      {isBank && !check.ok && (
+        <p className="text-xs text-muted">
+          {check.reason}{" "}
+          {killerReason && (
+            <button type="button" className="text-accent hover:underline" onClick={() => onGo(!video.format ? "format" : "angle")}>
+              {!video.format ? "Pick a format →" : "Add an angle →"}
+            </button>
+          )}
+        </p>
+      )}
       {approved && (
         <div className="rounded-md bg-success-soft px-3 py-2 text-sm text-success">
           ✅ Approved{approved.code ? ` as ${approved.code}` : ""}.{" "}

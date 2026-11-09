@@ -74,6 +74,7 @@ export const ADDON_NAV: { href: string; label: string }[] = [
   { href: `${BASE}/lab`, label: "Lab" },
   { href: `${BASE}/shots`, label: "Shots backlog" },
   { href: `${BASE}/learning`, label: "Learning" },
+  { href: `${BASE}/topics`, label: "Topics" },
   { href: `${BASE}/watchlist`, label: "Watchlist" },
   { href: `${BASE}/weekly`, label: "Weekly" },
   { href: `${BASE}/settings`, label: "Settings" },

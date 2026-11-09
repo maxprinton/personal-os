@@ -7,6 +7,8 @@ import { useRouter } from "next/navigation";
 import { updateIdea } from "@/app/youtube-actions/ideas";
 import { IDEA_STEPS, SHORT_ROLES, videoHref } from "@/lib/youtube/constants";
 import type { IdeaStep, YtReference, YtVideo } from "@/lib/youtube/types";
+import { FORMATS, ANGLES } from "@/lib/youtube/constants";
+import type { TopicIdea, TopicStatus } from "@/lib/youtube/topics";
 import { AutoField, LABEL } from "@/components/youtube/idea/ui";
 import TopicStep from "@/components/youtube/idea/TopicStep";
 import { AngleStep, FormatStep } from "@/components/youtube/idea/FormatAngle";
@@ -20,6 +22,12 @@ export type IdeaPageData = {
   titles: number;
   note: { id: string; title: string } | null;
   aiReady: boolean;
+  /** the topic this idea belongs to (Topic + Format = Idea) with its status on your channel */
+  topic: { id: string; name: string; status: TopicStatus } | null;
+  /** every idea of the topic (this one included) */
+  siblings: TopicIdea[];
+  /** all topics, to switch to an existing one */
+  topics: { id: string; name: string }[];
   finder: React.ReactNode;
 };
 
@@ -106,6 +114,22 @@ export default function IdeaStepper({ data }: { data: IdeaPageData }) {
         )}
       </div>
 
+      <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-2 text-xs" aria-label="Killer idea formula">
+        {([
+          ["topic", "Topic", data.topic?.name ?? video.topic ?? null],
+          ["format", "Format", FORMATS.find((f) => f.id === video.format)?.label ?? null],
+          ["angle", "Angle", ANGLES.find((a) => a.id === video.angle)?.label ?? null],
+        ] as const).map(([stepId, label, val], i) => (
+          <span key={stepId} className="flex items-center gap-1.5">
+            {i > 0 && <span className="text-faint">{i === 2 ? "+ ➜" : "+"}</span>}
+            <button type="button" onClick={() => go(stepId)} className={`max-w-56 truncate rounded-full border px-2.5 py-0.5 ${val ? "border-accent/40 bg-accent-soft text-accent" : "border-dashed border-line-strong text-faint hover:bg-subtle"}`} title={`${label}: ${val ?? "not chosen yet"}`}>
+              {label}: {val ?? "—"}
+            </button>
+          </span>
+        ))}
+        <span className={`ml-auto font-semibold ${video.format && video.angle ? "text-success" : "text-muted"}`}>{video.format && video.angle ? "Killer idea ✓" : video.format ? "Idea — needs an angle" : "Needs a format"}</span>
+      </div>
+
       <nav aria-label="Ideation steps" className="grid grid-cols-4 gap-1">
         {IDEA_STEPS.map((s, i) => (
           <button
@@ -124,9 +148,9 @@ export default function IdeaStepper({ data }: { data: IdeaPageData }) {
       </nav>
 
       {step === "topic" && <TopicStep data={data} onSave={save} />}
-      {step === "format" && <FormatStep video={video} aiReady={data.aiReady} onSave={save} />}
-      {step === "angle" && <AngleStep video={video} aiReady={data.aiReady} titles={data.titles} onSave={save} />}
-      {step === "criteria" && <CriteriaStep data={data} />}
+      {step === "format" && <FormatStep video={video} siblings={data.siblings} aiReady={data.aiReady} onSave={save} />}
+      {step === "angle" && <AngleStep video={video} siblings={data.siblings} aiReady={data.aiReady} titles={data.titles} onSave={save} />}
+      {step === "criteria" && <CriteriaStep data={data} onGo={go} />}
 
       <div className="flex justify-between">
         <button type="button" disabled={idx === 0} onClick={() => go(IDEA_STEPS[idx - 1].id)} className="text-sm text-muted hover:text-fg disabled:invisible">

@@ -1,8 +1,11 @@
 "use client";
 // Ideation step 1 · Topic: is the topic able to explode? Outlier finder (Worker C) + manual references.
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { addReferences, deleteReference, updateReference, updateIdea } from "@/app/youtube-actions/ideas";
+import { FORMATS, videoHref } from "@/lib/youtube/constants";
+import { addReferences, deleteReference, switchTopic, updateReference, updateIdea } from "@/app/youtube-actions/ideas";
+import { TOPIC_STATUS_INFO, similarTopics } from "@/lib/youtube/topics";
 import { dataScore, fmtViews, outlierOf } from "@/lib/youtube/scoring";
 import type { YtReference } from "@/lib/youtube/types";
 import type { IdeaPageData } from "@/components/youtube/idea/IdeaStepper";
@@ -15,6 +18,16 @@ export default function TopicStep({ data, onSave }: { data: IdeaPageData; onSave
   const [msg, setMsg] = useState<{ error?: string; info?: string }>({});
   const [pending, start] = useTransition();
   const ds = dataScore(refs, data.viewGoal);
+  const [switchErr, setSwitchErr] = useState<string | null>(null);
+  const [pendingSwitch, startSwitch] = useTransition();
+  const similar = similarTopics(data.topics.filter((t) => t.id !== data.topic?.id), data.topic?.name ?? video.topic ?? "");
+  const doSwitch = (topicId: string) =>
+    startSwitch(async () => {
+      setSwitchErr(null);
+      const r = await switchTopic(video.id, { topicId });
+      if (r.error) setSwitchErr(r.error);
+      else router.refresh();
+    });
   const add = () =>
     start(async () => {
       const r = await addReferences(video.id, paste);
@@ -29,8 +42,61 @@ export default function TopicStep({ data, onSave }: { data: IdeaPageData; onSave
     <div className="space-y-4">
       <div className={BOX}>
         <label className={LABEL}>
-          Topic — what is this about? (the finder searches with it)
-          <AutoField value={video.topic ?? ""} multiline rows={2} maxLength={2000} label="Topic" onSave={(v) => onSave({ topic: v })} />
+          Topic name — short and reusable (the finder searches with it). One topic can have many ideas, one per format.
+          <AutoField value={data.topic?.name ?? video.topic ?? ""} maxLength={120} label="Topic name" onSave={(v) => onSave({ topic_name: v })} />
+        </label>
+        {data.topic && (
+          <p className="text-xs text-muted" title={TOPIC_STATUS_INFO[data.topic.status].hint}>
+            On your channel: <b className="text-fg">{TOPIC_STATUS_INFO[data.topic.status].label}</b> · {TOPIC_STATUS_INFO[data.topic.status].hint}
+          </p>
+        )}
+        {data.siblings.length > 1 && (
+          <div className="space-y-1 text-xs">
+            <p className="font-medium text-muted">Ideas on this topic</p>
+            <ul className="flex flex-wrap gap-1.5">
+              {data.siblings.map((i) => (
+                <li key={i.id}>
+                  <Link href={videoHref(i.id, "idea")} className={`rounded-full border px-2 py-0.5 ${i.id === video.id ? "border-accent bg-accent-soft text-accent" : "border-line text-muted hover:bg-subtle"}`}>
+                    {FORMATS.find((f) => f.id === i.format)?.label ?? "no format"}
+                    {i.verdict30 ? ` · ${i.verdict30}` : i.stage === "published" ? " · published" : i.stage === "archived" ? " · parked" : ""}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {(similar.length > 0 || data.topics.length > 1) && (
+          <div className="space-y-1">
+            {similar.length > 0 && (
+              <p className="rounded-md bg-warning-soft px-3 py-2 text-xs text-warning">
+                Did you mean an existing topic?{" "}
+                {similar.map((t) => (
+                  <button key={t.id} type="button" className="mr-2 font-medium underline" disabled={pendingSwitch} onClick={() => doSwitch(t.id)}>
+                    {t.name}
+                  </button>
+                ))}
+              </p>
+            )}
+            <select
+              value=""
+              disabled={pendingSwitch}
+              onChange={(e) => e.target.value && doSwitch(e.target.value)}
+              className="rounded-md border border-line-strong bg-surface px-2 py-1 text-xs text-fg"
+              aria-label="Switch to an existing topic"
+            >
+              <option value="">Switch to an existing topic…</option>
+              {data.topics.filter((t) => t.id !== data.topic?.id).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <Msg error={switchErr} />
+          </div>
+        )}
+        <label className={LABEL}>
+          Topic notes — what is this about? (optional)
+          <AutoField value={video.topic ?? ""} multiline rows={2} maxLength={2000} label="Topic notes" onSave={(v) => onSave({ topic: v })} />
         </label>
         <p className="rounded-md bg-warning-soft px-3 py-2 text-xs text-warning">
           <b>Familiarity trap:</b> a topic you know well isn’t automatically one people want. Look for outliers — videos with ≥ 3× the usual views of their channel —

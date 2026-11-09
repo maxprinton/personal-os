@@ -12,6 +12,7 @@ import {
   draftPostmortem, getCalibrationData, measureSwap, pairInfos, readCheckin, refreshStats, runWeekly, savePostmortemNote, todayFor,
 } from "@/lib/youtube/server/results";
 import { buildTitleSwap } from "@/lib/youtube/publish-rules";
+import { topicIdOf } from "@/lib/youtube/server/topics";
 import { hasApiKey, videoComments, videoRaw, ytFetch, YtError, type YtCtx } from "@/lib/youtube/server/yt-data";
 import { getAccessToken, oauthConfigured } from "@/lib/youtube/server/yt-oauth";
 import { loadThumbnail, pushPackage } from "@/lib/youtube/server/yt-publish";
@@ -256,7 +257,7 @@ export async function commentToIdea(id: string): Promise<R & { videoId?: string 
   if (cm.idea_video_id) return { ok: true, videoId: cm.idea_video_id as string, info: "Already an idea." };
   const { data: v, error } = await c.sb
     .from("yt_videos")
-    .insert({ user_id: c.userId, idea_name: commentIdeaName(cm.text as string), stage: "bank", source: "comment", source_quote: `${cm.author ?? "A viewer"}: ${cm.text}`.slice(0, 2000), origin_video_id: cm.video_id })
+    .insert({ user_id: c.userId, idea_name: commentIdeaName(cm.text as string), topic_id: await topicIdOf(c.sb, c.userId, cm.video_id as string), stage: "bank", source: "comment", source_quote: `${cm.author ?? "A viewer"}: ${cm.text}`.slice(0, 2000), origin_video_id: cm.video_id })
     .select("id")
     .single();
   if (error || !v) return { error: dbFail(error) };
@@ -272,7 +273,7 @@ export async function followUpIdea(videoId: string, name: string): Promise<R & {
   if (!c) return SIGNED_OUT;
   const n = name.trim();
   if (!n) return { error: "Write the idea first." };
-  const { data: v, error } = await c.sb.from("yt_videos").insert({ user_id: c.userId, idea_name: n.slice(0, 200), stage: "bank", source: "follow_up", origin_video_id: videoId }).select("id").single();
+  const { data: v, error } = await c.sb.from("yt_videos").insert({ user_id: c.userId, idea_name: n.slice(0, 200), topic_id: await topicIdOf(c.sb, c.userId, videoId), stage: "bank", source: "follow_up", origin_video_id: videoId }).select("id").single();
   if (error || !v) return { error: dbFail(error) };
   await c.sb.from("yt_video_links").insert({ user_id: c.userId, from_id: videoId, to_id: v.id, kind: "follow_up" });
   refresh(videoId);

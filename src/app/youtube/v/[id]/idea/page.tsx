@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { hasAi } from "@/lib/ai";
 import { getVideo, getYtSettings, ytServer } from "@/lib/youtube/db";
 import { cleanWeights } from "@/lib/youtube/scoring";
+import { loadTopics } from "@/lib/youtube/server/topics";
 import type { YtReference } from "@/lib/youtube/types";
 import IdeaStepper from "@/components/youtube/idea/IdeaStepper";
 import OutlierFinder from "@/components/youtube/finder/OutlierFinder";
@@ -14,14 +15,16 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
   const [{ video, missing }, { settings }] = await Promise.all([getVideo(id), getYtSettings()]);
   if (missing) return null;
   if (!video) notFound();
-  const { supabase } = await ytServer();
+  const { supabase, userId } = await ytServer();
   const [refsRes, titlesRes, noteRes] = await Promise.all([
     supabase.from("yt_references").select("*").eq("video_id", video.id).order("position").order("created_at"),
     supabase.from("yt_variants").select("id", { count: "exact", head: true }).eq("video_id", video.id).eq("kind", "title").eq("archived", false),
     video.note_id ? supabase.from("notes").select("id,title").eq("id", video.note_id).is("deleted_at", null).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   const refs = (refsRes.data ?? []) as YtReference[];
-  const topic = video.topic || video.idea_name;
+  const tl = userId ? await loadTopics(supabase, userId) : null;
+  const mine = tl?.topics.find((t) => t.id === video.topic_id) ?? null;
+  const topic = mine?.name || video.topic || video.idea_name;
   return (
     <IdeaStepper
       data={{
@@ -32,6 +35,9 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
         titles: titlesRes.count ?? 0,
         note: (noteRes.data as { id: string; title: string } | null) ?? null,
         aiReady: hasAi(),
+        topic: mine ? { id: mine.id, name: mine.name, status: mine.status } : null,
+        siblings: mine?.ideas ?? [],
+        topics: (tl?.topics ?? []).map((t) => ({ id: t.id, name: t.name })),
         finder: <OutlierFinder videoId={video.id} topic={topic} savedYtIds={refs.map((r) => r.yt_id).filter((x): x is string => !!x)} />,
       }}
     />

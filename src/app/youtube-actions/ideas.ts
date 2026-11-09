@@ -10,13 +10,23 @@ import { scopeUsageLine, withAiUsage } from "@/lib/ai-usage";
 import { getSettings } from "@/lib/agenda";
 import { localNow } from "@/lib/time";
 import { ytServer, isMissingTable, withSettingsDefaults } from "@/lib/youtube/db";
+import { ensureTopic } from "@/lib/youtube/server/topics";
+import { freeFormats, takenBy, topicKey, topicNameFrom, usedAngles, type TopicIdea } from "@/lib/youtube/topics";
 import { AI_PROMPT_MAX, ANGLES, FORMATS, IDEA_STEPS, MIGRATION_FILE, SHORT_ROLES, isStage, stageLabel, videoHref } from "@/lib/youtube/constants";
 import { addsToWip, canApprove, cleanRatings, dataScore, gateStatus, ideaFromText, ideaScore, parseCapture, parseCount, parseYoutubeLinks, wipStatus, ytThumb } from "@/lib/youtube/scoring";
 import type { Gates, IdeaStep, YtReference, YtSettings, YtStage, YtVideo } from "@/lib/youtube/types";
 
 const MISSING = `Run ${MIGRATION_FILE} in Supabase first, then try again.`;
 const fail = (e: { code?: string; message?: string } | null | undefined, fallback = "Something went wrong. Try again.") =>
-  isMissingTable(e) ? MISSING : e?.message || fallback;
+  /topic_id|yt_topics|"format"|"angle"/.test(e?.message ?? "") && /column|relation|schema|find/i.test(e?.message ?? "") ? "Run MIGRACION-0051-youtube-topics.sql in Supabase first, then try again." : isMissingTable(e) ? MISSING : e?.code === "23505" ? "That topic + format is already used by another idea. Pick another format." : e?.message || fallback;
+
+/** Other ideas of a topic (to check "Topic + Format = Idea" is used once). */
+async function topicIdeas(sb: SupabaseClient, topicId: string | null): Promise<TopicIdea[]> {
+  if (!topicId) return [];
+  const { data } = await sb.from("yt_videos").select("id,code,idea_name,stage,kind,format,angle,published_at").eq("topic_id", topicId).limit(300);
+  return (data ?? []) as TopicIdea[];
+}
+const formatLabel = (id: string) => FORMATS.find((f) => f.id === id)?.label ?? id;
 
 function refresh(id?: string) {
   revalidatePath("/youtube", "layout");
@@ -60,9 +70,11 @@ export async function createIdea(_prev: ActionState, form: FormData): Promise<Ac
   if (!userId) return { error: "Sign in again." };
   const metas = cap.links.length ? await Promise.all(cap.links.slice(0, 5).map((l) => oembed(l.url))) : [];
   const name = cap.idea_name || (metas.find((m) => m?.title)?.title ? `Like “${metas.find((m) => m?.title)!.title!.slice(0, 100)}”` : "Idea from a YouTube video");
+  const tp = await ensureTopic(sb, userId, cap.topic || name);
+  if ("error" in tp) return { error: tp.error };
   const { data, error } = await sb
     .from("yt_videos")
-    .insert({ idea_name: name, topic: cap.topic || name, kind, stage: "bank", step: "topic", source: "web", source_quote: cap.quote })
+    .insert({ idea_name: name, topic: cap.topic || name, topic_id: tp.id, kind, stage: "bank", step: "topic", source: "web", source_quote: cap.quote })
     .select("id")
     .single();
   if (error || !data) return { error: fail(error, "Couldn't save the idea.") };
@@ -83,7 +95,7 @@ export async function createIdea(_prev: ActionState, form: FormData): Promise<Ac
     if (!rErr) refs = rows.length;
   }
   refresh();
-  return { ok: true, at: Date.now(), info: `Saved “${name}”${kind === "short" ? " (Short)" : ""} to the idea bank${refs ? ` with ${refs} reference${refs === 1 ? "" : "s"}` : ""}.` };
+  return { ok: true, at: Date.now(), info: `Saved “${name}”${kind === "short" ? " (Short)" : ""} to the idea bank${refs ? ` with ${refs} reference${refs === 1 ? "" : "s"}` : ""}.${tp.existed ? ` The topic “${tp.name}” already existed — pick a format you haven't used on it.` : ""}` };
 }
 
 /** Notes → "Turn into video idea": the whole note (title + start) or the selected text, linked to the note. */
@@ -97,9 +109,11 @@ export async function createIdeaFromNote(noteId: string, quote?: string | null):
   const fromQuote = q ? ideaFromText(q) : null;
   const idea = fromQuote ?? ideaFromText(title || String(note.content ?? "")) ?? { idea_name: "Idea from a note", topic: "" };
   const topic = q ? q.replace(/\s+/g, " ") : [title, String(note.content ?? "").replace(/\s+/g, " ").slice(0, 600)].filter(Boolean).join(" — ");
+  const tp = await ensureTopic(sb, userId, idea.idea_name || topicNameFrom(topic));
+  if ("error" in tp) return { error: tp.error };
   const { data, error } = await sb
     .from("yt_videos")
-    .insert({ idea_name: idea.idea_name, topic: topic.slice(0, 1000) || idea.topic, stage: "bank", step: "topic", source: "note", note_id: noteId, source_quote: q || null })
+    .insert({ idea_name: idea.idea_name, topic: topic.slice(0, 1000) || idea.topic, topic_id: tp.id, stage: "bank", step: "topic", source: "note", note_id: noteId, source_quote: q || null })
     .select("id")
     .single();
   if (error || !data) return { error: fail(error, "Couldn't create the idea.") };
@@ -131,8 +145,12 @@ export type IdeaPatch = Partial<{
   idea_name: string;
   topic: string | null;
   base_idea: string | null;
-  formats: string[];
-  angles: string[];
+  /** the ONE main format (Topic + Format = Idea); must be free for the topic */
+  format: string | null;
+  /** the ONE main angle (Idea + Angle = Killer idea) */
+  angle: string | null;
+  /** renames the topic this idea belongs to */
+  topic_name: string;
   angle_notes: string | null;
   step: IdeaStep;
   kind: "long" | "short";
@@ -146,7 +164,7 @@ const ANGLE_IDS = ANGLES.map((a) => a.id as string);
 const STEP_IDS = IDEA_STEPS.map((s) => s.id as string);
 
 /** Saves ideation fields (whitelisted + checked). Starting the stepper moves a bank idea to "Ideation". */
-export async function updateIdea(id: string, patch: IdeaPatch): Promise<{ ok?: boolean; error?: string }> {
+export async function updateIdea(id: string, patch: IdeaPatch): Promise<{ ok?: boolean; error?: string; existingId?: string }> {
   const { sb, userId } = await ctx();
   if (!userId) return { error: "Sign in again." };
   const row: Record<string, unknown> = {};
@@ -163,8 +181,12 @@ export async function updateIdea(id: string, patch: IdeaPatch): Promise<{ ok?: b
   if ("base_idea" in patch) row.base_idea = txt(patch.base_idea, 2000);
   if ("angle_notes" in patch) row.angle_notes = txt(patch.angle_notes, 4000);
   if ("quick_notes" in patch) row.quick_notes = txt(patch.quick_notes, 20000);
-  if ("formats" in patch) row.formats = [...new Set((patch.formats ?? []).filter((f) => FORMAT_IDS.includes(f)))];
-  if ("angles" in patch) row.angles = [...new Set((patch.angles ?? []).filter((a) => ANGLE_IDS.includes(a)))];
+  if ("angle" in patch) {
+    const a = patch.angle ?? null;
+    if (a !== null && !ANGLE_IDS.includes(a)) return { error: "Unknown angle." };
+    row.angle = a;
+    row.angles = a ? [a] : [];
+  }
   if ("tags" in patch) row.tags = [...new Set((patch.tags ?? []).map((t) => t.trim()).filter(Boolean))].slice(0, 30);
   if ("step" in patch) {
     if (!STEP_IDS.includes(patch.step as string)) return { error: "Unknown step." };
@@ -173,13 +195,85 @@ export async function updateIdea(id: string, patch: IdeaPatch): Promise<{ ok?: b
   if ("kind" in patch) row.kind = patch.kind === "short" ? "short" : "long";
   if ("short_role" in patch) row.short_role = SHORT_ROLES.some((r) => r.id === patch.short_role) ? patch.short_role : null;
   if (!Object.keys(row).length) return { ok: true };
-  const { data: cur, error: e0 } = await sb.from("yt_videos").select("stage").eq("id", id).maybeSingle();
+  const { data: cur, error: e0 } = await sb.from("yt_videos").select("stage,kind,topic_id").eq("id", id).maybeSingle();
   if (e0 || !cur) return { error: fail(e0, "Video not found.") };
+  const kindNow = (row.kind as string | undefined) ?? (cur.kind as string);
+  if ("format" in patch) {
+    const f = patch.format ?? null;
+    if (f !== null && !FORMAT_IDS.includes(f)) return { error: "Unknown format." };
+    if (f && kindNow === "long") {
+      const hit = takenBy(await topicIdeas(sb, cur.topic_id as string | null), f, id);
+      if (hit) return { error: `This topic already has a ${formatLabel(f)} idea: “${hit.code ? `${hit.code} · ` : ""}${hit.idea_name}”. Pick another format (or change that idea).`, existingId: hit.id };
+    }
+    row.format = f;
+    row.formats = f ? [f] : [];
+  }
+  if ("topic_name" in patch) {
+    const name = topicNameFrom(String(patch.topic_name ?? ""));
+    const key = topicKey(name);
+    if (!key) return { error: "The topic name can't be empty." };
+    if (!cur.topic_id) {
+      const tp = await ensureTopic(sb, userId, name);
+      if ("error" in tp) return { error: tp.error };
+      row.topic_id = tp.id;
+    } else {
+      const { data: clash } = await sb.from("yt_topics").select("id,name").eq("name_key", key).neq("id", cur.topic_id as string).maybeSingle();
+      if (clash) return { error: `A topic called “${clash.name}” already exists. Use “Switch to an existing topic” instead of renaming.`, existingId: clash.id as string };
+      const { error: tErr } = await sb.from("yt_topics").update({ name, name_key: key }).eq("id", cur.topic_id as string);
+      if (tErr) return { error: fail(tErr) };
+    }
+  }
   if (cur.stage === "bank" && (row.step && row.step !== "topic")) row.stage = "idea";
+  if (!Object.keys(row).length) {
+    refresh(id);
+    return { ok: true };
+  }
   const { error } = await sb.from("yt_videos").update(row).eq("id", id);
   if (error) return { error: fail(error) };
   refresh(id);
   return { ok: true };
+}
+
+/** Puts the idea under another (existing or new) topic. If it already has a format, that format must be free there. */
+export async function switchTopic(id: string, target: { topicId?: string; name?: string }): Promise<{ ok?: boolean; error?: string; existingId?: string }> {
+  const { sb, userId } = await ctx();
+  if (!userId) return { error: "Sign in again." };
+  const { data: v, error: e0 } = await sb.from("yt_videos").select("kind,format").eq("id", id).maybeSingle();
+  if (e0 || !v) return { error: fail(e0, "Video not found.") };
+  let topicId = target.topicId ?? "";
+  if (!topicId) {
+    const tp = await ensureTopic(sb, userId, target.name ?? "");
+    if ("error" in tp) return { error: tp.error };
+    topicId = tp.id;
+  }
+  if (v.format && v.kind === "long") {
+    const hit = takenBy(await topicIdeas(sb, topicId), v.format as string, id);
+    if (hit) return { error: `That topic already has a ${formatLabel(v.format as string)} idea: “${hit.idea_name}”. Change this idea's format first.`, existingId: hit.id };
+  }
+  const { data: t } = await sb.from("yt_topics").select("name").eq("id", topicId).maybeSingle();
+  const { error } = await sb.from("yt_videos").update({ topic_id: topicId, ...(t?.name ? { topic: t.name } : {}) }).eq("id", id);
+  if (error) return { error: fail(error) };
+  refresh(id);
+  return { ok: true };
+}
+
+/** "Test this topic in another format": a new bank idea on the same topic with the format already set. */
+export async function createIdeaInTopic(topicId: string, format: string): Promise<{ id?: string; error?: string }> {
+  const { sb, userId } = await ctx();
+  if (!userId) return { error: "Sign in again." };
+  if (!FORMAT_IDS.includes(format)) return { error: "Unknown format." };
+  const { data: t, error: e0 } = await sb.from("yt_topics").select("id,name").eq("id", topicId).maybeSingle();
+  if (e0 || !t) return { error: fail(e0, "Topic not found.") };
+  const hit = takenBy(await topicIdeas(sb, topicId), format);
+  if (hit) return { error: `This topic already has a ${formatLabel(format)} idea: “${hit.idea_name}”.`, id: hit.id };
+  const { data, error } = await sb
+    .from("yt_videos")
+    .insert({ idea_name: `${t.name} — ${formatLabel(format)}`.slice(0, 200), topic: t.name, topic_id: topicId, format, formats: [format], stage: "bank", step: "angle", source: "web" })
+    .select("id")
+    .single();
+  if (error || !data) return { error: fail(error, "Couldn't create the idea.") };
+  refresh();
+  return { id: data.id as string };
 }
 
 /** Criteria step: gates + ratings (+ a manual view-potential guess when there are no reference numbers) → score. */
@@ -208,15 +302,25 @@ export async function saveCriteria(id: string, input: { gates: Gates; ratings: R
 export async function approveIdea(id: string): Promise<{ ok?: boolean; error?: string; code?: string | null; wipWarning?: string | null }> {
   const { sb, userId } = await ctx();
   if (!userId) return { error: "Sign in again." };
-  const { data: v, error: e0 } = await sb.from("yt_videos").select("id,stage,gates,idea_name").eq("id", id).maybeSingle();
+  const { data: v, error: e0 } = await sb.from("yt_videos").select("id,stage,gates,idea_name,kind,format,angle").eq("id", id).maybeSingle();
   if (e0 || !v) return { error: fail(e0, "Video not found.") };
   const check = canApprove(v as Pick<YtVideo, "stage" | "gates" | "idea_name">);
   if (!check.ok) return { error: check.reason };
+  const killer = killerIdeaProblem(v as { kind: string; format: string | null; angle: string | null });
+  if (killer) return { error: killer };
   const { data, error } = await sb.from("yt_videos").update({ stage: "package", approved_at: new Date().toISOString() }).eq("id", id).select("code").single();
   if (error) return { error: fail(error) };
   const wip = await wipWarning(sb, userId);
   refresh(id);
   return { ok: true, code: (data?.code as string | null) ?? null, wipWarning: wip };
+}
+
+/** Topic + Format = Idea, Idea + Angle = Killer idea: a long video needs both before it can leave the bank. */
+function killerIdeaProblem(v: { kind: string; format: string | null; angle: string | null }): string | null {
+  if (v.kind === "short") return null;
+  if (!v.format) return "Pick a format first: Topic + Format = Idea.";
+  if (!v.angle) return "Add an angle: an idea needs one to be a killer idea.";
+  return null;
 }
 
 async function wipWarning(sb: SupabaseClient, userId: string) {
@@ -233,7 +337,7 @@ export async function moveVideo(id: string, to: string, reason?: string | null):
   if (!isStage(to)) return { error: "Unknown stage." };
   const { sb, userId } = await ctx();
   if (!userId) return { error: "Sign in again." };
-  const { data: v, error: e0 } = await sb.from("yt_videos").select("id,kind,stage,gates,idea_name,approved_at,code").eq("id", id).maybeSingle();
+  const { data: v, error: e0 } = await sb.from("yt_videos").select("id,kind,stage,gates,idea_name,approved_at,code,format,angle").eq("id", id).maybeSingle();
   if (e0 || !v) return { error: fail(e0, "Video not found.") };
   const from = v.stage as YtStage;
   if (from === to) return { ok: true };
@@ -241,6 +345,10 @@ export async function moveVideo(id: string, to: string, reason?: string | null):
   const bankish = (s: string) => s === "bank" || s === "idea";
   if (bankish(from) && !bankish(target) && target !== "archived" && gateStatus(v.gates as Gates) !== "pass") {
     return { error: "Hard gate: answer Feasibility, Brand and Packageability with “yes” in Criteria first." };
+  }
+  if (bankish(from) && !bankish(target) && target !== "archived") {
+    const killer = killerIdeaProblem(v as { kind: string; format: string | null; angle: string | null });
+    if (killer) return { error: killer };
   }
   const order = ["outline", "script", "shots", "filming", "edit", "publish", "published"];
   // Gates (b) and (c) are for long videos: Shorts have no climax and their Hook is not an intro.
@@ -351,21 +459,23 @@ export type AngleSuggestion = { angle: string; idea: string; titles: string[] };
 
 async function ideaContext(sb: SupabaseClient, id: string) {
   const [{ data: v }, { data: refs }] = await Promise.all([
-    sb.from("yt_videos").select("idea_name,topic,base_idea,formats,angles,angle_notes,kind").eq("id", id).maybeSingle(),
+    sb.from("yt_videos").select("idea_name,topic,base_idea,format,angle,angle_notes,kind,topic_id").eq("id", id).maybeSingle(),
     sb.from("yt_references").select("title,views,outlier_score").eq("video_id", id).order("position").limit(20),
   ]);
   if (!v) return null;
+  const sibs = (await topicIdeas(sb, v.topic_id as string | null)).filter((i) => i.id !== id);
   const lines = [
     `Idea name: ${v.idea_name}`,
     v.topic ? `Topic: ${String(v.topic).slice(0, 1500)}` : "",
     v.base_idea ? `Base idea: ${String(v.base_idea).slice(0, 800)}` : "",
-    (v.formats as string[])?.length ? `Formats chosen: ${(v.formats as string[]).join(", ")}` : "",
-    (v.angles as string[])?.length ? `Angles chosen: ${(v.angles as string[]).join(", ")}` : "",
+    v.format ? `Format chosen: ${v.format}` : "",
+    v.angle ? `Angle chosen: ${v.angle}` : "",
+    sibs.length ? `Other ideas on this topic (do not repeat their format or angle):\n${sibs.map((i) => `- ${i.format ?? "no format yet"} / ${i.angle ?? "no angle yet"} — ${i.idea_name}`).join("\n")}` : "",
     v.kind === "short" ? "This is a YouTube Short (vertical, under 60 s)." : "",
     (refs ?? []).length ? `Outlier references:\n${((refs ?? []) as { title: string; outlier_score: number | null }[]).map((r) => `- ${r.title}${r.outlier_score ? ` (${r.outlier_score}×)` : ""}`).join("\n")}` : "",
     patternPrompt((refs ?? []) as { title: string; outlier_score: number | null }[]),
   ].filter(Boolean);
-  return lines.join("\n").slice(0, AI_PROMPT_MAX - 2500);
+  return { text: lines.join("\n").slice(0, AI_PROMPT_MAX - 2500), sibs, topicId: (v.topic_id as string | null) ?? null };
 }
 
 async function runAi(sb: SupabaseClient, userId: string, feature: string, system: string, prompt: string) {
@@ -399,17 +509,19 @@ export async function aiSuggestFormats(id: string): Promise<{ items?: FormatSugg
   if (!hasAi()) return { error: "The AI is not connected: GROQ_API_KEY is missing in Vercel." };
   const c = await ideaContext(sb, id);
   if (!c) return { error: "Video not found." };
+  const free = freeFormats(FORMAT_IDS, c.sibs, id);
+  if (!free.length) return { error: "Every format is already used on this topic. Change one of those ideas, or park it." };
   const r = await runAi(
     sb,
     userId,
     "youtube-ideation",
-    `${SYSTEM_BASE}\nReply with JSON: {"items":[{"format":"<one of: ${FORMATS.map((f) => f.id).join(", ")}>","base_idea":"<one sentence: the topic done in that format>"}]} — one item per format (6 items).`,
-    c,
+    `${SYSTEM_BASE}\nReply with JSON: {"items":[{"format":"<one of: ${free.join(", ")}>","base_idea":"<one sentence: the topic done in that format>"}]} — one item per format listed (${free.length} items). Only those formats.`,
+    c.text,
   );
   if ("error" in r) return { error: r.error, usage: r.usage };
   const items = (Array.isArray(r.json.items) ? r.json.items : [])
     .map((x: unknown) => x as Record<string, unknown>)
-    .filter((x) => FORMAT_IDS.includes(String(x.format)) && String(x.base_idea ?? "").trim())
+    .filter((x) => FORMAT_IDS.includes(String(x.format)) && free.includes(String(x.format)) && String(x.base_idea ?? "").trim())
     .map((x) => ({ format: String(x.format), base_idea: String(x.base_idea).trim().slice(0, 400) }));
   if (!items.length) return { error: "The AI didn't suggest anything useful. Try again.", usage: r.usage };
   return { items, usage: r.usage };
@@ -421,12 +533,13 @@ export async function aiSuggestAngles(id: string): Promise<{ items?: AngleSugges
   if (!hasAi()) return { error: "The AI is not connected: GROQ_API_KEY is missing in Vercel." };
   const c = await ideaContext(sb, id);
   if (!c) return { error: "Video not found." };
+  const taken = usedAngles(c.sibs);
   const r = await runAi(
     sb,
     userId,
     "youtube-ideation",
-    `${SYSTEM_BASE}\nAngles: ${ANGLES.map((a) => `${a.id} (${a.example})`).join("; ")}.\nReply with JSON: {"items":[{"angle":"<angle id>","idea":"<the video with that angle, one sentence>","titles":["<clickable title, idea in the first 4 words, ≤ 60 chars>","<another>"]}]} — 5 to 7 items with the most promising angles for this idea.`,
-    c,
+    `${SYSTEM_BASE}\nAn idea = Topic + Format; the angle must be the perfect one for THIS topic and THIS format, so the idea becomes a killer idea.${taken.length ? ` Angles already used on this topic (avoid them): ${taken.join(", ")}.` : ""}\nAngles: ${ANGLES.map((a) => `${a.id} (${a.example})`).join("; ")}.\nReply with JSON: {"items":[{"angle":"<angle id>","idea":"<the video with that angle, one sentence>","titles":["<clickable title, idea in the first 4 words, ≤ 60 chars>","<another>"]}]} — 5 to 7 items with the most promising angles for this idea.`,
+    c.text,
   );
   if ("error" in r) return { error: r.error, usage: r.usage };
   const items = (Array.isArray(r.json.items) ? r.json.items : [])
