@@ -9,7 +9,6 @@ import Modal, { btnPrimary, btnSecondary, inputCls } from "@/components/calendar
 import TaskList from "@/components/calendar/TaskList";
 import { PaymentDraft, PaymentForm } from "@/components/PaymentForms";
 
-import { WritingInput } from "@/components/WritingField";
 /** Create or edit an event. Without time it is just metadata of the day(s). */
 export default function EventDialog({
   event,
@@ -154,7 +153,7 @@ export default function EventDialog({
       )}
       {paymentSection}
       <form onSubmit={submit} className="space-y-3 text-sm">
-        <WritingInput area="calendar" autoFocus required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Flight to Lima, Dentist" className={inputCls} />
+        <input autoFocus required aria-label="Event name" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Event name, e.g. Flight to Lima, Dentist" className={inputCls} />
         <div>
           <input
             list="event-type-names"
