@@ -51,6 +51,7 @@
     "test:site": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-site.ts",
     "test:security": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-security.ts",
     "test:publish": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-portfolio-publish.ts",
+    "test:patterns": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-patterns.ts",
     "test:daily-facts": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-daily-facts.ts",
     "test:youtube-lead": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-lead.ts"
   },

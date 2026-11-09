@@ -77,7 +77,20 @@ export async function saveCheckin(_prev: ActionState, form: FormData): Promise<A
   }
   if (wake !== null) patch.wake_at = zonedToUtc(date, minutesToTime(wake), timezone).toISOString();
   if (highlight) patch.highlight = highlight;
-  if (!Object.keys(patch).length) return { error: "Fill at least one field." };
+  // Focus of the blocks of that day: fields named focus_<occurrence id> with 1, 2 or 3
+  const focusIds: [string, number][] = [];
+  for (const [k, v] of form.entries()) {
+    const n = Number(v);
+    if (k.startsWith("focus_") && [1, 2, 3].includes(n)) focusIds.push([k.slice(6), n]);
+  }
+  for (const [occId, n] of focusIds) await supabase.from("block_occurrences").update({ focus: n }).eq("id", occId).eq("date", date);
+  if (!Object.keys(patch).length) {
+    if (focusIds.length) {
+      revalidatePath("/insights");
+      return { ok: true, at: Date.now() };
+    }
+    return { error: "Fill at least one field." };
+  }
 
   const { data, error } = await supabase.from("daily_facts").update(patch).eq("date", date).select("date");
   if (error) return { error: error.code === "23514" ? "Bedtime has to be before the wake-up time." : "Could not save. Try again." };

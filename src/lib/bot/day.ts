@@ -191,3 +191,41 @@ export async function weekView(c: Ctx): Promise<Reply> {
   if (rw?.days_left !== null && rw?.days_left !== undefined) lines.push(`• Runway about ${Math.round(Number(rw.days_left))} days at $${Number(rw.burn_per_day).toFixed(2)}/day`);
   return { text: lines.join("\n"), kb: [] };
 }
+
+// ---- Focus of a block (1 scattered, 2 normal, 3 locked in) ---------------------------------------
+
+const FOCUS = ["", "😵 Scattered", "🙂 Normal", "🎯 Locked in"];
+
+/** The row under a finished block: how focused were you? `chosen` marks the saved answer. */
+export function focusRow(packedOcc: string, chosen: number | null = null): Kb[number] {
+  return [1, 2, 3].map((n) => btn(`${chosen === n ? "• " : ""}${FOCUS[n]}`, `bf:${n}:${packedOcc}`));
+}
+
+export async function setFocus(c: Ctx, occId: string, value: number): Promise<string | null> {
+  if (![1, 2, 3].includes(value)) return null;
+  const { error } = await c.admin.from("block_occurrences").update({ focus: value }).eq("id", occId).eq("user_id", c.userId);
+  return error ? null : FOCUS[value];
+}
+
+// ---- "Was it worth it?" for a purchase ------------------------------------------------------------
+
+const FIXED = /rent|arriendo|alquiler|utilit|bill|internet|water|luz|agua|insurance|seguro|loan|prestamo|tax|adjust|transfer|salary|tuition/i;
+
+/** Buttons for a freshly saved expense, or null when it is a fixed cost, income or tiny. */
+export async function worthItRow(c: Ctx, txnId: string, packed: string): Promise<Kb[number] | null> {
+  const { data } = await c.admin
+    .from("transactions")
+    .select("type,amount,payment_template_id,description,categories(name)")
+    .eq("id", txnId)
+    .eq("user_id", c.userId)
+    .maybeSingle();
+  if (!data || data.type !== "expense" || Number(data.amount) < 3 || data.payment_template_id) return null;
+  const cat = (data.categories as unknown as { name?: string } | null)?.name ?? "";
+  if (FIXED.test(cat) || FIXED.test(String(data.description ?? ""))) return null;
+  return [btn("✓ Worth it", `wi:y:${packed}`), btn("✕ Not worth it", `wi:n:${packed}`)];
+}
+
+export async function setWorthIt(c: Ctx, txnId: string, yes: boolean): Promise<boolean> {
+  const { error } = await c.admin.from("transactions").update({ worth_it: yes }).eq("id", txnId).eq("user_id", c.userId);
+  return !error;
+}

@@ -4,6 +4,8 @@ import { addDays, formatDateLong, isoWeekday, localNow, utcToLocal, minutesToTim
 import { deltaText, formatDuration, heatLevel, oneDecimal, sleepMinutes, type HeatCell } from "@/lib/daily-facts";
 import Section from "@/components/ui/Section";
 import CheckinForm from "@/components/insights/CheckinForm";
+import { currentUserId, getBlockTypes } from "@/lib/calendar/model";
+import { buildRows, findPatterns, UNLOCK_DAYS as UNLOCK } from "@/lib/patterns";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +37,7 @@ const CELL: Record<HeatCell, string> = {
   great: "bg-success-solid",
 };
 
-const UNLOCK_DAYS = 28;
+const UNLOCK_DAYS = UNLOCK;
 
 export default async function InsightsPage() {
   const supabase = await createClient();
@@ -48,15 +50,39 @@ export default async function InsightsPage() {
   // Rebuild the last days from the raw data first, so the page never shows a stale number.
   await supabase.rpc("refresh_my_daily_facts", { p_from: addDays(today, -7), p_to: today });
 
-  const [factsRes, scoresRes, weeksRes, runwayRes] = await Promise.all([
+  const userId = await currentUserId(supabase);
+  const [factsRes, scoresRes, weeksRes, runwayRes, occRes, worthRes, rateRes] = await Promise.all([
     supabase.from("daily_facts").select("*").gte("date", gridStart).lte("date", today).order("date"),
     supabase.from("daily_scores").select("date,score,unlogged").gte("date", gridStart).lte("date", today),
     supabase.from("weekly_summary").select("*").order("week", { ascending: false }).limit(2),
     supabase.from("money_runway").select("*").maybeSingle(),
+    supabase.from("block_occurrences").select("id,date,block_type_id,status,focus").gte("date", gridStart).lte("date", today).in("status", ["done", "partial"]),
+    supabase.from("transactions").select("amount,worth_it").is("deleted_at", null).eq("type", "expense").eq("worth_it", false).gte("occurred_at", `${addDays(today, -27)}T00:00:00Z`),
+    supabase.from("work_settings").select("substitute_rate").maybeSingle(),
   ]);
+  const types = userId ? await getBlockTypes(supabase, userId, { includeDeleted: true }) : [];
+  const typeName = new Map(types.map((t) => [t.id, t.name]));
+  const occs = (occRes.data ?? []) as { id: string; date: string; block_type_id: string; focus: number | null }[];
+  const blocksByDate: Record<string, { id: string; name: string; focus: number | null }[]> = {};
+  for (const o of occs) {
+    if (o.date < addDays(today, -6)) continue;
+    (blocksByDate[o.date] ??= []).push({ id: o.id, name: typeName.get(o.block_type_id) ?? "Block", focus: o.focus });
+  }
+
   const facts = (factsRes.data ?? []) as Fact[];
   const scores = new Map((scoresRes.data ?? []).map((s) => [s.date as string, s as { score: number | null; unlogged: boolean }]));
   const factOf = new Map(facts.map((f) => [f.date, f]));
+  const pat = findPatterns(
+    buildRows(
+      facts,
+      (scoresRes.data ?? []) as { date: string; score: number | null; unlogged: boolean }[],
+      occs.filter((o) => o.focus !== null).map((o) => ({ date: o.date, focus: o.focus as number })),
+      timezone
+    )
+  );
+  const notWorth = (worthRes.error ? [] : (worthRes.data ?? [])) as { amount: number }[];
+  const notWorthSum = notWorth.reduce((s, t) => s + Number(t.amount), 0);
+  const rate = Number((rateRes.data as { substitute_rate: number | null } | null)?.substitute_rate ?? 0);
   const weeks = (weeksRes.data ?? []) as Record<string, number | string | null>[];
   const runway = runwayRes.data as { days_left: number | null; burn_per_day: number | null } | null;
 
@@ -136,7 +162,7 @@ export default async function InsightsPage() {
             Today: mood {todayFact.mood ?? "—"} · energy {todayFact.energy ?? "—"} · sleep {slept ? formatDuration(slept) : "—"}
           </p>
         )}
-        <CheckinForm dates={dates} initial={initial} />
+        <CheckinForm dates={dates} initial={initial} blocks={blocksByDate} />
       </Section>
 
       <Section title="Consistency">
@@ -209,6 +235,11 @@ export default async function InsightsPage() {
             : tile("Runway", "—", `needs spending logged on 5 of the last 14 days (${spendDays} in 28 so far)`)}
           {tile("Notes, 28 days", String(notes28))}
           {tile("AI calls, 28 days", String(ai28))}
+          {tile(
+            "Not worth it, 28 days",
+            `$${notWorthSum.toFixed(2)}`,
+            notWorth.length ? `${notWorth.length} purchase${notWorth.length === 1 ? "" : "s"}${rate > 0 ? ` ≈ ${oneDecimal(notWorthSum / rate)} h of work` : ""}` : "mark purchases in Telegram or Finance"
+          )}
         </div>
       </Section>
 
@@ -217,11 +248,23 @@ export default async function InsightsPage() {
           <div className="h-1.5 overflow-hidden rounded-full bg-subtle-2">
             <div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(100, Math.round((loggedDays / UNLOCK_DAYS) * 100))}%` }} />
           </div>
-          <p className="text-sm text-muted">
-            {loggedDays >= UNLOCK_DAYS
-              ? "Enough days logged to compare patterns against your own baseline."
-              : `${loggedDays} of ${UNLOCK_DAYS} logged days. Patterns (sleep vs mood, busy days vs spending…) unlock at ${UNLOCK_DAYS}, so they compare you with you, not with noise.`}
-          </p>
+          {pat.unlocked ? (
+            pat.patterns.length ? (
+              <ul className="space-y-2">
+                {pat.patterns.map((x) => (
+                  <li key={x.id} className="text-sm">
+                    {x.text} <span className="text-xs text-faint">({x.days} days)</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted">No clear pattern yet. A pattern needs at least 8 days on each side and a real difference, so quiet is normal.</p>
+            )
+          ) : (
+            <p className="text-sm text-muted">
+              {loggedDays} of {UNLOCK_DAYS} logged days. Patterns (sleep vs mood, late nights vs energy, mood vs spending…) unlock at {UNLOCK_DAYS}, so they compare you with you, not with noise.
+            </p>
+          )}
         </div>
       </Section>
     </main>

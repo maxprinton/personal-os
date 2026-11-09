@@ -24,6 +24,8 @@ import { habitRow } from "@/lib/bot/habits";
 import { blockDoneRow, payRow } from "@/lib/bot/calendar";
 import { makeCtx } from "@/lib/bot/core";
 import { checkinView } from "@/lib/bot/day";
+import { findPatterns, loadPatternRows } from "@/lib/patterns";
+import { isoWeekday } from "@/lib/time";
 import { accountRows, budgetAlert, setReceipt } from "@/lib/bot/finance";
 import { pk, type Kb } from "@/lib/bot/tg";
 import { savePendingTransaction } from "@/lib/capture";
@@ -128,6 +130,19 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings & { blockEn
       const v = await checkinView(makeCtx(admin, s.user_id, s.telegram_chat_id, s.timezone), { evening: true });
       await send(s.telegram_chat_id, v.text, v.kb);
       sent++;
+    }
+  }
+
+  // Mondays 09:00: the patterns found in your own days (only once there are 28 logged days and a clear difference)
+  if (s.reminder_insights && isoWeekday(date) === 1) {
+    const at = 9 * 60;
+    if (now.minutes >= at && now.minutes < at + WINDOW && (await claim(admin, s.user_id, "patterns", date))) {
+      const rows = await loadPatternRows(admin, addDays(date, -90), date, s.timezone, s.user_id).catch(() => []);
+      const found = findPatterns(rows);
+      if (found.unlocked && found.patterns.length) {
+        await send(s.telegram_chat_id, ["🔎 Patterns in your days", "", ...found.patterns.map((p) => `• ${p.text}`), "", "More in Insights."].join("\n"));
+        sent++;
+      }
     }
   }
 

@@ -30,7 +30,41 @@ function Scale({ name, label, value, onChange }: { name: string; label: string; 
   );
 }
 
-export default function CheckinForm({ dates, initial }: { dates: { value: string; label: string }[]; initial: Record<string, Initial> }) {
+type BlockFocus = { id: string; name: string; focus: number | null };
+const FOCUS_LABELS = ["Scattered", "Normal", "Locked in"];
+
+function FocusPicker({ block }: { block: BlockFocus }) {
+  const [v, setV] = useState<number | null>(block.focus);
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="truncate text-sm">{block.name}</span>
+      <input type="hidden" name={`focus_${block.id}`} value={v ?? ""} />
+      <div className="flex shrink-0 gap-1">
+        {FOCUS_LABELS.map((l, i) => (
+          <button
+            key={l}
+            type="button"
+            onClick={() => setV(i + 1)}
+            aria-pressed={v === i + 1}
+            className={`rounded-md border px-2 py-1 text-xs transition-colors ${v === i + 1 ? "border-accent bg-accent font-medium text-accent-fg" : "border-line-strong hover:bg-subtle-2"}`}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function CheckinForm({
+  dates,
+  initial,
+  blocks = {},
+}: {
+  dates: { value: string; label: string }[];
+  initial: Record<string, Initial>;
+  blocks?: Record<string, BlockFocus[]>;
+}) {
   const [state, action, pending] = useActionState<ActionState, FormData>(saveCheckin, {});
   const [date, setDate] = useState(dates[0].value);
   const start = initial[date] ?? { mood: null, energy: null, bed: "", wake: "", highlight: "" };
@@ -63,6 +97,14 @@ export default function CheckinForm({ dates, initial }: { dates: { value: string
           <input name="wake" defaultValue={start.wake} placeholder="07:15" className="w-full rounded-md border border-line-strong bg-surface px-2 py-1.5 text-sm font-normal" />
         </label>
       </div>
+      {(blocks[date] ?? []).length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium">How focused were you in each block?</p>
+          {(blocks[date] ?? []).map((b) => (
+            <FocusPicker key={b.id} block={b} />
+          ))}
+        </div>
+      )}
       <label className="block space-y-1 text-sm font-medium">
         Highlight of the day
         <textarea name="highlight" defaultValue={start.highlight} rows={2} maxLength={280} placeholder="One line: what made today count?" className="w-full rounded-md border border-line-strong bg-surface px-2 py-1.5 text-sm font-normal" />

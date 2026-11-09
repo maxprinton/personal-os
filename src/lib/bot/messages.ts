@@ -28,7 +28,7 @@ import { inboxView, isInboxRequest, isPortfolioSummary, portfolioView } from "@/
 import { handleYoutubeCapture, isYoutubeSummary, parseYoutubeCapture, youtubeView } from "@/lib/bot/youtube-capture";
 import { markUsageReported, refreshFromGroq, scopeUsageLine, startOfDay, usageReport, usageSummary, withAiUsage } from "@/lib/ai-usage";
 import { addDays } from "@/lib/time";
-import { parseDayCommand, runDayCommand } from "@/lib/bot/day";
+import { parseDayCommand, runDayCommand, worthItRow } from "@/lib/bot/day";
 
 export const DAILY_LIMIT = 100;
 
@@ -387,10 +387,12 @@ async function replyCapture(c: Ctx, bmId: string | undefined, run: () => ReturnT
       await admin.from("bot_messages").update({ status: "saved", parsed: { ...parsed, by }, entity_type: saved.entityType, entity_id: saved.id }).eq("id", bmId);
     }
     if (receipt && saved.entityType === "transaction") await setReceipt(c, saved.id, receipt).catch(() => null);
+    const wi = saved.entityType === "transaction" ? await worthItRow(c, saved.id, pk(saved.id)).catch(() => null) : null;
+    const savedKb: Kb = [...(bmId ? [[btn("Undo", `undo:${bmId}`)]] : []), ...(wi ? [wi] : [])];
     const id = await send(
       chatId,
       `Saved ✓ ${saved.summary}${by === "ai" ? " · ✨" : ""}${receipt && saved.entityType === "transaction" ? " · 🧾" : ""}`,
-      bmId ? [[btn("Undo", `undo:${bmId}`)]] : null
+      savedKb.length ? savedKb : null
     );
     if (bmId) await remember(admin, c.userId, chatId, id, "saved", { bm: bmId });
     if (saved.entityType === "transaction") {

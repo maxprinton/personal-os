@@ -18,6 +18,8 @@ export type ListTxn = {
   category_id: string | null;
   account_id: string | null;
   localDate: string;
+  /** null = not answered */
+  worth_it?: boolean | null;
 };
 type Cat = { id: string; name: string; kind: Kind };
 type Acc = { id: string; name: string };
@@ -299,6 +301,16 @@ function EditTransaction({
             </select>
           </label>
         </div>
+        {type === "expense" && (
+          <label className="block text-sm">
+            Was it worth it?
+            <select name="worth_it" defaultValue={txn.worth_it === true ? "yes" : txn.worth_it === false ? "no" : ""} className={`mt-1 ${inputCls}`}>
+              <option value="">Not answered</option>
+              <option value="yes">Worth it</option>
+              <option value="no">Not worth it</option>
+            </select>
+          </label>
+        )}
         <label className="block text-sm">
           Description
           <WritingInput area="finance" name="description" defaultValue={txn.description ?? ""} placeholder="What was it?" className={`mt-1 ${inputCls}`} />

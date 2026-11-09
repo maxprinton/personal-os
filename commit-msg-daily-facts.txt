@@ -1,6 +1,7 @@
-Daily facts: Insights page, Telegram check-in and inputs
+Daily facts: Insights page, Telegram check-in, Today box, focus, worth-it, patterns
 
-- /insights page: check-in form, consistency map, week vs last, time by block, money and notes, patterns progress
-- Telegram: /checkin with buttons, /mood /energy /bed /woke /highlight /review, 21:00 evening check-in
-- Mood and Energy go through the existing metrics (migration 0049 syncs them into daily_facts)
-- lib/daily-facts helpers + test:daily-facts
+- /insights page: check-in form (mood, energy, sleep, highlight, focus per block), consistency map, week vs last, time by block, money (incl. not-worth-it), patterns
+- Telegram: /checkin with buttons, /mood /energy /bed /woke /highlight /review, 21:00 check-in, focus buttons after a block is done, Worth it / Not worth it after an expense, Monday patterns message
+- Today: "Your week" box (7 daily scores, today so far, streak)
+- Finance: "Was it worth it?" in the transaction editor
+- lib/patterns (6 fixed hypotheses, 28-day unlock, 8 days per group) + tests; migration 0050 (block_occurrences.focus, transactions.worth_it)

@@ -51,6 +51,9 @@ export default async function FinancePage() {
   // ✨ Categories chosen by the app, and new ones it proposes (both quietly empty until migration 0026 is run)
   const autoRes = await supabase.from("transactions").select("id").is("deleted_at", null).not("category_id", "is", null).not("auto_category", "is", null).limit(1000);
   const autoIds = autoRes.error ? [] : ((autoRes.data ?? []) as { id: string }[]).map((r) => r.id);
+  // "Was it worth it?" answers (quietly empty if migration 0050 isn't there)
+  const worthRes = await supabase.from("transactions").select("id,worth_it").is("deleted_at", null).not("worth_it", "is", null).limit(1000);
+  const worthOf = new Map<string, boolean>(worthRes.error ? [] : ((worthRes.data ?? []) as { id: string; worth_it: boolean }[]).map((r) => [r.id, r.worth_it]));
   const proposals = userId ? await listProposals(supabase, userId).catch(() => []) : [];
   const due = userId ? await getDuePayments(supabase, userId, today) : [];
   // Payment events of the last month and the next one: upcoming ones can be paid early, paid ones show what was recorded
@@ -211,6 +214,7 @@ export default async function FinancePage() {
                 category_id: t.category_id,
                 account_id: t.account_id,
                 localDate: t.localDate,
+                worth_it: worthOf.get(t.id) ?? null,
               }))}
               categories={categories.map((c) => ({ id: c.id, name: c.name, kind: c.kind }))}
               accounts={accountOpts}

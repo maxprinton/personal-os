@@ -31,6 +31,7 @@ import Section from "@/components/ui/Section";
 import ReviewToday from "@/components/notes-db/ReviewToday";
 import { notesToReview } from "@/lib/notes-db/review";
 import { AiUsageLine } from "@/components/AiUsageSection";
+import TodayTile from "@/components/insights/TodayTile";
 
 export const dynamic = "force-dynamic";
 
@@ -150,6 +151,8 @@ export default async function CommandCenter() {
             </p>
           )}
         </header>
+
+        <TodayTile supabase={supabase} today={now.date} />
 
         {/* Focus: what should I be doing right now? */}
         <section

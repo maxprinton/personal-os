@@ -113,6 +113,9 @@ export async function updateTransaction(_prev: ActionState, form: FormData): Pro
     .select("id");
   if (error) return { error: error.message };
   if (!data?.length) return { error: "Could not save (transaction not found)." };
+  // "Was it worth it?" (only for expenses). Quietly skipped if migration 0050 isn't run yet.
+  const worth = String(form.get("worth_it") ?? "");
+  await supabase.from("transactions").update({ worth_it: type === "expense" && worth ? worth === "yes" : null }).eq("id", id);
   // You looked at it: it is no longer an automatic guess (✨). Quietly skipped if migration 0026 isn't run yet.
   await supabase.from("transactions").update({ auto_category: null }).eq("id", id).not("auto_category", "is", null);
   refresh();

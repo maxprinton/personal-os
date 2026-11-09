@@ -19,3 +19,12 @@ Before anything: run `MIGRACION-0049-daily-facts-inputs.sql` in Supabase > SQL E
 
 ## Expected until you log more
 Runway shows "needs spending logged on 5 of the last 14 days". Patterns show "N of 28 logged days".
+
+## Added later: Today box, focus, "worth it", patterns
+Migration 0050 is already applied (two optional columns). Nothing to run.
+1. **Today:** a box "Your week" under the date: 7 bars (score of each day), today's score so far, days in a row. "Open Insights" link.
+2. **Focus (Telegram):** tap "✓ <block> done" -> a row appears: Scattered / Normal / Locked in. Tap one: it gets a dot. Reopen the block: the row goes away.
+3. **Focus (app):** Insights > Check-in lists the blocks you finished that day, each with the same three choices.
+4. **Worth it (Telegram):** log "spent 12 cinema": under "Saved" you get "Worth it / Not worth it". Rent, bills, tiny amounts (<$3) and recurring payments don't ask.
+5. **Worth it (app):** Finance > tap an expense > "Was it worth it?". Insights > Money shows "Not worth it, 28 days" with dollars and hours of work.
+6. **Patterns:** Insights > Patterns shows a progress count until 28 logged days; then "tends to" lines. Mondays 09:00 Telegram sends them only when there is something clear.

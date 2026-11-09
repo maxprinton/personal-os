@@ -21,7 +21,7 @@ import { cycleBefore, generateInsights, insightsView, noteView, setTime, setting
 import { undoById } from "@/lib/bot/undo";
 import { answerProposal } from "@/lib/bot/categorize";
 import { dayText } from "@/lib/bot-ahead";
-import { checkinView, setBed, setScale, setWake } from "@/lib/bot/day";
+import { checkinView, focusRow, setBed, setFocus, setScale, setWake, setWorthIt } from "@/lib/bot/day";
 
 export type CallbackQuery = { id: string; data?: string; message?: { message_id?: number; chat: { id: number }; reply_markup?: unknown } };
 
@@ -236,7 +236,27 @@ async function route(c: Ctx, cq: CallbackQuery, chatId: number, msgId: number | 
       const r = await toggleBlockDone(c, id(a));
       if (!r.ok) return say(r.text, true);
       await say(r.text);
-      return swap(`bd:${a}`, [blockDoneRow(id(a), r.name ?? "Block", Boolean(r.done))], r.text);
+      // Done -> ask how focused it was (one tap); reopened -> the question goes away
+      const rows: Kb = [blockDoneRow(id(a), r.name ?? "Block", Boolean(r.done))];
+      if (r.done) rows.push(focusRow(a));
+      return swap(a, rows, r.text);
+    }
+
+    // ---- Focus of a finished block ---------------------------------------------------------------
+    case "bf": {
+      const label = await setFocus(c, id(b), Number(a));
+      if (!label) return say("Could not save that.", true);
+      await say(`Focus: ${label}`);
+      const doneRow = kb.find((row) => row.some((x) => (x.callback_data ?? "").startsWith("bd:") && (x.callback_data ?? "").includes(b)));
+      return swap(b, [...(doneRow ? [doneRow] : []), focusRow(b, Number(a))]);
+    }
+
+    // ---- Was it worth it? ---------------------------------------------------------------------------
+    case "wi": {
+      const ok = await setWorthIt(c, id(b), a === "y");
+      if (!ok) return say("Could not save that.", true);
+      await say(a === "y" ? "Marked: worth it" : "Marked: not worth it");
+      return swap(b, [[btn(a === "y" ? "✓ Worth it" : "✕ Not worth it", `wi:${a}:${b}`)]]);
     }
 
     // ---- Payments ----------------------------------------------------------------------------
