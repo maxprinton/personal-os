@@ -28,6 +28,7 @@ import { inboxView, isInboxRequest, isPortfolioSummary, portfolioView } from "@/
 import { handleYoutubeCapture, isYoutubeSummary, parseYoutubeCapture, youtubeView } from "@/lib/bot/youtube-capture";
 import { markUsageReported, refreshFromGroq, scopeUsageLine, startOfDay, usageReport, usageSummary, withAiUsage } from "@/lib/ai-usage";
 import { addDays } from "@/lib/time";
+import { parseDayCommand, runDayCommand } from "@/lib/bot/day";
 
 export const DAILY_LIMIT = 100;
 
@@ -298,6 +299,8 @@ async function views(c: Ctx, text: string): Promise<boolean> {
     if (isPortfolioSummary(text)) return await hit(portfolioView(c));
     if (isInboxRequest(text)) return await hit(inboxView(c));
     if (isOneOf(text, W.insights)) return await hit(insightsView(c));
+    const dayCmd = parseDayCommand(text);
+    if (dayCmd) return await hit(runDayCommand(c, dayCmd, text));
     if (isOneOf(text, W.metrics)) return await hit(metricsView(c));
     if (isOneOf(text, W.settings)) return await hit(settingsView(c));
     if (isOneOf(text, W.ai)) {

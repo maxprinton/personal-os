@@ -53,6 +53,7 @@ export const HELP = [
   "/today /now /tomorrow /week /nextweek /day friday",
   "/tasks /archived /payments /balance /budget /movements /unassigned",
   "/categorize → the AI categorizes your uncategorized transactions · /proposals → new categories it suggests (✓ create · ✕ skip)",
+  "/checkin → your day at a glance + buttons for mood, energy and sleep · /mood 7 · /energy 6 · /bed 23:30 · /woke 7:15 · /highlight text · /review → this week vs last",
   "/search word /notes /habits /metrics /insights /settings /menu",
   "/usage → how much of the free AI you used today and what's left",
   "/teaching (or /work) → your classes, hours and pay this month + the videos you still owe · video B2-5 <Drive link> marks one as posted",

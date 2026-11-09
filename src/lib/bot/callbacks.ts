@@ -21,6 +21,7 @@ import { cycleBefore, generateInsights, insightsView, noteView, setTime, setting
 import { undoById } from "@/lib/bot/undo";
 import { answerProposal } from "@/lib/bot/categorize";
 import { dayText } from "@/lib/bot-ahead";
+import { checkinView, setBed, setScale, setWake } from "@/lib/bot/day";
 
 export type CallbackQuery = { id: string; data?: string; message?: { message_id?: number; chat: { id: number }; reply_markup?: unknown } };
 
@@ -65,6 +66,20 @@ async function route(c: Ctx, cq: CallbackQuery, chatId: number, msgId: number | 
         await swap(`undo:${data.slice(5)}`, [], text);
         if (replaceRows(kb, `undo:${data.slice(5)}`, [])) await send(chatId, text);
       }
+      return;
+    }
+
+    // ---- Daily check-in: mood / energy / sleep buttons ---------------------------------------------
+    case "df": {
+      let note = "";
+      if (a === "m" || a === "e") note = await setScale(c, a === "m" ? "mood" : "energy", Number(b), `df ${a} ${b}`);
+      else if (a === "b") note = await setBed(c, null);
+      else if (a === "w") note = await setWake(c, null);
+      else return say("This button has expired.");
+      await say(note.slice(0, 190), note.startsWith("That") || note.startsWith("Could"));
+      const v = await checkinView(c);
+      if (msgId) await edit(chatId, msgId, v.text, v.kb);
+      else await send(chatId, v.text, v.kb);
       return;
     }
 

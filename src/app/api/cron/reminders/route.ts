@@ -23,6 +23,7 @@ import { addDays, formatMinutes, timeToMinutes } from "@/lib/time";
 import { habitRow } from "@/lib/bot/habits";
 import { blockDoneRow, payRow } from "@/lib/bot/calendar";
 import { makeCtx } from "@/lib/bot/core";
+import { checkinView } from "@/lib/bot/day";
 import { accountRows, budgetAlert, setReceipt } from "@/lib/bot/finance";
 import { pk, type Kb } from "@/lib/bot/tg";
 import { savePendingTransaction } from "@/lib/capture";
@@ -116,6 +117,16 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings & { blockEn
         // One row per habit inside its block: ✓ / Skip. Then ✓ for open tasks.
         [...pending.slice(0, 30).map(habitRow), ...taskButtons(day.tasks, 8)]
       );
+      sent++;
+    }
+  }
+
+  // 21:00 check-in: the day's numbers and buttons for mood, energy and sleep (same data the app's Insights page edits)
+  if (s.reminder_evening_enabled) {
+    const at = 21 * 60;
+    if (now.minutes >= at && now.minutes < at + WINDOW && (await claim(admin, s.user_id, "checkin", date))) {
+      const v = await checkinView(makeCtx(admin, s.user_id, s.telegram_chat_id, s.timezone), { evening: true });
+      await send(s.telegram_chat_id, v.text, v.kb);
       sent++;
     }
   }

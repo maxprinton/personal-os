@@ -1,0 +1,6 @@
+Daily facts: Insights page, Telegram check-in and inputs
+
+- /insights page: check-in form, consistency map, week vs last, time by block, money and notes, patterns progress
+- Telegram: /checkin with buttons, /mood /energy /bed /woke /highlight /review, 21:00 evening check-in
+- Mood and Energy go through the existing metrics (migration 0049 syncs them into daily_facts)
+- lib/daily-facts helpers + test:daily-facts
