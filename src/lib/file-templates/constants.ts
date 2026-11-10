@@ -7,11 +7,13 @@ export const BUCKET = "note-files";
 export const FOLDER = "templates"; // <uid>/templates/<template id>/...
 export const MAX_FILE = 50 * 1024 * 1024; // the note-files bucket limit
 export const TRASH_DAYS = 30;
+export const MIGRATION_0054 = "MIGRACION-0054-template-manager-perfiles.sql";
 export const LIBRARY_SOURCE = "Personal OS Template Library";
 
 export const NAV = [
   { href: BASE, label: "Library" },
   { href: `${BASE}/copies`, label: "Working copies" },
+  { href: `${BASE}/projects`, label: "Projects" },
   { href: `${BASE}/inbox`, label: "Inbox" },
   { href: `${BASE}/import`, label: "Add templates" },
   { href: `${BASE}/trash`, label: "Trash" },

@@ -5,7 +5,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { currentUserId } from "@/lib/calendar/model";
 import { BUCKET, TRASH_DAYS } from "./constants";
-import type { FileTemplate, TmCopy } from "./types";
+import type { FileTemplate, TmCopy, TmProject } from "./types";
+import { cleanProfile, resolveValues, snapshot, changedKeys } from "./fields";
+import type { MapItem } from "./fill/common";
 
 type PgError = { code?: string; message?: string } | null | undefined;
 
@@ -99,4 +101,60 @@ export async function loadCopy(id: string): Promise<TmCopy | null> {
   if (!userId || !/^[0-9a-f-]{36}$/i.test(id)) return null;
   const { data } = await supabase.from("tm_copies").select(COPY_SELECT).eq("user_id", userId).eq("id", id).maybeSingle();
   return (data as TmCopy | null) ?? null;
+}
+
+// ------------------------------------------------------------------------------------------ project profiles (phase 3)
+
+/** Is migration 0054 (project profiles) in place? */
+export const profilesReady = cache(async (): Promise<{ missing: boolean }> => {
+  const { supabase, userId } = await tmServer();
+  if (!userId) return { missing: false };
+  const { error } = await supabase.from("tm_projects").select("id", { head: true, count: "exact" }).limit(1);
+  return { missing: isMissingTm(error) };
+});
+
+const asProject = (r: Record<string, unknown>): TmProject => ({ ...(r as unknown as TmProject), data: cleanProfile(r.data) });
+
+/** Your project profiles (not "My details"), newest first. */
+export async function loadProjects(): Promise<TmProject[]> {
+  const { supabase, userId } = await tmServer();
+  if (!userId) return [];
+  const { data, error } = await supabase.from("tm_projects").select("*").eq("user_id", userId).eq("is_defaults", false).order("updated_at", { ascending: false }).limit(1000);
+  if (error) {
+    if (isMissingTm(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []).map(asProject);
+}
+
+export async function loadProject(id: string): Promise<TmProject | null> {
+  const { supabase, userId } = await tmServer();
+  if (!userId || !/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const { data } = await supabase.from("tm_projects").select("*").eq("user_id", userId).eq("id", id).maybeSingle();
+  return data ? asProject(data) : null;
+}
+
+/** "My details": what repeats in every project. Null until you save it once. */
+export async function loadDefaults(): Promise<TmProject | null> {
+  const { supabase, userId } = await tmServer();
+  if (!userId) return null;
+  const { data } = await supabase.from("tm_projects").select("*").eq("user_id", userId).eq("is_defaults", true).maybeSingle();
+  return data ? asProject(data) : null;
+}
+
+/** Saved blank maps of a template's original files (file id -> map). */
+export async function loadFieldMaps(templateId: string): Promise<Record<string, { items: MapItem[]; confirmed: boolean }>> {
+  const { supabase, userId } = await tmServer();
+  if (!userId) return {};
+  const { data, error } = await supabase.from("tm_field_maps").select("file_id, items, confirmed").eq("user_id", userId).eq("template_id", templateId);
+  if (error) return {};
+  return Object.fromEntries((data ?? []).map((r) => [r.file_id as string, { items: (r.items ?? []) as MapItem[], confirmed: !!r.confirmed }]));
+}
+
+/** Which fields of a filled copy have changed in its profile since the fill (empty = up to date). */
+export function outdatedKeys(copy: TmCopy, project: TmProject | null | undefined): string[] {
+  const old = copy.filled?.snapshot;
+  if (!old || !project) return [];
+  const v = resolveValues(project.data, copy.filled?.lang ?? copy.lang ?? "en");
+  return changedKeys(old, snapshot(v, Object.keys(old)));
 }

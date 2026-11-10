@@ -5,7 +5,8 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Icon from "@/components/ui/Icon";
 import { MermaidPreview } from "@/components/editor/CodeBlockView";
-import { addVersionAction, deleteCopyAction, deleteVersionAction, updateCopyAction } from "@/app/file-template-copy-actions";
+import { addVersionAction, deleteCopyAction, deleteVersionAction, refreshCopyAction, updateCopyAction } from "@/app/file-template-copy-actions";
+import { labelOf } from "@/lib/file-templates/fields";
 import { createClient } from "@/lib/supabase/client";
 import { parseCsv } from "@/lib/files";
 import { BASE, BUCKET, MAX_FILE } from "@/lib/file-templates/constants";
@@ -28,7 +29,9 @@ async function uploadVersion(copy: TmCopy, file: Blob, fileName: string, note: s
   return r.ok ? { ok: true, version: r.version } : { ok: false, error: r.error };
 }
 
-export default function CopyDetail({ copy }: { copy: TmCopy }) {
+export type CopyProfileInfo = { projectId: string; projectName: string; outdated: string[]; editedAfterFill: boolean; canRefresh: boolean } | null;
+
+export default function CopyDetail({ copy, profile = null }: { copy: TmCopy; profile?: CopyProfileInfo }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<Msg>(null);
@@ -73,6 +76,33 @@ export default function CopyDetail({ copy }: { copy: TmCopy }) {
         </p>
       </div>
       {msg && <p role="status" className={`rounded-md border px-3 py-2 text-sm ${msg.bad ? "border-danger bg-danger-soft text-danger" : "border-line bg-subtle"}`}>{msg.text}</p>}
+
+      {profile && (
+        <div className={`flex flex-wrap items-center gap-2 rounded-lg border p-3 text-sm ${profile.outdated.length ? "border-warning bg-warning-soft" : "border-line bg-subtle"}`}>
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <p>
+              Filled from the profile <Link href={`${BASE}/projects/${profile.projectId}`} className="font-medium text-accent hover:underline">{profile.projectName}</Link>
+              {copy.filled ? ` · ${copy.filled.filled} blank${copy.filled.filled === 1 ? "" : "s"} on ${copy.filled_at?.slice(0, 10) ?? ""}` : ""}
+            </p>
+            {profile.outdated.length > 0 ? (
+              <p className="text-xs">
+                The profile changed since: {profile.outdated.map((k) => labelOf(k)).join(", ")}.
+                {profile.editedAfterFill ? " You uploaded an edited version after the fill: refreshing starts again from the template, so copy your own edits over if you need them (your version stays in the history)." : ""}
+              </p>
+            ) : (
+              <p className="text-xs text-muted">Up to date with the profile.</p>
+            )}
+            {copy.filled && copy.filled.skipped.length > 0 && <p className="text-xs text-muted">Left blank: {copy.filled.skipped.join(", ")}.</p>}
+          </div>
+          {profile.canRefresh && (
+            <button type="button" className={profile.outdated.length ? BTN_PRIMARY : BTN_SMALL} disabled={pending} onClick={() => start(async () => {
+              const r = await refreshCopyAction(copy.id);
+              setMsg(r.ok ? { text: `Filled again as version ${r.version}.` } : { text: r.error, bad: true });
+              if (r.ok) router.refresh();
+            })}>{profile.outdated.length ? "Refresh from the profile" : "Fill again"}</button>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
         <section className={`${BOX} space-y-3`} aria-label="Versions">

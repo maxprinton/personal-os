@@ -104,4 +104,25 @@ export type TmCopy = {
   updated_at: string;
   tm_files?: TemplateFile[];
   tm_templates?: { id: string; code: string | null; name: string; name_es: string | null; format: Format; phase: Phase | null } | null;
+  // phase 3: filled from a project profile
+  project_id?: string | null;
+  source_file_id?: string | null;
+  filled?: CopyFill | null;
+  filled_at?: string | null;
+};
+
+/** What a fill used: the values (to spot a copy that is out of date after the profile changes) and the result. */
+export type CopyFill = { lang: Lang; snapshot: Record<string, string>; filled: number; skipped: string[]; version: number; answers?: Record<string, string> };
+
+/** A project profile (phase 3). `data` is a ProfileData (see fields.ts). */
+export type TmProject = {
+  id: string;
+  name: string;
+  code: string | null;
+  is_defaults: boolean;
+  data: import("./fields").ProfileData;
+  notes: string | null;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
 };

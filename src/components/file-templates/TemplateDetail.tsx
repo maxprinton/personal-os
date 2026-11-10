@@ -8,13 +8,14 @@ import { recordUseAction, registerFilesAction, removeFileAction, trashAction, up
 import { ABOUT_LABEL, BASE, FORMATS, FORMAT_LABEL, GROUPS, GROUP_LABEL, PHASES, PHASE_LABEL, STATUSES, STATUS_LABEL } from "@/lib/file-templates/constants";
 import { aboutIn, displayName, fileUrl, prettySize } from "@/lib/file-templates/query";
 import type { About, FileTemplate, Lang, TmCopy } from "@/lib/file-templates/types";
+import BlanksPanel from "./BlanksPanel";
 import MakeCopy from "./MakeCopy";
 import { fingerprint, readPref, uploadTemplateFile, writePref } from "./client";
 import { BOX, BTN_DANGER, BTN_PLAIN, BTN_PRIMARY, BTN_SMALL, FormatBadge, GroupBadge, INPUT, LABEL, PhaseBadge, SELECT, StatusBadge } from "./ui";
 
 const KEYS = ["best", "use", "skip", "value", "vars"] as const;
 
-export default function TemplateDetail({ t, copies = [], projects = [], copiesReady = true }: { t: FileTemplate; copies?: TmCopy[]; projects?: string[]; copiesReady?: boolean }) {
+export default function TemplateDetail({ t, copies = [], projects = [], copiesReady = true, profiles = [], profilesReady = false, maps = {} }: { t: FileTemplate; copies?: TmCopy[]; projects?: string[]; copiesReady?: boolean; profiles?: { id: string; name: string }[]; profilesReady?: boolean; maps?: Record<string, { confirmed: boolean; count: number }> }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [lang, setLang] = useState<Lang>("en");
@@ -152,12 +153,13 @@ export default function TemplateDetail({ t, copies = [], projects = [], copiesRe
             </div>
           </div>
           <p className="border-t border-line pt-3 text-xs text-muted">
-            Library templates use fields like <code>{"{{project_name}}"}</code>. Filling them automatically comes in the next phase; for now use Find and Replace in Word or Excel.
+            Library templates use fields like <code>{"{{project_name}}"}</code>: make a working copy for a project and they come out filled from its profile.
           </p>
         </section>
       </div>
 
-      {copiesReady && <MakeCopy t={t} copies={copies} lang={lang} projects={projects} />}
+      {copiesReady && <MakeCopy t={t} copies={copies} lang={lang} projects={projects} profiles={profiles} profilesReady={profilesReady} />}
+      {profilesReady && <BlanksPanel files={t.tm_files ?? []} maps={maps} />}
 
       <details className={BOX} open={!t.code}>
         <summary className="cursor-pointer text-sm font-semibold">Edit properties and description</summary>

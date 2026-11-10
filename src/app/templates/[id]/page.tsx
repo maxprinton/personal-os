@@ -2,7 +2,7 @@
 import Link from "next/link";
 import TemplateDetail from "@/components/file-templates/TemplateDetail";
 import { BASE } from "@/lib/file-templates/constants";
-import { copiesReady, loadCopies, loadTemplate } from "@/lib/file-templates/db";
+import { copiesReady, loadCopies, loadFieldMaps, loadProjects, loadTemplate, profilesReady } from "@/lib/file-templates/db";
 
 export default async function TemplatePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -24,5 +24,17 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
   const { missing } = await copiesReady();
   const all = missing ? [] : await loadCopies();
   const projects = [...new Set(all.map((c) => c.project).filter((p): p is string => !!p))].sort((a, b) => a.localeCompare(b));
-  return <TemplateDetail t={t} copies={all.filter((c) => c.template_id === t.id)} projects={projects} copiesReady={!missing} />;
+  const profiles = await profilesReady();
+  const [list, maps] = profiles.missing ? [[], {}] : await Promise.all([loadProjects(), loadFieldMaps(t.id)]);
+  return (
+    <TemplateDetail
+      t={t}
+      copies={all.filter((c) => c.template_id === t.id)}
+      projects={projects}
+      copiesReady={!missing}
+      profilesReady={!profiles.missing && !missing}
+      profiles={list.filter((p) => !p.archived).map((p) => ({ id: p.id, name: p.name }))}
+      maps={Object.fromEntries(Object.entries(maps).map(([k, m]) => [k, { confirmed: m.confirmed, count: m.items.filter((it) => it.field).length }]))}
+    />
+  );
 }

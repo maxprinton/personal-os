@@ -139,6 +139,7 @@ const FEATURE: Record<string, string> = {
   writing: "Writing checker",
   voice: "Writing voice profile",
   "usage-check": "Usage checks (asking Groq what's left)",
+  "templates-ai": "Template Manager drafts",
   other: "Other",
 };
 export const featureName = (f: string) => FEATURE[f] ?? f;
