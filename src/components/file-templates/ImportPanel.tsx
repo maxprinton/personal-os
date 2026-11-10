@@ -22,6 +22,14 @@ export default function ImportPanel() {
   const folderInput = useRef<HTMLInputElement>(null);
   const add = (text: string, bad = false) => setLog((l) => [...l, { text, bad }]);
 
+  // While an import runs, leaving or reloading the page would stop it half-way: ask first.
+  useEffect(() => {
+    if (!busy) return;
+    const stop = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", stop);
+    return () => window.removeEventListener("beforeunload", stop);
+  }, [busy]);
+
   // Non-standard attributes that let the file picker choose a whole folder (Chrome, Edge, Firefox, Safari).
   useEffect(() => {
     folderInput.current?.setAttribute("webkitdirectory", "");
@@ -53,8 +61,19 @@ export default function ImportPanel() {
       const plan = planImport(Object.keys(r.ids), paths);
       const known = new Set(r.known);
       const rows2: FileRow[] = [];
+      let pendingRows: FileRow[] = [];
+      let saved = 0;
       let skipped = 0;
       let failed = 0;
+      // Save what is uploaded every 20 files, so an interrupted import keeps its progress (and a re-run skips it).
+      const flush = async () => {
+        const batch = pendingRows;
+        pendingRows = [];
+        if (!batch.length) return;
+        const s = await registerFilesAction(batch);
+        if (s.ok) saved += batch.length;
+        else add(s.error, true);
+      };
       setProgress({ label: "Uploading files", done: 0, total: plan.files.length });
       await runPool(
         plan.files,
@@ -70,15 +89,16 @@ export default function ImportPanel() {
           if ("error" in up) {
             failed++;
             add(up.error, true);
-          } else rows2.push(up.row);
+          } else {
+            rows2.push(up.row);
+            pendingRows.push(up.row);
+            if (pendingRows.length >= 20) await flush();
+          }
         },
         (done) => setProgress({ label: "Uploading files", done, total: plan.files.length }),
       );
-      for (let i = 0; i < rows2.length; i += 40) {
-        const s = await registerFilesAction(rows2.slice(i, i + 40));
-        if (!s.ok) add(s.error, true);
-      }
-      add(`Files: ${rows2.length} uploaded, ${skipped} unchanged (already there)${failed ? `, ${failed} failed` : ""}.`, failed > 0);
+      await flush();
+      add(`Files: ${saved} uploaded, ${skipped} unchanged (already there)${failed ? `, ${failed} failed` : ""}.`, failed > 0 || saved < rows2.length);
       if (plan.skipped.length) add(`${plan.skipped.length} other files in the folder were ignored (not part of the catalog).`);
       add("Done. Open the Library to browse them.");
       router.refresh();
@@ -159,7 +179,7 @@ export default function ImportPanel() {
           onChange={(e) => { void importFolder(e.target.files); e.target.value = ""; }}
         />
         <button type="button" className={BTN_PRIMARY} disabled={busy} onClick={() => folderInput.current?.click()}>Choose the Template Library folder…</button>
-        <p className="text-xs text-muted">The browser asks you to confirm the upload of the folder: that is normal. Everything goes to your private storage.</p>
+        <p className="text-xs text-muted">The browser asks you to confirm the upload of the folder: that is normal. Everything goes to your private storage. Keep this tab open until it says Done (about a minute); if it gets interrupted, run it again and it continues where it stopped.</p>
       </section>
 
       <section className={`${BOX} space-y-3`}>
