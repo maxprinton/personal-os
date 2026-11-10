@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { currentUserId } from "@/lib/calendar/model";
 import { BUCKET, TRASH_DAYS } from "./constants";
-import type { FileTemplate } from "./types";
+import type { FileTemplate, TmCopy } from "./types";
 
 type PgError = { code?: string; message?: string } | null | undefined;
 
@@ -67,4 +67,36 @@ export async function removeStored(supabase: SupabaseClient, paths: string[]) {
     const chunk = paths.slice(i, i + 100);
     if (chunk.length) await supabase.storage.from(BUCKET).remove(chunk);
   }
+}
+
+// ------------------------------------------------------------------------------------------ working copies (phase 2)
+
+const COPY_SELECT = "*, tm_files(*), tm_templates(id, code, name, name_es, format, phase)";
+
+/** Is migration 0053 (working copies) in place? */
+export const copiesReady = cache(async (): Promise<{ missing: boolean }> => {
+  const { supabase, userId } = await tmServer();
+  if (!userId) return { missing: false };
+  const { error } = await supabase.from("tm_copies").select("id", { head: true, count: "exact" }).limit(1);
+  return { missing: isMissingTm(error) };
+});
+
+export async function loadCopies(opts: { templateId?: string } = {}): Promise<TmCopy[]> {
+  const { supabase, userId } = await tmServer();
+  if (!userId) return [];
+  let q = supabase.from("tm_copies").select(COPY_SELECT).eq("user_id", userId);
+  if (opts.templateId) q = q.eq("template_id", opts.templateId);
+  const { data, error } = await q.order("updated_at", { ascending: false }).limit(2000);
+  if (error) {
+    if (isMissingTm(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []) as TmCopy[];
+}
+
+export async function loadCopy(id: string): Promise<TmCopy | null> {
+  const { supabase, userId } = await tmServer();
+  if (!userId || !/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const { data } = await supabase.from("tm_copies").select(COPY_SELECT).eq("user_id", userId).eq("id", id).maybeSingle();
+  return (data as TmCopy | null) ?? null;
 }

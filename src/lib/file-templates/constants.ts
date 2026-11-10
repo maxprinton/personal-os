@@ -11,6 +11,7 @@ export const LIBRARY_SOURCE = "Personal OS Template Library";
 
 export const NAV = [
   { href: BASE, label: "Library" },
+  { href: `${BASE}/copies`, label: "Working copies" },
   { href: `${BASE}/inbox`, label: "Inbox" },
   { href: `${BASE}/import`, label: "Add templates" },
   { href: `${BASE}/trash`, label: "Trash" },

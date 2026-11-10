@@ -1,5 +1,5 @@
 // Template Manager add-on: search, filters, sorting, catalog import planning, edit validation, file names.
-import { catalogRows, cleanPatch, displayName, aboutIn, EMPTY_FILTERS, filterTemplates, formatFromName, groupByPhase, nameFromFile, planImport, safeName, sortTemplates, storagePath, trashDaysLeft, fileUrl, sha256Hex } from "@/lib/file-templates/query";
+import { catalogRows, cleanPatch, displayName, aboutIn, EMPTY_FILTERS, filterTemplates, formatFromName, groupByPhase, nameFromFile, planImport, safeName, sortTemplates, storagePath, trashDaysLeft, fileUrl, sha256Hex, editableKind, copyFileName, copyPath, nextVersion, sortVersions, fillText, rowsToCsv, squareRows, mermaidBlock } from "@/lib/file-templates/query";
 import { addonById } from "@/lib/addons/registry";
 import type { FileTemplate } from "@/lib/file-templates/types";
 
@@ -102,6 +102,23 @@ eq("patch about keeps refs", cleanPatch({ about: { en: { best: "B", refs: "R", j
 // registry
 eq("add-on registered", addonById("templates")?.href, "/templates");
 eq("add-on key l", addonById("templates")?.key, "l");
+
+// phase 2: working copies
+eq("editable csv", editableKind("a.CSV"), "csv");
+eq("editable mmd", editableKind("map.mmd"), "mermaid");
+eq("editable md", editableKind("notes.md"), "text");
+eq("not editable docx", editableKind("x.docx"), null);
+eq("copy file name", copyFileName("Risk Register · Booking app", "PLN-12 Risk Register.xlsx"), "Risk-Register-Booking-app.xlsx");
+eq("copy file name drops typed extension", copyFileName("Plan.v2.docx", "a.docx"), "Plan-v2.docx");
+eq("copy path", copyPath("u", "t", "c", "Plan v2.docx", 123), "u/templates/t/copies/c/123-Plan-v2.docx");
+eq("next version empty", nextVersion([]), 1);
+eq("next version", nextVersion([{ version: 1 }, { version: 3 }, { version: null }]), 4);
+eq("sort versions", sortVersions([{ version: 1, created_at: "a" }, { version: 2, created_at: "b" }]).map((v) => v.version), [2, 1]);
+eq("fill text", fillText("# {{project_name}} – {{ date }} {{unknown}} {{sponsor}}", { project_name: "Booking app", date: "2026-11-10", sponsor: "" }), "# Booking app – 2026-11-10 {{unknown}} {{sponsor}}");
+eq("rows to csv", rowsToCsv([["a", "b,c"], ['say "hi"', "x\ny"]]), 'a,"b,c"\r\n"say ""hi""","x\ny"\r\n');
+eq("square rows", squareRows([["a"], ["b", "c", "d"]]), [["a", "", ""], ["b", "c", "d"]]);
+eq("mermaid block", mermaidBlock("# T\n\n```mermaid\nflowchart LR\n A-->B\n```\n"), "flowchart LR\n A-->B");
+eq("no mermaid block", mermaidBlock("plain"), null);
 
 (async () => {
   eq("sha256", await sha256Hex(new TextEncoder().encode("abc").buffer as ArrayBuffer), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");

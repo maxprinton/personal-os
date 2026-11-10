@@ -20,6 +20,9 @@ export type TemplateFile = {
   size: number;
   sha256: string | null;
   created_at: string;
+  copy_id?: string | null;
+  version?: number;
+  note?: string | null;
 };
 
 export type FileTemplate = {
@@ -85,3 +88,20 @@ export type Filters = {
 };
 
 export type SortKey = "phase" | "name" | "recent" | "used";
+
+export type CopyStatus = "active" | "done" | "archived";
+
+/** A working copy: "this template, for this project". Versions are tm_files rows with role "working_copy". */
+export type TmCopy = {
+  id: string;
+  template_id: string;
+  title: string;
+  project: string | null;
+  lang: Lang | null;
+  status: CopyStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  tm_files?: TemplateFile[];
+  tm_templates?: { id: string; code: string | null; name: string; name_es: string | null; format: Format; phase: Phase | null } | null;
+};

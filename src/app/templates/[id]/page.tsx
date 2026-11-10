@@ -2,7 +2,7 @@
 import Link from "next/link";
 import TemplateDetail from "@/components/file-templates/TemplateDetail";
 import { BASE } from "@/lib/file-templates/constants";
-import { loadTemplate } from "@/lib/file-templates/db";
+import { copiesReady, loadCopies, loadTemplate } from "@/lib/file-templates/db";
 
 export default async function TemplatePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -21,5 +21,8 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
       </p>
     );
   }
-  return <TemplateDetail t={t} />;
+  const { missing } = await copiesReady();
+  const all = missing ? [] : await loadCopies();
+  const projects = [...new Set(all.map((c) => c.project).filter((p): p is string => !!p))].sort((a, b) => a.localeCompare(b));
+  return <TemplateDetail t={t} copies={all.filter((c) => c.template_id === t.id)} projects={projects} copiesReady={!missing} />;
 }

@@ -56,7 +56,7 @@ function loadMermaid() {
   }));
 }
 
-function MermaidPreview({ code }: { code: string }) {
+export function MermaidPreview({ code }: { code: string }) {
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");
   const [svg, setSvg] = useState<string>("");
   const [err, setErr] = useState<string | null>(null);

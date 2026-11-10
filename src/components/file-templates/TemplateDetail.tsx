@@ -7,13 +7,14 @@ import Icon from "@/components/ui/Icon";
 import { recordUseAction, registerFilesAction, removeFileAction, trashAction, updateTemplateAction } from "@/app/file-template-actions";
 import { ABOUT_LABEL, BASE, FORMATS, FORMAT_LABEL, GROUPS, GROUP_LABEL, PHASES, PHASE_LABEL, STATUSES, STATUS_LABEL } from "@/lib/file-templates/constants";
 import { aboutIn, displayName, fileUrl, prettySize } from "@/lib/file-templates/query";
-import type { About, FileTemplate, Lang } from "@/lib/file-templates/types";
+import type { About, FileTemplate, Lang, TmCopy } from "@/lib/file-templates/types";
+import MakeCopy from "./MakeCopy";
 import { fingerprint, readPref, uploadTemplateFile, writePref } from "./client";
 import { BOX, BTN_DANGER, BTN_PLAIN, BTN_PRIMARY, BTN_SMALL, FormatBadge, GroupBadge, INPUT, LABEL, PhaseBadge, SELECT, StatusBadge } from "./ui";
 
 const KEYS = ["best", "use", "skip", "value", "vars"] as const;
 
-export default function TemplateDetail({ t }: { t: FileTemplate }) {
+export default function TemplateDetail({ t, copies = [], projects = [], copiesReady = true }: { t: FileTemplate; copies?: TmCopy[]; projects?: string[]; copiesReady?: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [lang, setLang] = useState<Lang>("en");
@@ -155,6 +156,8 @@ export default function TemplateDetail({ t }: { t: FileTemplate }) {
           </p>
         </section>
       </div>
+
+      {copiesReady && <MakeCopy t={t} copies={copies} lang={lang} projects={projects} />}
 
       <details className={BOX} open={!t.code}>
         <summary className="cursor-pointer text-sm font-semibold">Edit properties and description</summary>

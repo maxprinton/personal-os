@@ -275,3 +275,60 @@ export function cleanPatch(input: Record<string, unknown>): TemplatePatch | null
   }
   return Object.keys(p).length ? p : null;
 }
+
+// ------------------------------------------------------------------------------------------ working copies (phase 2)
+
+/** Files you can edit inside the app (as text or as a CSV grid). */
+export function editableKind(name: string): "csv" | "mermaid" | "text" | null {
+  const e = extOf(name);
+  if (e === "csv" || e === "tsv") return "csv";
+  if (e === "mmd") return "mermaid";
+  if (e === "md" || e === "markdown" || e === "txt") return "text";
+  return null;
+}
+
+/** "Risk Register · Booking app" + "PLN-12 Risk Register.xlsx" -> "Risk-Register-Booking-app.xlsx" */
+export function copyFileName(title: string, original: string) {
+  const ext = extOf(original);
+  const base = safeName(title.replace(/\.[a-z0-9]+$/i, "")).replace(/\./g, "-").slice(0, 80) || "copy";
+  return ext ? `${base}.${ext}` : base;
+}
+
+/** Where a version of a working copy is stored (timestamp keeps every version, nothing is overwritten). */
+export function copyPath(userId: string, templateId: string, copyId: string, fileName: string, stamp = Date.now()) {
+  return `${userId}/${FOLDER}/${templateId}/copies/${copyId}/${stamp}-${safeName(fileName)}`;
+}
+
+export function nextVersion(files: { version?: number | null }[]) {
+  return files.reduce((m, f) => Math.max(m, f.version ?? 0), 0) + 1;
+}
+
+/** Newest version first. */
+export function sortVersions<T extends { version?: number | null; created_at: string }>(files: T[]) {
+  return [...files].sort((a, b) => (b.version ?? 0) - (a.version ?? 0) || b.created_at.localeCompare(a.created_at));
+}
+
+/** Replaces {{field}} placeholders that have a value; unknown or empty fields stay as they are. */
+export function fillText(text: string, values: Record<string, string | null | undefined>) {
+  return text.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (m, k: string) => {
+    const v = values[k.toLowerCase()];
+    return v ? v : m;
+  });
+}
+
+/** Grid rows -> CSV text (quotes only where needed, CRLF like Excel). */
+export function rowsToCsv(rows: string[][], delim = ",") {
+  const esc = (v: string) => (v.includes(delim) || /["\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  return rows.map((r) => r.map((c) => esc(c ?? "")).join(delim)).join("\r\n") + "\r\n";
+}
+
+/** Makes every row as long as the longest one (so the grid is rectangular). */
+export function squareRows(rows: string[][], minCols = 1) {
+  const w = Math.max(minCols, ...rows.map((r) => r.length));
+  return rows.map((r) => [...r, ...Array(Math.max(0, w - r.length)).fill("")]);
+}
+
+/** The first ```mermaid block of a Markdown file (the diagram templates keep their diagram there). */
+export function mermaidBlock(md: string) {
+  return /```mermaid\s*\n([\s\S]*?)```/.exec(md)?.[1]?.trim() ?? null;
+}
