@@ -27,6 +27,7 @@
     "test:ai-usage": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-ai-usage.ts",
     "test:writing": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-writing.ts && node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-writing-editor.ts && node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-predict.ts",
     "test:addons": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-addons.ts",
+    "test:file-templates": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-file-templates.ts",
     "test:note-views": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-note-views.ts",
     "test:text-drop": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-text-drop.ts",
     "test:search": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-search.ts",

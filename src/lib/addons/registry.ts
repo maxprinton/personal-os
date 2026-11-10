@@ -75,6 +75,17 @@ export const ADDONS: Addon[] = [
     keywords: ["portfolio", "portafolio", "website", "sitio", "web", "publish", "publicar", "blog", "projects", "proyectos", "about", "now", "case study", "contact", "contacto"],
     connects: ["Notes", "Public website (Vercel)", "Telegram (contact messages)", "YouTube Pipeline (published videos)"],
   },
+  {
+    id: "templates",
+    name: "Template Manager",
+    description: "Your library of project-management templates (Word, Excel, PowerPoint, Mermaid) in English and Spanish: find the right one by phase and approach, see when to use it, download it.",
+    icon: "template",
+    href: "/templates",
+    type: "tools",
+    key: "l",
+    keywords: ["templates", "plantillas", "project management", "gestion de proyectos", "charter", "acta", "risk", "riesgos", "wbs", "edt", "gantt", "raci", "scrum", "six sigma", "dmaic", "prince2", "pmbok", "excel", "word", "pdf", "library", "biblioteca"],
+    connects: ["Private file storage (your own folder)"],
+  },
 ];
 
 /** How many add-ons fit in the main menu. */
