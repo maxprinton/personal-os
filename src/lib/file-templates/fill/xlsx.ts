@@ -127,6 +127,7 @@ export function scanXlsx(bytes: Uint8Array): MapItem[] {
         items.push(it);
       }
     }
+    if (/^(guide|gu[ií]a)$/i.test(sheet.trim())) continue; // instructions sheet: no label cells or tables to fill
     let tableFrom = Infinity;
     rows.forEach((row, ri) => {
       const texts = row.cells.filter((c) => !c.formula).map((c) => c.text);
