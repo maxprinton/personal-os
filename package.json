@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test:telegram": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-telegram.ts",
     "test:bot": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-bot.ts",
     "test:remote-image": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-remote-image.ts",
     "test:editor": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-editor-md.ts",

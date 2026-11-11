@@ -14,7 +14,7 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     label: "Now",
     items: [
       { href: "/", label: "Today", icon: "today", key: "h" },
-      { href: "/capture", label: "Capture", icon: "capture", key: "c" },
+      { href: "/telegram", label: "Telegram", icon: "telegram", key: "c" },
     ],
   },
   {

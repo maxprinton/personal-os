@@ -25,12 +25,16 @@ import { checkinView, focusRow, setBed, setFocus, setScale, setWake, setWorthIt 
 
 export type CallbackQuery = { id: string; data?: string; message?: { message_id?: number; chat: { id: number }; reply_markup?: unknown } };
 
-export async function handleCallback(admin: SupabaseClient, cq: CallbackQuery) {
+/** opts.ctx: the caller already knows who this is (the Telegram page's practice mode), so no chat lookup. */
+export async function handleCallback(admin: SupabaseClient, cq: CallbackQuery, opts: { ctx?: Ctx } = {}) {
   const chatId = cq.message?.chat.id;
   if (!chatId) return toast(cq.id, "This button has expired.");
-  const { data: s } = await admin.from("user_settings").select("user_id,timezone").eq("telegram_chat_id", chatId).maybeSingle();
-  if (!s) return toast(cq.id, "This chat is not linked. Send /link CODE first.");
-  const c = makeCtx(admin, s.user_id as string, chatId, s.timezone as string | null);
+  let c = opts.ctx;
+  if (!c) {
+    const { data: s } = await admin.from("user_settings").select("user_id,timezone").eq("telegram_chat_id", chatId).maybeSingle();
+    if (!s) return toast(cq.id, "This chat is not linked. Send /link CODE first.");
+    c = makeCtx(admin, s.user_id as string, chatId, s.timezone as string | null);
+  }
   try {
     await route(c, cq, chatId, cq.message?.message_id ?? null);
   } catch (e) {

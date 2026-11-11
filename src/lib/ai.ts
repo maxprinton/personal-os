@@ -6,6 +6,7 @@
 // (asked once and remembered for an hour); AI_MODEL / AI_VISION_MODEL in Vercel can force one.
 
 import { recordAiCall } from "@/lib/ai-usage";
+import { inSim } from "@/lib/bot/sim/store";
 
 const API = "https://api.groq.com/openai/v1";
 
@@ -23,7 +24,7 @@ export type AiPart = { text: string } | { image: { mime: string; base64: string 
 export type AiKind = "write" | "fast" | "vision";
 
 export function hasAi() {
-  return Boolean(process.env.GROQ_API_KEY);
+  return Boolean(process.env.GROQ_API_KEY) && !inSim();
 }
 
 // Preferred models, best first. Only the ones your key really has are used.
@@ -96,6 +97,7 @@ export async function aiChat(
   parts: AiPart[],
   opts: { kind?: AiKind; json?: boolean; temperature?: number; maxTokens?: number; timeoutMs?: number } = {}
 ): Promise<AiResult> {
+  if (inSim()) return { error: "The AI is switched off in practice mode." };
   const key = process.env.GROQ_API_KEY;
   if (!key) return { error: "The AI is not connected: GROQ_API_KEY is missing in Vercel." };
   const kind = opts.kind ?? "write";
@@ -185,6 +187,7 @@ export async function cloudflareChat(
   parts: AiPart[],
   opts: { json?: boolean; temperature?: number; maxTokens?: number; timeoutMs?: number } = {},
 ): Promise<AiResult> {
+  if (inSim()) return { error: "The AI is switched off in practice mode." };
   const account = cfEnv(process.env.CF_ACCOUNT_ID);
   const token = cfEnv(process.env.CF_API_TOKEN);
   if (!account || !token) return { error: "The backup AI isn't connected (CF_ACCOUNT_ID / CF_API_TOKEN)." };
@@ -227,7 +230,7 @@ export async function cloudflareChat(
  */
 export async function aiProbe(): Promise<string | null> {
   const key = process.env.GROQ_API_KEY;
-  if (!key) return null;
+  if (!key || inSim()) return null;
   const model = (await modelsFor("write"))[0];
   if (!model) return null;
   try {
@@ -266,7 +269,7 @@ export async function aiJson(system: string, parts: AiPart[], kind: AiKind = "fa
 /** Voice note → text with Whisper (Spanish or English, as spoken). */
 export async function transcribe(audioBase64: string, mimeType: string): Promise<string | null> {
   const key = process.env.GROQ_API_KEY;
-  if (!key) return null;
+  if (!key || inSim()) return null;
   const ext = /mpeg|mp3/.test(mimeType) ? "mp3" : /mp4|m4a|aac/.test(mimeType) ? "m4a" : /wav/.test(mimeType) ? "wav" : /webm/.test(mimeType) ? "webm" : "ogg";
   const bytes = Buffer.from(audioBase64, "base64");
   for (const model of WHISPER) {

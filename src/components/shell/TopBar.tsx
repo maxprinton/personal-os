@@ -12,7 +12,7 @@ const PRIMARY = ["/", "/calendar", "/tasks", "/notes", "/finance", "/habits"];
 
 /**
  * Top bar (Blocks design): logo, main sections as pills, a "More" menu for the rest,
- * then search, calendar and Capture. Below lg the sections move to the bottom tab bar (MobileTabs).
+ * then search, calendar and Telegram. Below lg the sections move to the bottom tab bar (MobileTabs).
  */
 export default function TopBar({
   pathname,
@@ -31,7 +31,7 @@ export default function TopBar({
   const groups = navGroupsWith(favorites)
     .map((g) => ({ ...g, items: g.items.filter((i) => !PRIMARY.includes(i.href)) }))
     .filter((g) => g.items.length > 0);
-  const moreActive = !primary.some((p) => isActive(p.href, pathname)) && pathname !== "/capture";
+  const moreActive = !primary.some((p) => isActive(p.href, pathname)) && pathname !== "/telegram";
 
   useEffect(() => setMore(false), [pathname]);
   useEffect(() => {
@@ -150,10 +150,10 @@ export default function TopBar({
             <Icon name="calendar" size={18} />
           </button>
           <Link
-            href="/capture"
+            href="/telegram"
             className="ml-1 rounded-full bg-accent px-4 py-1.5 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover"
           >
-            Capture
+            Telegram
           </Link>
         </div>
       </div>

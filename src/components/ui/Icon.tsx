@@ -3,6 +3,7 @@
 const paths = {
   today: "M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M3 12h2M19 12h2M5.6 18.4 7 17M17 7l1.4-1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
   capture: "M12 5v14M5 12h14",
+  telegram: "M21 4 3 11l6 2.5L11 20l3.2-4.3L19 19zM9 13.5 21 4",
   calendar: "M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z",
   blocks: "M4 5h7v6H4zM13 5h7v4h-7zM13 11h7v8h-7zM4 13h7v6H4z",
   events: "M5 21V4M5 4h11l-2 4 2 4H5",

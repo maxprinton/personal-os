@@ -12,6 +12,7 @@ export function fakeDb(tables: Record<string, Row[]>) {
     let head = false;
     let ord: { col: string; asc: boolean } | null = null;
     let lim = Infinity;
+    let off = 0;
     const run = () => {
       if (ins) {
         const made = ins.map((r) => ({ id: `id${++idc}`, created_at: new Date(1e12 + idc * 1000).toISOString(), updated_at: "", ...r }));
@@ -32,7 +33,7 @@ export function fakeDb(tables: Record<string, Row[]>) {
         hit = [...hit].sort((a, b) => ((a[col] as number) > (b[col] as number) ? 1 : (a[col] as number) < (b[col] as number) ? -1 : 0) * (asc ? 1 : -1));
       }
       const total = hit.length;
-      hit = hit.slice(0, lim);
+      hit = hit.slice(off, off + lim);
       return { data: head ? null : hit.map((r) => JSON.parse(JSON.stringify(r)) as Row), error: null, count: total };
     };
     const q: Record<string, unknown> = {
@@ -43,6 +44,10 @@ export function fakeDb(tables: Record<string, Row[]>) {
       eq: (k: string, v: unknown) => (filters.push((r) => r[k] === v), q),
       is: (k: string, v: unknown) => (filters.push((r) => (r[k] ?? null) === v), q),
       gte: (k: string, v: unknown) => (filters.push((r) => String(r[k] ?? "") >= String(v)), q),
+      lte: (k: string, v: unknown) => (filters.push((r) => String(r[k] ?? "") <= String(v)), q),
+      gt: (k: string, v: unknown) => (filters.push((r) => String(r[k] ?? "") > String(v)), q),
+      neq: (k: string, v: unknown) => (filters.push((r) => (r[k] ?? null) !== v), q),
+      range: (a: number, b: number) => ((off = a), (lim = b - a + 1), q),
       lt: (k: string, v: unknown) => (filters.push((r) => String(r[k] ?? "") < String(v)), q),
       in: (k: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[k])), q),
       not: (k: string, _op: string, v: unknown) => (filters.push((r) => (r[k] ?? null) !== v), q),

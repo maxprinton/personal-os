@@ -29,6 +29,10 @@ import { handleYoutubeCapture, isYoutubeSummary, parseYoutubeCapture, youtubeVie
 import { markUsageReported, refreshFromGroq, scopeUsageLine, startOfDay, usageReport, usageSummary, withAiUsage } from "@/lib/ai-usage";
 import { addDays } from "@/lib/time";
 import { parseDayCommand, runDayCommand, worthItRow } from "@/lib/bot/day";
+import { W } from "@/lib/bot/words";
+import { applyVocab } from "@/lib/bot/vocab";
+import { vocabFeatures } from "@/lib/bot/registry";
+import { loadVocab } from "@/lib/bot/vocab-server";
 
 export const DAILY_LIMIT = 100;
 
@@ -44,30 +48,9 @@ export type TgMessage = {
   reply_to_message?: { message_id: number; from?: { is_bot?: boolean } };
 };
 
-// Whole-message commands (after norm: no accents, lower case, no emoji, no "?")
-const W = {
-  help: ["/help", "/start", "help", "ayuda", "/ayuda"],
-  menu: ["/menu", "menu", "/teclado"],
-  tasks: ["/tareas", "tareas", "/tasks", "tasks", "/todo", "mis tareas", "todas las tareas", "all tasks"],
-  archived: ["/archivadas", "archivadas", "/archived", "archived", "/archivo"],
-  payments: ["/pagos", "pagos", "/payments", "payments", "/bills", "bills", "que tengo que pagar", "por pagar"],
-  categorize: ["/categorizar", "categorizar", "/categorize", "categorize", "/autocat", "/categorias", "categorias automaticas"],
-  proposals: ["/propuestas", "propuestas", "/proposals", "proposals", "/nuevascategorias"],
-  unassigned: ["/sincuenta", "sincuenta", "sin cuenta", "/unassigned", "unassigned", "/no_account"],
-  budget: ["/presupuesto", "/presupuestos", "presupuesto", "presupuestos", "/budget", "/budgets", "budget", "budgets"],
-  movements: ["/movimientos", "movimientos", "/movements", "movements", "/txns", "/transactions", "transactions", "ultimos movimientos", "/recent"],
-  notes: ["/notas", "notas", "/notes", "notes", "mis notas"],
-  habits: ["/habitos", "habitos", "/habits", "habits", "rachas", "/streaks", "streaks"],
-  insights: ["/insights", "insights", "/consejos"],
-  metrics: ["/metricas", "metricas", "/metrics", "metrics"],
-  settings: ["/ajustes", "ajustes", "/settings", "settings", "/config", "config", "configuracion"],
-  ai: ["/ai"],
-  usage: ["/usage", "/uso", "usage", "uso"],
-  work: ["/teaching", "teaching", "/work", "work", "/trabajo", "trabajo", "/horas", "horas", "/clases", "clases", "/videos", "videos"],
-  undo: ["/undo", "/deshacer", "deshacer", "undo"],
-};
 
-export async function handleMessage(admin: SupabaseClient, msg: TgMessage) {
+/** opts.ctx: the caller already knows who this is (the Telegram page's practice mode), so no chat lookup. */
+export async function handleMessage(admin: SupabaseClient, msg: TgMessage, opts: { ctx?: Ctx; vocabApplied?: boolean } = {}) {
   const chatId = msg.chat.id;
   let text = msg.text?.trim() ?? "";
   const voice = msg.voice ?? msg.audio ?? null;
@@ -89,7 +72,7 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage) {
   }
 
   // ---- Linking: "/link ABC123" (or "/start ABC123") ---------------------------------------
-  const link = /^\/(?:link|start)\s+([A-Z0-9]{6,12})$/i.exec(text);
+  const link = opts.ctx ? null : /^\/(?:link|start)\s+([A-Z0-9]{6,12})$/i.exec(text);
   if (link) {
     const code = link[1].toUpperCase();
     const { data: s } = await admin.from("user_settings").select("user_id,telegram_link_expires").eq("telegram_link_code", code).maybeSingle();
@@ -103,12 +86,27 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage) {
     return;
   }
 
-  const { data: settings } = await admin.from("user_settings").select("user_id,timezone").eq("telegram_chat_id", chatId).maybeSingle();
-  if (!settings) {
-    await sendMessage(chatId, "This chat is not linked yet. In Personal OS open Settings → Telegram, get a code and send: /link CODE");
-    return;
+  let c: Ctx;
+  if (opts.ctx) c = opts.ctx;
+  else {
+    const { data: settings } = await admin.from("user_settings").select("user_id,timezone").eq("telegram_chat_id", chatId).maybeSingle();
+    if (!settings) {
+      await sendMessage(chatId, "This chat is not linked yet. In Personal OS open Settings → Telegram, get a code and send: /link CODE");
+      return;
+    }
+    c = makeCtx(admin, settings.user_id as string, chatId, settings.timezone as string | null);
   }
-  const c = makeCtx(admin, settings.user_id as string, chatId, settings.timezone as string | null);
+
+  // ---- Your own command words (Telegram page → Words): added words become the real command, hidden ones say what replaced them.
+  // Not for replies: "hoy" as a reply to a task is a date, not a command.
+  if (text && !opts.vocabApplied && !msg.reply_to_message) {
+    const r = applyVocab(text, await loadVocab(admin, c.userId), vocabFeatures());
+    if ("renamed" in r) {
+      await sendMessage(chatId, `That command was renamed: use ${r.renamed.use} instead of ${r.renamed.word}. (Telegram page → Words)`);
+      return;
+    }
+    if (r.text !== text) return handleMessage(admin, { ...msg, text: r.text }, { ctx: c, vocabApplied: true });
+  }
 
   // ---- Voice notes and photos: need the AI (Groq), and count toward the daily limit -----------
   if (voice || photoId) {

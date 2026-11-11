@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { simStore, simTg } from "@/lib/bot/sim/store";
 
 const API = "https://api.telegram.org";
 
@@ -12,6 +13,9 @@ export function webhookSecret(token: string) {
 }
 
 export async function tg(method: string, body: Record<string, unknown>) {
+  // Practice mode (Telegram page): nothing is sent, the simulator collects what the user would have seen
+  const practice = simStore.getStore();
+  if (practice) return simTg(practice, method, body);
   const token = botToken();
   if (!token) return null;
   const res = await fetch(`${API}/bot${token}/${method}`, {
