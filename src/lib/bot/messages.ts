@@ -31,6 +31,8 @@ import { addDays } from "@/lib/time";
 import { parseDayCommand, runDayCommand, worthItRow } from "@/lib/bot/day";
 import { W } from "@/lib/bot/words";
 import { applyVocab } from "@/lib/bot/vocab";
+import { inSim, why } from "@/lib/bot/sim/store";
+import { featureForCommand } from "@/lib/bot/sim/why";
 import { vocabFeatures } from "@/lib/bot/registry";
 import { loadVocab } from "@/lib/bot/vocab-server";
 
@@ -63,6 +65,7 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage, opts:
 
   // ---- Help and the keyboard of buttons --------------------------------------------------
   if ((isOneOf(text, W.help) || /^\/start(@\w+)?$/i.test(text)) && !/^\/start\s+\S/.test(text)) {
+    why("Help command → the list of everything the bot understands");
     await tg("sendMessage", {
       chat_id: chatId,
       text: `${HELP}\n\nFirst time? In Personal OS open Settings → Telegram, get a code and send: /link CODE`,
@@ -102,10 +105,14 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage, opts:
   if (text && !opts.vocabApplied && !msg.reply_to_message) {
     const r = applyVocab(text, await loadVocab(admin, c.userId), vocabFeatures());
     if ("renamed" in r) {
+      why("A word you turned off → the bot says what replaced it");
       await sendMessage(chatId, `That command was renamed: use ${r.renamed.use} instead of ${r.renamed.word}. (Telegram page → Words)`);
       return;
     }
-    if (r.text !== text) return handleMessage(admin, { ...msg, text: r.text }, { ctx: c, vocabApplied: true });
+    if (r.text !== text) {
+      why(`Your own word “${text.split(/\s+/)[0]}” → ${r.text}`);
+      return handleMessage(admin, { ...msg, text: r.text }, { ctx: c, vocabApplied: true });
+    }
   }
 
   // ---- Voice notes and photos: need the AI (Groq), and count toward the daily limit -----------
@@ -151,6 +158,7 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage, opts:
   if (msg.reply_to_message?.message_id && text) {
     const th = await recall(admin, c.userId, chatId, msg.reply_to_message.message_id);
     if (th?.kind === "ask") {
+      why("Reply to an @os answer → a follow-up about the same notes");
       const p = th.payload as { ids?: string[]; q?: string; a?: string };
       await answerNotes(c, askQuestion(text) ?? text, { ids: p.ids ?? [], q: p.q ?? "", a: p.a ?? "" });
       return;
@@ -161,6 +169,7 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage, opts:
   if (msg.reply_to_message?.message_id && text) {
     const r = await handleReply(c, msg.reply_to_message.message_id, text);
     if (r) {
+      why("Reply to a bot message → it corrects what that message saved");
       await send(chatId, r.text, r.kb);
       if (r.extra) await send(chatId, r.extra);
       return;
@@ -170,17 +179,23 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage, opts:
   // ---- Ask your notes: @os <question> (also /os, /ask, "os: …") --------------------------------
   const question = askQuestion(text);
   if (question !== null) {
+    why("@os → ask your notes (find the notes, read them, answer)");
     await answerNotes(c, question);
     return;
   }
 
   // ---- Views (read only; they don't count toward the daily limit) ------------------------------
+  const known = inSim() ? featureForCommand(text) : null;
   const view = await views(c, text);
-  if (view) return;
+  if (view) {
+    if (known) why(`Command → ${known.title}`);
+    return;
+  }
 
   // ---- YouTube add-on: "yt: idea" / "/yt idea" → idea bank (before the unknown-"/" check) ----------
   const ytIdea = parseYoutubeCapture(text);
   if (ytIdea !== null) {
+    why("yt: → a video idea for the YouTube idea bank");
     if (await overLimit(c)) {
       await sendMessage(chatId, `Daily limit of ${DAILY_LIMIT} messages reached. Try again tomorrow.`);
       return;
@@ -197,11 +212,13 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage, opts:
 
   // ---- Undo -------------------------------------------------------------------------------
   if (isOneOf(text, W.undo)) {
+    why("Undo → takes back the last thing the bot saved or changed");
     const t = await undoLast(c);
     await sendMessage(chatId, t ?? "Nothing to undo.");
     return;
   }
   if (text.startsWith("/")) {
+    why("Starts with “/” but is not a known command");
     const cmd = text.split(/\s+/)[0];
     await sendMessage(chatId, `I don't know ${cmd}. Try /today, /tasks, /payments, /search word… or /help for everything.`);
     return;
@@ -215,6 +232,7 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage, opts:
   // ---- Actions with a clear start ------------------------------------------------------------
   const reply = await actions(c, text);
   if (reply) {
+    why(reply.why ?? "A message with a clear start (habit, event, payment, free day, block note, balance, metric)");
     const id = await send(chatId, reply.text, reply.kb);
     const thread = reply.thread ?? threadOf(reply.kb);
     if (thread) await remember(admin, c.userId, chatId, id, "saved", { bm: thread });
@@ -223,11 +241,13 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage, opts:
 
   // ---- "ok", "gracias", "hola", 👍 … are not tasks --------------------------------------------
   if (isNoise(text)) {
+    why("Small talk (ok, gracias, hola…) is never saved");
     await sendMessage(chatId, "👋 (not saved) — /help shows what I understand, or tap the buttons below the keyboard.");
     return;
   }
 
   // ---- Capture: task, note, expense, income, transfer ---------------------------------------------
+  why("Free text → the rules decide: expense, income, transfer, note or task (the AI only helps when the rules cannot)");
   const { data: bm } = await admin.from("bot_messages").insert({ user_id: c.userId, raw_text: text.slice(0, 4000) }).select("id").single();
   await replyCapture(c, bm?.id as string | undefined, () => processCapture(admin, c.userId, text, "telegram_bot", null, true));
 }
@@ -322,50 +342,50 @@ async function views(c: Ctx, text: string): Promise<boolean> {
   return false;
 }
 
-type ActionReply = { text: string; kb: Kb; thread?: string | null };
+type ActionReply = { text: string; kb: Kb; thread?: string | null; why?: string };
 
 /** Messages with a clear start: habits, events, payments, free days, block notes, balances, metrics. */
 async function actions(c: Ctx, text: string): Promise<ActionReply | null> {
   // Work log: "video B2-5 https://drive.google.com/…" marks that class's video as posted
   const vid = parseVideoCmd(text);
-  if (vid) return await markVideo(c, vid.group, vid.url);
+  if (vid) return { ...(await markVideo(c, vid.group, vid.url)), why: "video <class> <link> → marks that class video as posted" };
 
   // Habits: "habit: Stretch in Gym" · "done stretch" / "skip stretch" (and "done <task>")
   const habitCmd = parseHabitCommand(text);
   if (habitCmd?.kind === "create") {
     const body = text.replace(/^h[aá]bit[o]?\s*:\s*/i, "").trim();
-    return createHabit(c, text, habitCmd.name, habitCmd.block, body);
+    return { ...(await createHabit(c, text, habitCmd.name, habitCmd.block, body)), why: "habit: → creates a habit inside a block" };
   }
-  if (habitCmd?.kind === "mark") return resolveDone(c, habitCmd.state, habitCmd.query, text);
+  if (habitCmd?.kind === "mark") return { ...(await resolveDone(c, habitCmd.state, habitCmd.query, text)), why: "done / skip + name → marks the habit, or completes the task with that name" };
 
   const ev = parseEventCmd(text, c.today);
   if (ev) {
     if ("error" in ev) return { text: ev.error, kb: [] };
     const r = await createEvent(c, text, ev);
-    return { ...r, thread: threadOf(r.kb) };
+    return { ...r, thread: threadOf(r.kb), why: "event: / evento: → a calendar event" };
   }
   const pay = parsePaymentCmd(text, c.today);
   if (pay) {
     if ("error" in pay) return { text: pay.error, kb: [] };
     const r = await createPaymentTemplate(c, text, pay);
-    return { ...r, thread: threadOf(r.kb) };
+    return { ...r, thread: threadOf(r.kb), why: "pago: / payment: → a scheduled payment with its future dates" };
   }
   const free = parseFreeDayCmd(text, c.today);
-  if (free) return askFreeDay(c, text, free);
+  if (free) return { ...(await askFreeDay(c, text, free)), why: "libre / free day → a day off (asks what to do with its tasks)" };
   const nb = parseBlockNoteCmd(text);
-  if (nb) return appendBlockNote(c, text, nb.block, nb.body);
+  if (nb) return { ...(await appendBlockNote(c, text, nb.block, nb.body)), why: "nb: → adds to the note of a block" };
   const bal = parseSetBalanceCmd(text);
   if (bal) {
     const list = await accounts(c);
     const acc = findAccount(bal.account, list)?.account;
-    if (acc) return askSetBalance(c, text, acc, bal.amount);
+    if (acc) return { ...(await askSetBalance(c, text, acc, bal.amount)), why: "saldo / balance + account + amount → sets the real balance" };
     if (list.length) return { text: `I don't have an account called “${bal.account}”. Your accounts: ${list.map((a) => a.name).join(", ")}.`, kb: [] };
   }
   // "sleep 7.5": only when the start looks like a word and a number (saves a query on every message)
   if (/^[\p{L}][\p{L} ]{1,30}:?\s*\+?-?\d/u.test(text)) {
     const defs = await metricDefs(c);
     const m = defs.length ? parseMetricCmd(text, defs.map((d) => d.name)) : null;
-    if (m) return logMetric(c, text, m);
+    if (m) return { ...(await logMetric(c, text, m)), why: "metric name + number → today's value of that metric" };
   }
   return null;
 }

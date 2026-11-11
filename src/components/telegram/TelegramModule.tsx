@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Simulator, { type SendRequest, type ShowRequest } from "@/components/telegram/Simulator";
 import WordsEditor from "@/components/telegram/WordsEditor";
 import { GROUPS, type Feature } from "@/lib/bot/registry";
+import { LESSONS, stepPassed, type StepInfo } from "@/lib/bot/lessons";
 import type { VocabRow } from "@/lib/bot/vocab";
 
 /** A feature as the page receives it: the registry entry plus its live words. */
@@ -19,6 +20,16 @@ const read = (): string[] => {
   }
 };
 
+const LESSONS_KEY = "telegram-lessons";
+const readLessons = (): string[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(LESSONS_KEY) ?? "[]");
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+};
+
 export default function TelegramModule({ features, menu, initialVocab }: { features: FeatureView[]; menu: string[][]; initialVocab: VocabRow[] }) {
   const [selectedId, setSelectedId] = useState(features[0]?.id ?? "");
   const [query, setQuery] = useState("");
@@ -28,9 +39,20 @@ export default function TelegramModule({ features, menu, initialVocab }: { featu
   const [show, setShow] = useState<ShowRequest | null>(null);
   const [tab, setTab] = useState<"list" | "feature" | "practice">("list");
   const nonce = useMemo(() => ({ n: 0 }), []);
+  // Guided lessons
+  const [mode, setMode] = useState<"features" | "lessons">("features");
+  const [lessonId, setLessonId] = useState<string | null>(null);
+  const [stepIdx, setStepIdx] = useState(0);
+  const [passedNow, setPassedNow] = useState(false);
+  const [hint, setHint] = useState(false);
+  const [lessonsDone, setLessonsDone] = useState<string[]>([]);
+  const [resetSignal, setResetSignal] = useState(0);
+  const live = useRef({ lessonId, stepIdx });
+  live.current = { lessonId, stepIdx };
 
   useEffect(() => {
     setPracticed(read());
+    setLessonsDone(readLessons());
   }, []);
   const markPracticed = (id: string, on = true) =>
     setPracticed((cur) => {
@@ -40,6 +62,53 @@ export default function TelegramModule({ features, menu, initialVocab }: { featu
       } catch {}
       return next;
     });
+
+  const lesson = LESSONS.find((l) => l.id === lessonId) ?? null;
+  const step = lesson ? lesson.steps[stepIdx] : null;
+  const finished = Boolean(lesson) && stepIdx >= (lesson?.steps.length ?? 0);
+
+  const saveLessonDone = useCallback((id: string) => {
+    setLessonsDone((cur) => {
+      if (cur.includes(id)) return cur;
+      const next = [...cur, id];
+      try {
+        localStorage.setItem(LESSONS_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+  const advance = useCallback(() => {
+    const { lessonId: id, stepIdx: i } = live.current;
+    const l = LESSONS.find((x) => x.id === id);
+    if (!l) return;
+    setPassedNow(false);
+    setHint(false);
+    setStepIdx(i + 1);
+    if (i + 1 >= l.steps.length) saveLessonDone(l.id);
+  }, [saveLessonDone]);
+  // The chat reports each thing you do; when it is what the step asked for, the step is done
+  const onStep = useCallback(
+    (info: StepInfo) => {
+      const { lessonId: id, stepIdx: i } = live.current;
+      const l = LESSONS.find((x) => x.id === id);
+      const st = l?.steps[i];
+      if (!l || !st || !stepPassed(st.expect, info)) return;
+      setPassedNow(true);
+      setTimeout(() => {
+        if (live.current.lessonId === l.id && live.current.stepIdx === i) advance();
+      }, 900);
+    },
+    [advance],
+  );
+  const startLesson = (id: string) => {
+    setLessonId(id);
+    setStepIdx(0);
+    setPassedNow(false);
+    setHint(false);
+    setResetSignal((n) => n + 1);
+    setTab("feature");
+  };
+  const nextLesson = lesson ? LESSONS[(LESSONS.findIndex((l) => l.id === lesson.id) + 1) % LESSONS.length] : null;
 
   const q = query.trim().toLowerCase();
   const visible = useMemo(
@@ -83,6 +152,27 @@ export default function TelegramModule({ features, menu, initialVocab }: { featu
       <div className="grid gap-4 lg:grid-cols-[250px_minmax(0,1fr)_370px]">
         {/* Library */}
         <aside className={`${tab === "list" ? "" : "hidden"} space-y-3 lg:block lg:max-h-[calc(100vh-9rem)] lg:overflow-y-auto lg:pr-1`}>
+          <div className="flex gap-1 rounded-full border border-line bg-surface p-1">
+            {(["features", "lessons"] as const).map((m) => (
+              <button key={m} type="button" onClick={() => setMode(m)} aria-pressed={mode === m} className={`flex-1 rounded-full px-3 py-1 text-sm font-medium transition-colors ${mode === m ? "bg-accent text-accent-fg" : "text-muted hover:bg-subtle"}`}>
+                {m === "features" ? "Features" : `Lessons ${lessonsDone.filter((id) => LESSONS.some((l) => l.id === id)).length}/${LESSONS.length}`}
+              </button>
+            ))}
+          </div>
+          {mode === "lessons" && (
+            <ul className="space-y-0.5">
+              {LESSONS.map((l) => (
+                <li key={l.id}>
+                  <button type="button" onClick={() => startLesson(l.id)} aria-current={l.id === lessonId} className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors ${l.id === lessonId ? "bg-accent-soft font-medium text-accent" : "hover:bg-subtle"}`}>
+                    <span className="min-w-0 flex-1 truncate">{l.title}</span>
+                    {lessonsDone.includes(l.id) && <span title="Done" className="text-success">✓</span>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {mode === "features" && (
+            <>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search features or commands" aria-label="Search features" className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-accent" />
           <p className="text-xs text-faint">{done} of {totalTrackable} practiced</p>
           {GROUPS.map((g) => {
@@ -106,11 +196,60 @@ export default function TelegramModule({ features, menu, initialVocab }: { featu
             );
           })}
           {!visible.length && <p className="px-1 text-sm text-muted">Nothing matches “{query}”.</p>}
+            </>
+          )}
         </aside>
 
         {/* How it works */}
         <section className={`${tab === "feature" ? "" : "hidden"} min-w-0 lg:block`}>
-          {feature && (
+          {mode === "lessons" && (
+            <article className="space-y-4 rounded-2xl border border-line bg-surface p-5 shadow-card">
+              {!lesson ? (
+                <div className="space-y-1">
+                  <h2 className="text-xl font-semibold tracking-tight">Guided lessons</h2>
+                  <p className="text-sm text-muted">Short lessons with a few steps each. You do each step in the practice chat and it tells you when you got it. Nothing is saved. Pick a lesson on the left.</p>
+                </div>
+              ) : finished ? (
+                <div className="space-y-3">
+                  <h2 className="text-xl font-semibold tracking-tight">✓ {lesson.title}: done</h2>
+                  <p className="text-sm text-muted">You can now: {lesson.goal.toLowerCase()}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {nextLesson && nextLesson.id !== lesson.id && <button type="button" onClick={() => startLesson(nextLesson.id)} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-accent-fg hover:bg-accent-hover">Next lesson: {nextLesson.title} →</button>}
+                    <button type="button" onClick={() => startLesson(lesson.id)} className="rounded-lg border border-line px-3 py-1.5 text-sm text-muted hover:bg-subtle hover:text-fg">Do it again</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <header className="space-y-1">
+                    <h2 className="text-xl font-semibold tracking-tight">{lesson.title}</h2>
+                    <p className="text-sm text-muted">{lesson.goal}</p>
+                    <div className="flex gap-1 pt-1" aria-label={`Step ${stepIdx + 1} of ${lesson.steps.length}`}>
+                      {lesson.steps.map((_, i) => (
+                        <span key={i} className={`h-1.5 flex-1 rounded-full ${i < stepIdx ? "bg-success" : i === stepIdx ? "bg-accent" : "bg-subtle-2"}`} />
+                      ))}
+                    </div>
+                  </header>
+                  {step && (
+                    <div className={`space-y-3 rounded-xl border p-4 ${passedNow ? "border-success bg-success-soft" : "border-line bg-subtle"}`}>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-faint">Step {stepIdx + 1} of {lesson.steps.length}</p>
+                      <p className="text-base font-medium">{passedNow ? "✓ Done!" : step.say}</p>
+                      {!passedNow && step.try && <code className="block whitespace-pre-wrap break-words rounded-lg bg-surface px-2.5 py-1.5 text-sm">{step.try}</code>}
+                      {!passedNow && hint && step.hint && <p className="text-sm text-muted">💡 {step.hint}</p>}
+                      {!passedNow && (
+                        <div className="flex flex-wrap gap-2">
+                          {step.try && <button type="button" onClick={() => tryIt(step.try!)} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-accent-fg hover:bg-accent-hover">Type it for me</button>}
+                          {step.hint && !hint && <button type="button" onClick={() => setHint(true)} className="rounded-lg border border-line px-3 py-1.5 text-sm text-muted hover:bg-surface hover:text-fg">Hint</button>}
+                          <button type="button" onClick={advance} className="rounded-lg border border-line px-3 py-1.5 text-sm text-muted hover:bg-surface hover:text-fg">Skip</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <button type="button" onClick={() => { setLessonId(null); }} className="text-xs text-faint hover:text-fg">← All lessons</button>
+                </div>
+              )}
+            </article>
+          )}
+          {mode === "features" && feature && (
             <article className="space-y-5 rounded-2xl border border-line bg-surface p-5 shadow-card">
               <header className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -173,7 +312,7 @@ export default function TelegramModule({ features, menu, initialVocab }: { featu
 
         {/* Practice chat */}
         <div className={`${tab === "practice" ? "" : "hidden"} lg:block lg:sticky lg:top-4 lg:self-start`}>
-          <Simulator menu={menu} request={request} show={show} />
+          <Simulator menu={menu} request={request} show={show} resetSignal={resetSignal} onStep={onStep} />
         </div>
       </div>
     </div>

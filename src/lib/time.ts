@@ -42,8 +42,11 @@ function offsetMs(d: Date, tz: string) {
 }
 
 /** Current local date (YYYY-MM-DD) and minutes since midnight in tz. */
+/** The Telegram page can practice at another date/time: it installs this hook while a practice step runs. */
+const practiceNow = () => (globalThis as { __practiceNow?: () => Date | undefined }).__practiceNow?.();
+
 export function localNow(tz: string) {
-  const p = partsInTz(new Date(), tz);
+  const p = partsInTz(practiceNow() ?? new Date(), tz);
   return { date: fmtDate(p.y, p.m, p.d), minutes: p.h * 60 + p.min };
 }
 

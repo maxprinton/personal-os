@@ -7,6 +7,7 @@
 
 import { recordAiCall } from "@/lib/ai-usage";
 import { inSim } from "@/lib/bot/sim/store";
+import { fakeAiChat, FAKE_AI_CHECK } from "@/lib/bot/sim/fake-ai";
 
 const API = "https://api.groq.com/openai/v1";
 
@@ -24,7 +25,7 @@ export type AiPart = { text: string } | { image: { mime: string; base64: string 
 export type AiKind = "write" | "fast" | "vision";
 
 export function hasAi() {
-  return Boolean(process.env.GROQ_API_KEY) && !inSim();
+  return inSim() || Boolean(process.env.GROQ_API_KEY);
 }
 
 // Preferred models, best first. Only the ones your key really has are used.
@@ -97,7 +98,7 @@ export async function aiChat(
   parts: AiPart[],
   opts: { kind?: AiKind; json?: boolean; temperature?: number; maxTokens?: number; timeoutMs?: number } = {}
 ): Promise<AiResult> {
-  if (inSim()) return { error: "The AI is switched off in practice mode." };
+  if (inSim()) return fakeAiChat(system, parts, opts);
   const key = process.env.GROQ_API_KEY;
   if (!key) return { error: "The AI is not connected: GROQ_API_KEY is missing in Vercel." };
   const kind = opts.kind ?? "write";
@@ -299,6 +300,7 @@ export async function transcribe(audioBase64: string, mimeType: string): Promise
 
 /** For the bot's /ai command: is the key set, does it work, which models answer. */
 export async function aiCheck(): Promise<string> {
+  if (inSim()) return FAKE_AI_CHECK;
   if (!hasAi()) return "✨ The AI is not connected: GROQ_API_KEY is not set in Vercel (then publish again). Guide: ACTIVAR-GROQ.md.";
   const have = await availableModels();
   if (!have) {

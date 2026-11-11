@@ -11,12 +11,22 @@ export type SimEvent =
   | { t: "edit"; id: number; text: string; kb: Kb | null }
   | { t: "kb"; id: number; kb: Kb }
   | { t: "toast"; text: string; alert?: boolean }
-  | { t: "photo"; id: number; caption?: string };
+  | { t: "photo"; id: number; caption?: string }
+  /** Which rule of the bot picked this message up (shown as a small note under your message). */
+  | { t: "why"; text: string };
 
-export type SimScope = { events: SimEvent[]; nextId: number };
+export type SimScope = { events: SimEvent[]; nextId: number; /** the practice clock; undefined = the real time */ now?: Date };
 
 export const simStore = new AsyncLocalStorage<SimScope>();
 export const inSim = () => simStore.getStore() !== undefined;
+
+// localNow() (lib/time.ts) asks for the practice clock through this hook
+(globalThis as { __practiceNow?: () => Date | undefined }).__practiceNow = () => simStore.getStore()?.now;
+
+/** Notes which rule picked the message up. Does nothing outside practice mode. */
+export function why(text: string) {
+  simStore.getStore()?.events.push({ t: "why", text });
+}
 
 const rowsOf = (markup: unknown): Kb | null => {
   const kb = (markup as { inline_keyboard?: Kb } | undefined)?.inline_keyboard;

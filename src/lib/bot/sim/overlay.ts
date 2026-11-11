@@ -1,6 +1,6 @@
 // A copy-on-write layer over the real Supabase client, for the Telegram simulator (server only).
 //   • READS go to the real database (your real tasks, balances, notes…), then the practice changes are merged in.
-//   • WRITES (insert / update / delete / upsert / rpc / storage) never reach the database: they are kept in `db`
+//   • WRITES (insert / update / delete / upsert / storage and every rpc that writes) never reach the database: they are kept in `db`
 //     (a plain JSON object the page sends back and forth), so “Saved ✓ → Undo”, “reply to correct” and “✓ done →
 //     /tasks no longer shows it” behave like the real bot — but nothing real changes.
 // db.rows[table] = rows created or changed in practice (changed rows are full copies, matched by id)
@@ -286,10 +286,58 @@ function builder(real: SupabaseClient, db: SimDb, table: string): unknown {
 
 const nothing = async () => ({ data: null, error: { message: "Not available in practice mode." } });
 
+// Functions that only READ: they run for real (so /search, typo suggestions and usage totals behave like Telegram).
+// Every other function writes something (refresh_daily_facts, generate_insights, rollover…) and stays a no-op.
+const READ_RPC = new Set(["search_notes", "search_suggest", "search_passages", "ai_usage_summary"]);
+
+const plain = (v: unknown) => str(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/** The real search over your notes, plus the notes you created or changed while practicing. */
+function mergeSearch(res: Result, args: Record<string, unknown>, db: SimDb): Result {
+  if (res.error) return res;
+  const trash = Boolean(args.p_trash), templates = Boolean(args.p_templates);
+  const mine = db.rows.notes ?? [];
+  const mineBy = new Map(mine.map((n) => [str(n.id), n]));
+  const gone = new Set(db.gone.notes ?? []);
+  const rows = ((res.data as Row[] | null) ?? []).filter((r) => {
+    const id = str(r.note_id);
+    if (gone.has(id)) return false;
+    const p = mineBy.get(id);
+    return !(p && p.deleted_at && !trash);
+  });
+  const words = (t: unknown) => plain(t).match(/[a-z0-9]+/g) ?? [];
+  const terms = ((args.p_terms as string[] | null) ?? []).map(words);
+  const nots = ((args.p_not as string[] | null) ?? []).map(words);
+  const has = (hay: string, ws: string[]) => ws.every((w) => new RegExp(`(^|[^a-z0-9])${w}`).test(hay));
+  const have = new Set(rows.map((r) => str(r.note_id)));
+  for (const n of mine) {
+    const id = str(n.id);
+    if (have.has(id) || n.merged_into) continue;
+    if (n.deleted_at && !trash) continue;
+    if (n.is_template && !templates) continue;
+    const text = [n.title, n.block_name, typeof n.content === "string" ? n.content : JSON.stringify(n.content ?? "")].map(plain).join(" \n ");
+    if (!terms.length || !terms.every((ws) => ws.length && has(text, ws)) || nots.some((ws) => ws.length && has(text, ws))) continue;
+    const body = String(n.title ?? "").trim() || String(n.block_name ?? "") || "Untitled";
+    rows.unshift({ note_id: id, score: 1, total: 0, hits: { pieces: 1, top: [{ kind: "title", label: null, anchor: null, file: null, body }] } });
+  }
+  const limit = Number(args.p_limit) || 20;
+  const out = rows.slice(0, limit).map((r) => ({ ...r, total: rows.length }));
+  return { ...res, data: out };
+}
+
 /** The client the bot gets in practice mode. */
 export function simClient(real: SupabaseClient, db: SimDb): SupabaseClient {
-  const rpc = () => {
-    const done = Promise.resolve({ data: null, error: null });
+  const rpc = (name: string, args: Record<string, unknown> = {}) => {
+    const done: Promise<Result> = READ_RPC.has(name)
+      ? (async () => {
+          try {
+            const r = (await real.rpc(name, args as never)) as unknown as Result;
+            return name === "search_notes" ? mergeSearch(r, args, db) : r;
+          } catch (e) {
+            return { data: null, error: { message: e instanceof Error ? e.message : "practice query failed" } };
+          }
+        })()
+      : Promise.resolve({ data: null, error: null });
     return Object.assign(done, { single: () => done, maybeSingle: () => done });
   };
   const storage = { from: () => ({ upload: nothing, download: nothing, remove: nothing, list: nothing, createSignedUrl: nothing, getPublicUrl: () => ({ data: { publicUrl: "" } }) }) };

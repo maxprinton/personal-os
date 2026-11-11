@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { cleanState, runSim, type SimInput, type SimResult } from "@/lib/bot/sim/run";
+import { cleanState, runSim, type Clock, type SimInput, type SimResult } from "@/lib/bot/sim/run";
 import { baseWords, featureById, isEditable, takenWords } from "@/lib/bot/registry";
 import { activeWords, bare, cleanWord, type VocabRow } from "@/lib/bot/vocab";
 import { loadVocab } from "@/lib/bot/vocab-server";
@@ -27,7 +27,7 @@ function cleanKb(kb: unknown): Kb {
 }
 
 /** One step of the practice chat. Reads your real data, saves nothing. */
-export async function simulateStep(input: SimInput, rawState: unknown): Promise<SimResult> {
+export async function simulateStep(input: SimInput, rawState: unknown, clock: Clock = null): Promise<SimResult> {
   const userId = await signedIn();
   if (!userId) return emptyResult("Sign in again.");
   const admin = createAdminClient();
@@ -40,10 +40,19 @@ export async function simulateStep(input: SimInput, rawState: unknown): Promise<
       if (/^\/(?:link|start)\s+\S/i.test(text)) {
         return { events: [{ t: "send", id: state.nextId + 1, text: "Linking only works in the real Telegram chat.", kb: null }], state: { ...state, nextId: state.nextId + 1 } };
       }
-      return await runSim(admin, userId, { kind: "text", text, replyTo: Number.isFinite(input.replyTo) ? input.replyTo : undefined }, state);
+      return await runSim(admin, userId, { kind: "text", text, replyTo: Number.isFinite(input.replyTo) ? input.replyTo : undefined }, state, clock);
+    }
+    if (input?.kind === "voice") {
+      const text = String(input.text ?? "").trim();
+      return text ? await runSim(admin, userId, { kind: "voice", text }, state, clock) : { events: [], state };
+    }
+    if (input?.kind === "photo") {
+      const amount = Number(input.amount);
+      if (!(amount > 0) || amount > 1_000_000) return { events: [], state, error: "Type the total of the receipt." };
+      return await runSim(admin, userId, { kind: "photo", merchant: String(input.merchant ?? "").slice(0, 60), amount }, state, clock);
     }
     if (input?.kind === "tap" && input.message && typeof input.message.id === "number") {
-      return await runSim(admin, userId, { kind: "tap", data: String(input.data ?? ""), message: { id: input.message.id, text: String(input.message.text ?? "").slice(0, 4000), kb: cleanKb(input.message.kb) } }, state);
+      return await runSim(admin, userId, { kind: "tap", data: String(input.data ?? ""), message: { id: input.message.id, text: String(input.message.text ?? "").slice(0, 4000), kb: cleanKb(input.message.kb) } }, state, clock);
     }
     return { events: [], state };
   } catch (e) {

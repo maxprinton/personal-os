@@ -38,7 +38,6 @@ eq("a wordsKey exists", FEATURES.filter((f) => f.wordsKey && !(f.wordsKey in W))
 for (const f of FEATURES) {
   if (f.canonical && f.wordsKey) eq(`${f.id}: canonical is one of its words`, W[f.wordsKey].some((w) => norm(w) === norm(f.canonical!)), true);
   if (f.canonical && !baseWords(f).length) eq(`${f.id}: a command needs words`, f.id, "has words");
-  if (f.ai) eq(`${f.id}: AI features have a demo or no examples`, f.demo !== undefined || f.examples.length === 0, true);
   if (f.group !== "auto" && f.group !== "setup" && !f.examples.length && !f.demo) eq(`${f.id}: has something to practice`, f.id, "an example");
 }
 // Words the bot reads in other files: the library lists the same ones
@@ -181,8 +180,107 @@ async function simTests() {
   eq("AI features answer without calling the AI", ai.events.length > 0, true);
 }
 
+
+// ---- Practice parity: /search finds what Telegram finds -------------------------------------------------
+async function searchTests() {
+  // a real database whose search function knows one note ("Budget plan"); everything else is empty
+  const real = { tasks: [], transactions: [], events: [], notes: [{ id: "n1", user_id: "u", title: "Budget plan", block_name: null, parent_id: null, page: null, updated_at: "2026-01-01", deleted_at: null, is_template: false }] };
+  const base = fakeDb(real) as unknown as { from: (t: string) => unknown };
+  const called: string[] = [];
+  const stub = {
+    from: base.from,
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      called.push(name);
+      if (name === "search_notes") {
+        const hit = (args.p_terms as string[]).every((t) => "budget".startsWith(t.replace(/:\*$/, "")));
+        return { data: hit ? [{ note_id: "n1", score: 1, total: 1, hits: { pieces: 1, top: [{ kind: "title", label: null, anchor: null, file: null, body: "Budget plan" }] } }] : [], error: null };
+      }
+      return { data: null, error: null };
+    },
+  };
+  let state = freshState();
+  const ask = async (text: string) => {
+    const r = await runSim(stub as never, "u", { kind: "text", text }, state);
+    state = r.state;
+    return r.events.filter((e) => e.t === "send").map((e) => (e as { text: string }).text).join("\n");
+  };
+  const out = await ask("/search budget");
+  eq("/search finds the real note", out.includes("Budget plan"), true);
+  eq("the real search function was called", called.includes("search_notes"), true);
+  const none = await ask("/search zzzz");
+  eq("/search says when there is nothing", none.includes("Nothing found"), true);
+  // a note created in practice shows up too
+  const sb = simClient(stub as never, state.db) as unknown as { from: (t: string) => any; rpc: (n: string, a: object) => Promise<{ data: { note_id: string }[] }> };
+  await sb.from("notes").insert({ id: "p1", user_id: "u", title: "Budget practice", content: "" });
+  const merged = await sb.rpc("search_notes", { p_terms: ["budget:*"], p_not: [], p_limit: 20 });
+  eq("a practice note is searchable", merged.data.map((r) => r.note_id).sort(), ["n1", "p1"]);
+  await sb.from("notes").delete().eq("id", "n1");
+  const after = await sb.rpc("search_notes", { p_terms: ["budget:*"], p_not: [], p_limit: 20 });
+  eq("a note deleted in practice is not found", after.data.map((r) => r.note_id), ["p1"]);
+  // functions that write stay no-ops
+  const w = await (sb.rpc as unknown as (n: string, a: object) => Promise<{ data: unknown }>)("generate_insights", {});
+  eq("writing functions do nothing in practice", w.data, null);
+  eq("…and never reached the real database", called.includes("generate_insights"), false);
+}
+
+// Every database function the bot calls is either a read (runs for real) or a write (a no-op in practice): a new one must be decided here
+async function rpcCoverage() {
+  const { execSync } = await import("node:child_process");
+  const out = execSync(`grep -rhoE "\\.rpc\\(\"[a-z_]+\"" src/lib/bot src/lib/search src/lib/ai-usage.ts`, { encoding: "utf8" });
+  const used = [...new Set([...out.matchAll(/rpc\("([a-z_]+)"/g)].map((m) => m[1]))];
+  const reads = ["search_notes", "search_suggest", "search_passages", "ai_usage_summary"];
+  const writes = ["refresh_daily_facts", "generate_insights", "refresh_search_words"];
+  eq("every rpc the bot calls is classified for practice mode", used.filter((n) => ![...reads, ...writes].includes(n)), []);
+}
+
+// ---- Lessons: every step can be passed the way it says, against the real bot ---------------------------
+async function lessonTests() {
+  const { LESSONS, stepPassed } = await import("@/lib/bot/lessons");
+  const real = {
+    tasks: [], transactions: [], events: [], notes: [{ id: "n1", user_id: "u", title: "Ideas", content: "x", updated_at: "2026-01-01T00:00:00Z", created_at: "2026-01-01T00:00:00Z", deleted_at: null }], habits: [{ id: "h1", user_id: "u", name: "Read", active: true, archived: false }],
+    accounts: [{ id: "a1", user_id: "u", name: "Cash", type: "cash", archived_at: null, sort_order: 1 }], categories: [], user_settings: [],
+  };
+  const db = fakeDb(real) as never;
+  for (const l of LESSONS) {
+    let state = freshState();
+    let last: { id: number; text: string; kb: { text: string; callback_data: string }[][] | null }[] = [];
+    for (let i = 0; i < l.steps.length; i++) {
+      const st = l.steps[i];
+      let info: { kind: "text" | "tap"; text?: string; data?: string; replied?: boolean; botText: string } | null = null;
+      if (st.try) {
+        const r = await runSim(db, "u", { kind: "text", text: st.try }, state);
+        state = r.state;
+        last = r.events.filter((e) => e.t === "send").map((e) => e as never);
+        info = { kind: "text", text: st.try, botText: r.events.map((e) => (e.t === "send" || e.t === "edit" || e.t === "toast" ? e.text : "")).join("\n") };
+      } else if (st.expect.kind === "tap") {
+        const re = st.expect.data ? new RegExp(st.expect.data) : /./;
+        const msg = [...last].reverse().find((m) => m.kb?.some((row) => row.some((b) => re.test(b.callback_data))));
+        const btn = msg?.kb?.flat().find((b) => re.test(b.callback_data));
+        if (!msg || !btn) continue; // nothing to tap with this fake data (the real chat has your real data)
+        const r = await runSim(db, "u", { kind: "tap", data: btn.callback_data, message: { id: msg.id, text: msg.text, kb: msg.kb! } }, state);
+        state = r.state;
+        last = r.events.filter((e) => e.t === "send").map((e) => e as never);
+        info = { kind: "tap", data: btn.callback_data, botText: r.events.map((e) => (e.t === "send" || e.t === "edit" || e.t === "toast" ? e.text : "")).join("\n") };
+      } else continue;
+      eq(`lesson ${l.id} step ${i + 1} passes with its own try`, stepPassed(st.expect, info), true);
+    }
+  }
+}
+
 (async () => {
   await overlayTests();
+  await lessonTests().catch((e) => {
+    fail++;
+    console.log("✗ lessons threw", e);
+  });
+  await searchTests().catch((e) => {
+    fail++;
+    console.log("✗ search parity threw", e);
+  });
+  await rpcCoverage().catch((e) => {
+    fail++;
+    console.log("✗ rpc coverage threw", e);
+  });
   await simTests().catch((e) => {
     fail++;
     console.log("✗ practice step threw", e);

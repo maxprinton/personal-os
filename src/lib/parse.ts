@@ -3,6 +3,7 @@
 // to the AI when a key exists (Groq: GROQ_API_KEY; or Claude: ANTHROPIC_API_KEY), and the
 // rules' best guess is the fallback.
 import { aiJson, hasAi } from "@/lib/ai";
+import { inSim } from "@/lib/bot/sim/store";
 import { AMOUNT, findDate, fold, toAmount as amountOf, type DateMode } from "@/lib/bot/text";
 
 export type Parsed =
@@ -216,7 +217,7 @@ export async function aiParse(text: string, today: string, categories: string[],
     if (parsed) return parsed;
   }
   const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return null;
+  if (!key || inSim()) return null;
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
