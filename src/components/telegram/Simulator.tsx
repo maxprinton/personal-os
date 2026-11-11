@@ -23,7 +23,10 @@ export default function Simulator({ menu, request, show, onSent }: { menu: strin
   const lastShow = useRef(0);
 
   const key = () => `m${++seq.current}`;
-  useEffect(() => endRef.current?.scrollIntoView({ block: "end" }), [msgs, busy]);
+  // Braces on purpose: newer Chrome returns a Promise from scrollIntoView, and an effect must not return it
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [msgs, busy]);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 3500);

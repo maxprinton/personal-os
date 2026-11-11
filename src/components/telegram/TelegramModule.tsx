@@ -29,7 +29,9 @@ export default function TelegramModule({ features, menu, initialVocab }: { featu
   const [tab, setTab] = useState<"list" | "feature" | "practice">("list");
   const nonce = useMemo(() => ({ n: 0 }), []);
 
-  useEffect(() => setPracticed(read()), []);
+  useEffect(() => {
+    setPracticed(read());
+  }, []);
   const markPracticed = (id: string, on = true) =>
     setPracticed((cur) => {
       const next = on ? [...new Set([...cur, id])] : cur.filter((x) => x !== id);
