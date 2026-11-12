@@ -12,8 +12,6 @@ import android.graphics.drawable.Icon;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
-import android.media.RingtoneManager;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -38,6 +36,25 @@ public class AlarmService extends Service {
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Runnable autoStop = () -> stopRinging(true);
+    private static final float RAMP_START = 0.15f;
+    private static final int RAMP_STEPS = 30;
+    private static final long RAMP_TICK_MS = 1000L;
+    private int rampStep;
+    /** The gentle start: the sound gets louder every second until full volume after about 30 seconds. */
+    private final Runnable rampUp = new Runnable() {
+        @Override
+        public void run() {
+            if (player == null) return;
+            rampStep++;
+            float v = Math.min(1f, RAMP_START + (1f - RAMP_START) * rampStep / RAMP_STEPS);
+            try {
+                player.setVolume(v, v);
+            } catch (IllegalStateException ignored) {
+                return;
+            }
+            if (rampStep < RAMP_STEPS) main.postDelayed(this, RAMP_TICK_MS);
+        }
+    };
     private MediaPlayer player;
     private Vibrator vibrator;
     private PowerManager.WakeLock wake;
@@ -171,16 +188,12 @@ public class AlarmService extends Service {
         }
 
         try {
-            Uri uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
-            if (uri == null) uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
-            player = new MediaPlayer();
-            player.setAudioAttributes(new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build());
-            player.setDataSource(this, uri);
-            player.setLooping(true);
-            player.prepare();
+            player = Ringtones.open(this, Prefs.sound(this));
+            if (Prefs.ramp(this)) {
+                rampStep = 0;
+                player.setVolume(RAMP_START, RAMP_START);
+                main.postDelayed(rampUp, RAMP_TICK_MS);
+            }
             player.start();
         } catch (Exception e) {
             releaseSound(); // no sound available: the vibration below still works
@@ -193,6 +206,7 @@ public class AlarmService extends Service {
     }
 
     private void releaseSound() {
+        main.removeCallbacks(rampUp);
         if (player != null) {
             try {
                 player.stop();

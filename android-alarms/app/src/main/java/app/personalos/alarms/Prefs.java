@@ -81,6 +81,32 @@ final class Prefs {
         return sp(c).getLong("updCode", 0L);
     }
 
+    /** The alarm sound: "" = the phone's default alarm, "raw:name" = one bundled in the app, "uri:..." = picked on the phone. */
+    static String sound(Context c) {
+        return sp(c).getString("sound", "raw:sunrise");
+    }
+
+    static void setSound(Context c, String choice) {
+        sp(c).edit().putString("sound", choice == null ? "" : choice).apply();
+    }
+
+    static String soundName(Context c) {
+        return sp(c).getString("soundName", "");
+    }
+
+    static void setSoundName(Context c, String name) {
+        sp(c).edit().putString("soundName", name == null ? "" : name).apply();
+    }
+
+    /** Start quiet and get louder over about 30 seconds. */
+    static boolean ramp(Context c) {
+        return sp(c).getBoolean("ramp", true);
+    }
+
+    static void setRamp(Context c, boolean on) {
+        sp(c).edit().putBoolean("ramp", on).apply();
+    }
+
     static List<AlarmItem> alarms(Context c) {
         List<AlarmItem> out = new ArrayList<>();
         try {

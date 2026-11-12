@@ -5,7 +5,8 @@ import android.app.Activity;
 import android.app.NotificationManager;
 import android.content.ComponentName;
 import android.content.Intent;
-import android.graphics.Typeface;
+import android.media.MediaPlayer;
+import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -13,12 +14,13 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
-import android.text.InputType;
+import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -31,76 +33,114 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
-/** Setup screen: address + key, sync, a test alarm, the next alarms, and the permission checklist. */
+/** Home screen: connection, next alarms, sound, and the checklist that makes sure it rings. */
 public class MainActivity extends Activity {
+    private static final int REQ_PICK_SOUND = 21;
+
     private EditText urlField;
     private EditText keyField;
-    private TextView statusView;
-    private TextView listView;
-    private TextView checksView;
+    private View statusDot;
+    private TextView statusTitle;
+    private TextView statusDetail;
+    private LinearLayout alarmsBox;
+    private LinearLayout soundBox;
+    private LinearLayout checksBox;
+    private TextView checksSummary;
+    private LinearLayout updateCard;
     private TextView updateView;
     private Button updateButton;
+    private TextView versionView;
     private Updater.Info latest;
     private boolean updateStarted;
+    private MediaPlayer preview;
     private final Handler ui = new Handler(Looper.getMainLooper());
+    private final Runnable stopPreview = this::stopPreview;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        getWindow().setStatusBarColor(Ui.BG);
+        getWindow().setNavigationBarColor(Ui.BG);
 
         ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(Ui.BG);
+        scroll.setVerticalScrollBarEnabled(false);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16), dp(20), dp(16), dp(32));
+        root.setPadding(dp(16), dp(28), dp(16), dp(36));
         scroll.addView(root);
 
-        root.addView(label("Personal OS Alarms", 24, true));
-        root.addView(label("Rings real alarms for the blocks you marked with a phone alarm in Personal OS.", 14, false));
+        // ---- Header
+        root.addView(Ui.text(this, "Personal OS", 14, Ui.ACCENT, true));
+        root.addView(Ui.text(this, "Alarms", 34, Ui.TEXT, true));
 
-        root.addView(label("Address of your Personal OS", 14, true));
-        urlField = new EditText(this);
-        urlField.setHint("https://your-app.vercel.app");
-        urlField.setSingleLine(true);
-        urlField.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        LinearLayout statusCard = Ui.card(this, null);
+        LinearLayout statusRow = new LinearLayout(this);
+        statusRow.setOrientation(LinearLayout.HORIZONTAL);
+        statusRow.setGravity(Gravity.CENTER_VERTICAL);
+        statusDot = Ui.dot(this, Ui.MUTED);
+        statusRow.addView(statusDot);
+        statusTitle = Ui.text(this, "", 17, Ui.TEXT, true);
+        statusRow.addView(statusTitle);
+        statusCard.addView(statusRow);
+        statusDetail = Ui.text(this, "", 13, Ui.MUTED, false);
+        statusDetail.setPadding(0, dp(6), 0, 0);
+        statusCard.addView(statusDetail);
+        root.addView(statusCard, Ui.wrap(this, 14));
+
+        // ---- Update (only visible when there is one)
+        updateCard = Ui.card(this, "Update ready");
+        updateView = Ui.text(this, "", 14, Ui.TEXT, false);
+        updateCard.addView(updateView);
+        updateButton = Ui.button(this, "Install the update", true, v -> startUpdate(true));
+        updateCard.addView(updateButton, Ui.wrap(this, 10));
+        updateCard.setVisibility(View.GONE);
+        root.addView(updateCard, Ui.wrap(this, 12));
+
+        // ---- Next alarms
+        LinearLayout alarmsCard = Ui.card(this, "Next alarms");
+        alarmsBox = new LinearLayout(this);
+        alarmsBox.setOrientation(LinearLayout.VERTICAL);
+        alarmsCard.addView(alarmsBox);
+        root.addView(alarmsCard, Ui.wrap(this, 12));
+
+        // ---- Sound
+        LinearLayout soundCard = Ui.card(this, "Alarm sound");
+        soundBox = new LinearLayout(this);
+        soundBox.setOrientation(LinearLayout.VERTICAL);
+        soundCard.addView(soundBox);
+        root.addView(soundCard, Ui.wrap(this, 12));
+
+        // ---- Connection
+        LinearLayout conn = Ui.card(this, "Connection");
+        conn.addView(Ui.text(this, "Address of your Personal OS", 13, Ui.MUTED, false));
+        urlField = Ui.field(this, "https://your-app.vercel.app", false);
         urlField.setText(Prefs.baseUrl(this));
-        root.addView(urlField);
-
-        root.addView(label("Key (Settings > Phone alarms)", 14, true));
-        keyField = new EditText(this);
-        keyField.setHint("pos_...");
-        keyField.setSingleLine(true);
-        keyField.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        conn.addView(urlField, Ui.wrap(this, 6));
+        TextView keyLabel = Ui.text(this, "Key (Settings > Phone alarms)", 13, Ui.MUTED, false);
+        keyLabel.setPadding(0, dp(12), 0, 0);
+        conn.addView(keyLabel);
+        keyField = Ui.field(this, "pos_...", true);
         keyField.setText(Prefs.key(this));
-        root.addView(keyField);
+        conn.addView(keyField, Ui.wrap(this, 6));
+        conn.addView(Ui.button(this, "Save and sync now", true, v -> saveAndSync()), Ui.wrap(this, 14));
+        conn.addView(Ui.button(this, "Test alarm in 15 seconds", false, v -> testAlarm()), Ui.wrap(this, 8));
+        root.addView(conn, Ui.wrap(this, 12));
 
-        root.addView(button("Save and sync now", v -> saveAndSync()));
-        root.addView(button("Test alarm in 15 seconds", v -> testAlarm()));
+        // ---- Checklist
+        LinearLayout checks = Ui.card(this, "Make sure it rings");
+        checksSummary = Ui.text(this, "", 14, Ui.MUTED, false);
+        checksSummary.setPadding(0, 0, 0, dp(6));
+        checks.addView(checksSummary);
+        checksBox = new LinearLayout(this);
+        checksBox.setOrientation(LinearLayout.VERTICAL);
+        checks.addView(checksBox);
+        root.addView(checks, Ui.wrap(this, 12));
 
-        statusView = label("", 14, false);
-        root.addView(statusView);
-
-        updateView = label("", 14, false);
-        root.addView(updateView);
-        updateButton = button("Install the update", v -> startUpdate(true));
-        updateButton.setVisibility(View.GONE);
-        root.addView(updateButton);
-
-        root.addView(label("Next alarms", 18, true));
-        listView = label("", 14, false);
-        root.addView(listView);
-
-        root.addView(label("Make sure it rings", 18, true));
-        root.addView(label("Xiaomi phones stop apps in the background unless you allow all of these. "
-                + "Tap each button and allow it, then press Test alarm with the screen locked.", 14, false));
-        checksView = label("", 14, false);
-        root.addView(checksView);
-        root.addView(button("1. Allow notifications", v -> askNotifications()));
-        root.addView(button("2. Allow full-screen alarms", v -> openFullScreenSettings()));
-        root.addView(button("3. No battery limits for this app", v -> openBatterySettings()));
-        root.addView(button("4. Autostart (Xiaomi)", v -> openAutostart()));
-        root.addView(button("5. Other permissions: pop-ups and lock screen", v -> openAppSettings()));
-        root.addView(button("6. Allow installing updates", v -> openInstallSettings()));
-        root.addView(button("7. Display over other apps", v -> openOverlaySettings()));
+        versionView = Ui.text(this, "", 12, Ui.MUTED, false);
+        versionView.setGravity(Gravity.CENTER);
+        versionView.setPadding(0, dp(18), 0, 0);
+        root.addView(versionView);
 
         setContentView(scroll);
 
@@ -114,6 +154,12 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+    }
+
+    @Override
+    protected void onPause() {
+        stopPreview();
+        super.onPause();
     }
 
     @Override
@@ -141,6 +187,79 @@ public class MainActivity extends Activity {
         refresh();
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_PICK_SOUND || resultCode != RESULT_OK || data == null) return;
+        Uri uri = data.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI);
+        if (uri == null) return; // "silent" is not allowed for an alarm: keep the current sound
+        Prefs.setSound(this, "uri:" + uri);
+        Prefs.setSoundName(this, Ringtones.titleOf(this, uri));
+        playPreview();
+        refresh();
+    }
+
+    // ---- Sound ------------------------------------------------------------------------------
+
+    private void chooseBundled(Ringtones.Sound s) {
+        Prefs.setSound(this, s.choice());
+        playPreview();
+        refresh();
+    }
+
+    private void choosePhoneDefault() {
+        Prefs.setSound(this, "");
+        playPreview();
+        refresh();
+    }
+
+    private void pickFromPhone() {
+        Intent i = new Intent(RingtoneManager.ACTION_RINGTONE_PICKER)
+                .putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                .putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Alarm sound");
+        String cur = Prefs.sound(this);
+        if (cur.startsWith("uri:")) {
+            i.putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(cur.substring(4)));
+        }
+        try {
+            startActivityForResult(i, REQ_PICK_SOUND);
+        } catch (Exception e) {
+            Toast.makeText(this, "This phone has no sound picker.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /** Plays the chosen sound for a few seconds, once. */
+    private void playPreview() {
+        stopPreview();
+        try {
+            preview = Ringtones.open(this, Prefs.sound(this));
+            preview.setLooping(false);
+            preview.setOnCompletionListener(mp -> stopPreview());
+            preview.start();
+            ui.postDelayed(stopPreview, 6000);
+        } catch (Exception e) {
+            preview = null;
+            Toast.makeText(this, "Could not play that sound.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void stopPreview() {
+        ui.removeCallbacks(stopPreview);
+        if (preview != null) {
+            try {
+                preview.stop();
+            } catch (Exception ignored) {
+                // already stopped
+            }
+            preview.release();
+            preview = null;
+        }
+    }
+
+    // ---- Updates ----------------------------------------------------------------------------
+
     /** Downloads the newer version from Personal OS and hands it to Android to install (you confirm once). */
     private void startUpdate(boolean tapped) {
         final Updater.Info info = latest;
@@ -150,6 +269,7 @@ public class MainActivity extends Activity {
             return;
         }
         updateStarted = true;
+        updateCard.setVisibility(View.VISIBLE);
         updateView.setText("Downloading version " + info.versionName + "...");
         final android.content.Context app = getApplicationContext();
         new Thread(() -> {
@@ -184,31 +304,14 @@ public class MainActivity extends Activity {
     }
 
     private int dp(int v) {
-        return Math.round(v * getResources().getDisplayMetrics().density);
-    }
-
-    private TextView label(String text, int sp, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextSize(sp);
-        if (bold) t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setPadding(0, dp(10), 0, dp(4));
-        return t;
-    }
-
-    private Button button(String text, View.OnClickListener l) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setOnClickListener(l);
-        return b;
+        return Ui.dp(this, v);
     }
 
     private void saveAndSync() {
         Prefs.setConnection(this, urlField.getText().toString(), keyField.getText().toString());
         urlField.setText(Prefs.baseUrl(this));
         Scheduler.armNextSync(this);
-        statusView.setText("Syncing...");
+        statusTitle.setText("Syncing...");
         final android.content.Context app = getApplicationContext();
         new Thread(() -> {
             Sync.run(app);
@@ -223,36 +326,51 @@ public class MainActivity extends Activity {
         Toast.makeText(this, "Lock the screen. It rings in 15 seconds.", Toast.LENGTH_LONG).show();
     }
 
+    // ---- Drawing ----------------------------------------------------------------------------
+
     private void refresh() {
         SimpleDateFormat when = new SimpleDateFormat("EEE d MMM HH:mm", Locale.getDefault());
+        SimpleDateFormat hm = new SimpleDateFormat("HH:mm", Locale.getDefault());
 
-        StringBuilder s = new StringBuilder();
+        // Status
+        StringBuilder d = new StringBuilder();
         if (!Prefs.configured(this)) {
-            s.append("Not connected yet: paste the address and the key, then Save.");
+            ((android.graphics.drawable.GradientDrawable) statusDot.getBackground()).setColor(Ui.WARN);
+            statusTitle.setText("Not connected yet");
+            d.append("Paste the address and the key below, then press Save and sync now.");
         } else if (Prefs.lastSyncMs(this) == 0L) {
-            s.append("Not synced yet.");
+            ((android.graphics.drawable.GradientDrawable) statusDot.getBackground()).setColor(Ui.MUTED);
+            statusTitle.setText("Not synced yet");
         } else {
-            s.append(Prefs.lastSyncOk(this) ? "Last sync OK: " : "Last sync FAILED: ");
-            s.append(when.format(new Date(Prefs.lastSyncMs(this)))).append("\n").append(Prefs.lastSyncMessage(this));
-            if (!Prefs.lastSyncOk(this) && Prefs.lastOkSyncMs(this) > 0L) {
-                s.append("\nLast good sync: ").append(when.format(new Date(Prefs.lastOkSyncMs(this))));
+            boolean ok = Prefs.lastSyncOk(this);
+            ((android.graphics.drawable.GradientDrawable) statusDot.getBackground()).setColor(ok ? Ui.OK : Ui.BAD);
+            statusTitle.setText((ok ? "Synced " : "Sync failed ") + when.format(new Date(Prefs.lastSyncMs(this))));
+            d.append(Prefs.lastSyncMessage(this));
+            if (!ok && Prefs.lastOkSyncMs(this) > 0L) {
+                d.append("\nLast good sync: ").append(when.format(new Date(Prefs.lastOkSyncMs(this))));
             }
         }
         if (Prefs.nextSyncMs(this) > 0L) {
-            s.append("\nNext automatic sync: ").append(when.format(new Date(Prefs.nextSyncMs(this))))
-                    .append("  (every hour at :05 and :45)");
+            if (d.length() > 0) d.append("\n");
+            d.append("Next automatic sync ").append(hm.format(new Date(Prefs.nextSyncMs(this))))
+                    .append(" (every hour at :05 and :45)");
         }
-        statusView.setText(s.toString());
+        statusDetail.setText(d.toString());
 
+        // Update
         boolean newer = latest != null && latest.versionCode > Updater.installedCode(this);
-        updateButton.setVisibility(newer ? View.VISIBLE : View.GONE);
+        if (newer || updateStarted) updateCard.setVisibility(View.VISIBLE);
+        else updateCard.setVisibility(View.GONE);
+        updateButton.setVisibility(newer && !updateStarted ? View.VISIBLE : View.GONE);
         if (newer) updateButton.setText("Install version " + latest.versionName);
-        if (!updateStarted) {
-            updateView.setText("App version " + Updater.installedName(this)
-                    + (newer ? ". A new version is ready: " + latest.versionName + "."
-                    : latest != null ? " (up to date)" : ""));
+        if (newer && !updateStarted) {
+            updateView.setText("Version " + latest.versionName + " is ready. You have " + Updater.installedName(this) + ".");
         }
+        versionView.setText("Personal OS Alarms " + Updater.installedName(this)
+                + (latest != null && !newer ? " - up to date" : ""));
 
+        // Next alarms
+        alarmsBox.removeAllViews();
         List<AlarmItem> upcoming = new ArrayList<>();
         long now = System.currentTimeMillis();
         for (AlarmItem a : Prefs.alarms(this)) {
@@ -264,29 +382,117 @@ public class MainActivity extends Activity {
                 return Long.compare(x.alarmAtMs, y.alarmAtMs);
             }
         });
-        StringBuilder l = new StringBuilder();
         if (upcoming.isEmpty()) {
-            l.append("None. Mark a block with \"Ring an alarm on my phone\" in Personal OS.");
+            alarmsBox.addView(Ui.text(this, "None yet. Mark a block with \"Ring an alarm on my phone\" in Personal OS.",
+                    14, Ui.MUTED, false));
         }
-        for (int i = 0; i < upcoming.size() && i < 12; i++) {
+        SimpleDateFormat day = new SimpleDateFormat("EEE d MMM", Locale.getDefault());
+        for (int i = 0; i < upcoming.size() && i < 8; i++) {
             AlarmItem a = upcoming.get(i);
-            l.append(when.format(new Date(a.alarmAtMs))).append("   ").append(a.title);
-            if (a.minutesBefore > 0) l.append("  (").append(a.minutesBefore).append(" min before)");
-            l.append("\n");
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(7), 0, dp(7));
+            TextView time = Ui.text(this, hm.format(new Date(a.alarmAtMs)), 22, Ui.TEXT, true);
+            time.setMinWidth(dp(72));
+            row.addView(time);
+            LinearLayout col = new LinearLayout(this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.addView(Ui.text(this, a.title.isEmpty() ? "Alarm" : a.title, 15, Ui.TEXT, true));
+            String sub = day.format(new Date(a.alarmAtMs));
+            if (a.minutesBefore > 0) sub += "  -  " + a.minutesBefore + " min before";
+            col.addView(Ui.text(this, sub, 12, Ui.MUTED, false));
+            row.addView(col);
+            alarmsBox.addView(row);
         }
-        listView.setText(l.toString().trim());
+        if (upcoming.size() > 8) {
+            alarmsBox.addView(Ui.text(this, "+ " + (upcoming.size() - 8) + " more", 12, Ui.MUTED, false));
+        }
 
-        checksView.setText(
-                mark(areNotificationsOn()) + " Notifications\n"
-                        + mark(canFullScreen()) + " Full-screen alarms\n"
-                        + mark(ignoresBattery()) + " No battery limits\n"
-                        + mark(canInstall()) + " Installing updates\n"
-                        + mark(Settings.canDrawOverlays(this)) + " Display over other apps\n"
-                        + "(Autostart and pop-ups cannot be checked by the app: allow them in steps 4 and 5.)");
+        drawSound();
+        drawChecks();
     }
 
-    private String mark(boolean ok) {
-        return ok ? "[OK]" : "[ ]";
+    private void drawSound() {
+        soundBox.removeAllViews();
+        String cur = Prefs.sound(this);
+        for (final Ringtones.Sound s : Ringtones.BUNDLED) {
+            soundBox.addView(soundRow(s.name, s.hint, cur.equals(s.choice()), v -> chooseBundled(s)));
+        }
+        boolean picked = cur.startsWith("uri:");
+        soundBox.addView(soundRow("Phone default alarm", "Whatever your phone uses for alarms", cur.isEmpty(),
+                v -> choosePhoneDefault()));
+        soundBox.addView(soundRow(picked ? Ringtones.label(this, cur) : "Pick from your phone...",
+                picked ? "Tap to change" : "Any alarm sound or ringtone on this phone", picked, v -> pickFromPhone()));
+
+        LinearLayout ramp = new LinearLayout(this);
+        ramp.setOrientation(LinearLayout.HORIZONTAL);
+        ramp.setGravity(Gravity.CENTER_VERTICAL);
+        ramp.setPadding(dp(4), dp(14), dp(4), dp(2));
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.addView(Ui.text(this, "Start quiet, get louder", 15, Ui.TEXT, true));
+        col.addView(Ui.text(this, "Rises to full volume in about 30 seconds", 12, Ui.MUTED, false));
+        ramp.addView(col, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        Switch sw = new Switch(this);
+        sw.setChecked(Prefs.ramp(this));
+        sw.setOnCheckedChangeListener((b, on) -> Prefs.setRamp(this, on));
+        ramp.addView(sw);
+        soundBox.addView(ramp);
+    }
+
+    private View soundRow(String name, String hint, boolean selected, View.OnClickListener l) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10), dp(10), dp(10), dp(10));
+        if (selected) row.setBackground(Ui.round(this, Ui.CARD_HI, 12));
+        row.setOnClickListener(l);
+        row.addView(Ui.dot(this, selected ? Ui.ACCENT : 0xFF3A4156));
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.addView(Ui.text(this, name, 15, Ui.TEXT, selected));
+        col.addView(Ui.text(this, hint, 12, Ui.MUTED, false));
+        row.addView(col);
+        LinearLayout.LayoutParams p = Ui.wrap(this, 2);
+        row.setLayoutParams(p);
+        return row;
+    }
+
+    private void drawChecks() {
+        checksBox.removeAllViews();
+        boolean n = areNotificationsOn();
+        boolean f = canFullScreen();
+        boolean b = ignoresBattery();
+        boolean u = canInstall();
+        boolean o = Settings.canDrawOverlays(this);
+        int missing = (n ? 0 : 1) + (f ? 0 : 1) + (b ? 0 : 1) + (o ? 0 : 1);
+        checksSummary.setText(missing == 0
+                ? "All the checkable steps are done. Allow the two Xiaomi steps too, then press Test alarm with the screen locked."
+                : missing + (missing == 1 ? " step" : " steps") + " left. Xiaomi stops apps in the background unless you allow all of these.");
+        checksSummary.setTextColor(missing == 0 ? Ui.OK : Ui.MUTED);
+
+        checkRow("Notifications", n ? 1 : 0, "Allow", v -> askNotifications());
+        checkRow("Full-screen alarms", f ? 1 : 0, "Allow", v -> openFullScreenSettings());
+        checkRow("No battery limits", b ? 1 : 0, "Allow", v -> openBatterySettings());
+        checkRow("Display over other apps", o ? 1 : 0, "Allow", v -> openOverlaySettings());
+        checkRow("Installing updates", u ? 1 : 0, "Allow", v -> openInstallSettings());
+        checkRow("Autostart (Xiaomi)", -1, "Open", v -> openAutostart());
+        checkRow("Pop-ups and lock screen (Xiaomi)", -1, "Open", v -> openAppSettings());
+    }
+
+    /** state: 1 = done, 0 = missing, -1 = the app cannot check it. */
+    private void checkRow(String title, int state, String action, View.OnClickListener l) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(7), 0, dp(7));
+        row.addView(Ui.dot(this, state == 1 ? Ui.OK : state == 0 ? Ui.BAD : Ui.WARN));
+        TextView t = Ui.text(this, title, 15, Ui.TEXT, false);
+        row.addView(t, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        if (state != 1) row.addView(Ui.smallButton(this, action, l));
+        else row.addView(Ui.text(this, "Done", 13, Ui.OK, true));
+        checksBox.addView(row);
     }
 
     private boolean areNotificationsOn() {
