@@ -29,14 +29,20 @@ export async function getBlockTypes(
   userId: string,
   opts: { includeDeleted?: boolean } = {}
 ): Promise<BlockType[]> {
-  let q = sb.from("block_types").select("id,name,color,deleted_at").eq("user_id", userId);
-  if (!opts.includeDeleted) q = q.is("deleted_at", null);
-  const { data } = await q.order("name");
-  return ((data ?? []) as (BlockType & { deleted_at: string | null })[]).map((t) => ({
+  const build = (cols: string) => {
+    let q = sb.from("block_types").select(cols).eq("user_id", userId);
+    if (!opts.includeDeleted) q = q.is("deleted_at", null);
+    return q.order("name");
+  };
+  // alarm_minutes_before exists after migration 0057; without it everything works as before
+  const withAlarm = await build("id,name,color,deleted_at,alarm_minutes_before");
+  const { data } = withAlarm.error ? await build("id,name,color,deleted_at") : withAlarm;
+  return ((data ?? []) as unknown as (BlockType & { deleted_at: string | null })[]).map((t) => ({
     id: t.id,
     name: t.name,
     color: t.color,
     ...(t.deleted_at ? { removed: true } : {}),
+    ...(t.alarm_minutes_before !== undefined && t.alarm_minutes_before !== null ? { alarm_minutes_before: t.alarm_minutes_before } : {}),
   }));
 }
 

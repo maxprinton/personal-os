@@ -1,7 +1,14 @@
 // Calendar v2 types shared by the server and the browser (no imports with side effects).
 
 /** removed = the block was deleted (kept so past days still show its name). */
-export type BlockType = { id: string; name: string; color: string; removed?: boolean };
+export type BlockType = {
+  id: string;
+  name: string;
+  color: string;
+  removed?: boolean;
+  /** Phone alarm (Android app): minutes before the block starts. null/undefined = no alarm. */
+  alarm_minutes_before?: number | null;
+};
 
 /** One weekly slot of a block type. weekday is ISO (1 = Monday). end < start = ends next day. */
 export type Slot = {

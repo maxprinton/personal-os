@@ -9,6 +9,37 @@ import type { ActionState } from "@/app/actions";
 import { liveTagLinks } from "@/lib/tags";
 import { dayData, morningText } from "@/lib/reminders";
 import { localNow } from "@/lib/time";
+import { generateAlarmKey, hashAlarmKey } from "@/lib/alarms";
+
+/** New personal key for the Android alarms app. Only its hash is saved, so it is shown once. */
+export async function createAlarmKey(): Promise<{ key?: string; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  const key = generateAlarmKey();
+  const { error } = await supabase
+    .from("user_settings")
+    .update({ alarm_key_hash: hashAlarmKey(key), alarm_key_created_at: new Date().toISOString() })
+    .eq("user_id", user.id);
+  if (error) {
+    return { error: /alarm_key/.test(error.message) ? "Run migration 0057 (MIGRACION-0057-alarmas-android.sql) in Supabase first." : error.message };
+  }
+  revalidatePath("/settings");
+  return { key };
+}
+
+/** Turns the phone app off: the old key stops working. */
+export async function revokeAlarmKey() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  await supabase.from("user_settings").update({ alarm_key_hash: null, alarm_key_created_at: null }).eq("user_id", user.id);
+  revalidatePath("/settings");
+}
 
 /** One-time code the user sends to the bot: /link CODE (valid 15 minutes). */
 export async function createLinkCode() {

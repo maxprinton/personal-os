@@ -55,6 +55,7 @@
     "test:security": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-security.ts",
     "test:publish": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-portfolio-publish.ts",
     "test:patterns": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-patterns.ts",
+    "test:alarms": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-alarms.ts",
     "test:daily-facts": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-daily-facts.ts",
     "test:youtube-topics": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-topics.ts",
     "test:youtube-lead": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-lead.ts"

@@ -11,6 +11,7 @@ import {
   type RenameScope,
   toggleOccurrenceDone,
   moveHabit,
+  setBlockAlarm,
   updateHabit,
 } from "@/app/calendar-actions";
 import { habitsForOccurrence } from "@/lib/calendar/habitview";
@@ -265,6 +266,41 @@ export default function OccurrenceDialog({
           run={run}
         />
       </section>
+
+      {!readOnly && type && !type.removed && (
+        <section className="space-y-2 rounded-lg border border-line p-3">
+          <h3 className="text-sm font-medium">Phone alarm</h3>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={type.alarm_minutes_before != null}
+                disabled={busy}
+                onChange={(e) => run(() => setBlockAlarm({ blockTypeId: type.id, minutes: e.target.checked ? 0 : null }))}
+              />
+              Ring an alarm on my phone
+            </label>
+            {type.alarm_minutes_before != null && (
+              <select
+                value={type.alarm_minutes_before}
+                disabled={busy}
+                onChange={(e) => run(() => setBlockAlarm({ blockTypeId: type.id, minutes: Number(e.target.value) }))}
+                className={inputCls}
+                aria-label="Minutes before the block starts"
+              >
+                {[0, 5, 10, 15, 30, 45, 60, 90, 120].map((m) => (
+                  <option key={m} value={m}>
+                    {m === 0 ? "At the start" : `${m} min before`}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <p className="text-xs text-muted">
+            Applies to every “{type.name}” block. Needs the Personal OS Alarms app (Settings → Phone alarms).
+          </p>
+        </section>
+      )}
 
       {!readOnly && (
         <section className="space-y-2 rounded-lg border border-line p-3">

@@ -989,6 +989,29 @@ export async function updateHabit(input: { id: string; name?: string; blockTypeI
 }
 
 /**
+ * Phone alarm of a block (Android app): minutes before it starts (0 = on time), or null = no alarm.
+ * It belongs to the block's name, so it applies to every day of that block.
+ */
+export async function setBlockAlarm(input: { blockTypeId: string; minutes: number | null }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const m = input.minutes;
+    if (m !== null && (!Number.isInteger(m) || m < 0 || m > 180)) return { error: "Pick 0 to 180 minutes." };
+    const { error } = await c.sb
+      .from("block_types")
+      .update({ alarm_minutes_before: m })
+      .eq("id", input.blockTypeId)
+      .eq("user_id", c.userId);
+    if (error) {
+      return { error: /alarm_minutes_before/.test(error.message) ? "Alarms need migration 0057 (MIGRACION-0057-alarmas-android.sql) in Supabase." : error.message };
+    }
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
  * Move a habit one place up or down among the habits of its block. The order is saved
  * (habits.sort_order) and used everywhere: block window, Today, focus panel, Habits page, Telegram.
  */

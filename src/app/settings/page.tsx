@@ -8,6 +8,8 @@ import ConnectBotButton from "@/components/ConnectBotButton";
 import ReminderSettings from "@/components/ReminderSettings";
 import WritingSettings from "@/components/WritingSettings";
 import AiUsageSection from "@/components/AiUsageSection";
+import AlarmKeyCard from "@/components/AlarmKeyCard";
+import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +27,7 @@ const TABS = [
   { id: "telegram", label: "Telegram" },
   { id: "ai", label: "AI" },
   { id: "writing", label: "Writing" },
+  { id: "alarms", label: "Phone alarms" },
   { id: "data", label: "Data" },
 ] as const;
 
@@ -42,6 +45,14 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   // "When a block ends" (migration 0019): ON until it exists
   const blockEnd = await supabase.from("user_settings").select("reminder_block_end").maybeSingle();
   const blockEndOn = blockEnd.error ? null : (blockEnd.data?.reminder_block_end as boolean | null | undefined) ?? true;
+
+  // Android alarms app key (migration 0057): "no key" until the columns exist
+  const alarmRow = await supabase.from("user_settings").select("alarm_key_hash,alarm_key_created_at").maybeSingle();
+  const alarmHasKey = !alarmRow.error && Boolean(alarmRow.data?.alarm_key_hash);
+  const alarmCreated = (!alarmRow.error && (alarmRow.data?.alarm_key_created_at as string | null)) || null;
+  const reqHeaders = await headers();
+  const host = reqHeaders.get("x-forwarded-host") ?? reqHeaders.get("host") ?? "";
+  const appUrl = host ? `${host.startsWith("localhost") ? "http" : "https"}://${host}` : "";
 
   const hasToken = Boolean(botToken());
   const hasSecret = Boolean(process.env.SUPABASE_SECRET_KEY);
@@ -180,6 +191,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             <button className="rounded-md border border-edge transition-colors hover:bg-subtle px-3 py-1.5 text-sm">Generate now</button>
           </form>
         </section>
+        </div>
+        <div hidden={tab !== "alarms"} className="space-y-6">
+          <AlarmKeyCard hasKey={alarmHasKey} createdAt={alarmCreated} appUrl={appUrl} />
         </div>
         <div hidden={tab !== "data"} className="space-y-6">
         <section className="space-y-3 card p-5">
