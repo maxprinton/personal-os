@@ -83,6 +83,19 @@ test("the block note travels with the alarm (by name, any case)", () => {
   assert.equal(a[0].note, "Bring the bottle");
 });
 
+test("habits and tasks of the block travel with its alarm", () => {
+  const a = buildAlarms({
+    occurrences: [occ("1", "gym", "2026-11-13", "07:00", "08:00"), occ("2", "gym", "2026-11-14", "07:00", "08:00")],
+    types, notes: new Map(), timezone: TZ, now,
+    habits: new Map([["1", ["Warm up", "Stretch"]]]),
+    tasks: new Map([["1", ["Buy chalk"]]]),
+  });
+  assert.deepEqual(a[0].habits, ["Warm up", "Stretch"]);
+  assert.deepEqual(a[0].tasks, ["Buy chalk"]);
+  assert.deepEqual(a[1].habits, []);
+  assert.deepEqual(a[1].tasks, []);
+});
+
 test("noteSnippet makes plain text and truncates", () => {
   assert.equal(noteSnippet("# Plan\n- [ ] warm up\n- [x] **stretch**"), "Plan\n• warm up\n• stretch");
   assert.equal(noteSnippet(null), "");

@@ -6,6 +6,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDays, localNow, zonedToUtc } from "@/lib/time";
 import { blockNotesByKey, noteKey } from "@/lib/block-notes";
 import { getBlockTypes, getOccurrences } from "@/lib/calendar/model";
+import { getChecks, getHabits } from "@/lib/calendar/habits";
+import { habitsForOccurrence } from "@/lib/calendar/habitview";
+import { getCalendarTasks } from "@/lib/calendar/tasks";
+import { tasksForOccurrence } from "@/lib/calendar/taskview";
 import type { BlockType, Occurrence } from "@/lib/calendar/types";
 
 export const ALARM_DAYS = 7;
@@ -21,6 +25,10 @@ export type PhoneAlarm = {
   alarmAtMs: number;
   minutesBefore: number;
   note: string;
+  /** Names of the block's habits still to do, in the user's order. */
+  habits: string[];
+  /** Titles of the pending tasks placed in the block that day. */
+  tasks: string[];
 };
 
 export function generateAlarmKey() {
@@ -50,6 +58,9 @@ export function buildAlarms(args: {
   occurrences: Pick<Occurrence, "id" | "block_type_id" | "date" | "start_time" | "end_time" | "status">[];
   types: (Pick<BlockType, "id" | "name"> & { alarm_minutes_before?: number | null })[];
   notes: Map<string, string>;
+  /** occurrence id -> habit names / task titles (optional) */
+  habits?: Map<string, string[]>;
+  tasks?: Map<string, string[]>;
   timezone: string;
   now: Date;
   days?: number;
@@ -76,6 +87,8 @@ export function buildAlarms(args: {
       alarmAtMs,
       minutesBefore: minutes,
       note: args.notes.get(noteKey(t.name)) ?? "",
+      habits: args.habits?.get(o.id) ?? [],
+      tasks: args.tasks?.get(o.id) ?? [],
     });
   }
   return out.sort((a, b) => a.alarmAtMs - b.alarmAtMs);
@@ -84,11 +97,33 @@ export function buildAlarms(args: {
 /** Loads one user's upcoming alarms. Works with the admin client (the phone has no browser session). */
 export async function loadAlarms(sb: SupabaseClient, userId: string, timezone: string, now = new Date()) {
   const today = localNow(timezone).date;
-  const [types, occurrences, notes] = await Promise.all([
+  const to = addDays(today, ALARM_DAYS + 1);
+  const [types, occurrences, notes, allHabits, checks, { tasks: allTasks }] = await Promise.all([
     getBlockTypes(sb, userId),
-    getOccurrences(sb, userId, today, addDays(today, ALARM_DAYS + 1)),
+    getOccurrences(sb, userId, today, to),
     blockNotesByKey(sb, userId),
+    getHabits(sb, userId),
+    getChecks(sb, userId, addDays(today, -1), to),
+    getCalendarTasks(sb, userId, today, to, today),
   ]);
   const noteText = new Map([...notes].map(([k, n]) => [k, noteSnippet(n.content)]));
-  return buildAlarms({ occurrences, types, notes: noteText, timezone, now });
+  const alarmTypes = new Set(types.filter((t) => t.alarm_minutes_before != null).map((t) => t.id));
+  const habits = new Map<string, string[]>();
+  const tasks = new Map<string, string[]>();
+  for (const o of occurrences) {
+    if (!alarmTypes.has(o.block_type_id)) continue;
+    habits.set(
+      o.id,
+      habitsForOccurrence(o, allHabits, checks, today)
+        .filter((h) => h.state !== "done" && h.state !== "skipped")
+        .map((h) => h.habit.name)
+    );
+    tasks.set(
+      o.id,
+      tasksForOccurrence(o, occurrences, allTasks)
+        .filter((t) => t.status === "pending")
+        .map((t) => t.title)
+    );
+  }
+  return buildAlarms({ occurrences, types, notes: noteText, habits, tasks, timezone, now });
 }

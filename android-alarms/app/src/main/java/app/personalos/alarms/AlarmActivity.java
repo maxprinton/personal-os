@@ -10,6 +10,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 /** The alarm screen: shows over the lock screen with the block name, its time and note. */
@@ -68,14 +69,22 @@ public class AlarmActivity extends Activity {
         title.setPadding(0, dp(16), 0, dp(16));
         root.addView(title);
 
-        TextView note = new TextView(this);
-        note.setText(item == null ? "" : item.note);
-        note.setTextColor(Color.parseColor("#D5DAE8"));
-        note.setTextSize(18);
-        note.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(
+        // The block's habits and tasks (they scroll if the list is long)
+        String details = item == null ? "" : item.details();
+        if (details.isEmpty() && item != null) {
+            details = item.id.equals("test") ? item.note : "No habits or tasks in this block.";
+        }
+        TextView list = new TextView(this);
+        list.setText(details);
+        list.setTextColor(Color.parseColor("#D5DAE8"));
+        list.setTextSize(19);
+        list.setLineSpacing(0f, 1.25f);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(list);
+        LinearLayout.LayoutParams listLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        root.addView(note, noteLp);
+        listLp.bottomMargin = dp(16);
+        root.addView(scroll, listLp);
 
         Button snooze = new Button(this);
         snooze.setText("Snooze 10 min");

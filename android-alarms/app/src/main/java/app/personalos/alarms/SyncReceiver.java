@@ -4,7 +4,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 
-/** Wakes up at 11 pm / 12 am / 3 am / 4 am: arms the next one and starts a re-read of Personal OS. */
+/** Wakes up every hour at x:05 and x:45: arms the next one and starts a re-read of Personal OS. */
 public class SyncReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {

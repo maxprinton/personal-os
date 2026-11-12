@@ -21,9 +21,12 @@ public class SyncJobService extends JobService {
                 .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY);
         if (Build.VERSION.SDK_INT >= 31) {
             b.setExpedited(true);
-        } else {
-            b.setOverrideDeadline(0);
+            if (js.schedule(b.build()) == JobScheduler.RESULT_SUCCESS) return;
+            // The "start right now" allowance is used up: run it as a normal job instead
+            b = new JobInfo.Builder(JOB_ID, new ComponentName(c, SyncJobService.class))
+                    .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY);
         }
+        b.setOverrideDeadline(0);
         js.schedule(b.build());
     }
 

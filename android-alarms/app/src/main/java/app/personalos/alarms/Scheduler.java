@@ -18,11 +18,11 @@ final class Scheduler {
     static final String ACTION_SYNC = "app.personalos.alarms.SYNC";
 
     /**
-     * Local times (hour, minute) at which the phone re-reads Personal OS: the night before (11 pm) and
-     * the small hours (12 am, 3 am, 4 am), so a wake-up time changed the evening before is picked up.
+     * Minutes of every hour at which the phone re-reads Personal OS (x:05 and x:45, all day and night),
+     * so a block moved or a wake-up time changed is picked up within the hour.
      * Also on opening the app and every time an alarm rings.
      */
-    static final int[][] SYNC_TIMES = {{23, 0}, {0, 0}, {3, 0}, {4, 0}};
+    static final int[] SYNC_MINUTES = {5, 45};
 
     private static AlarmManager am(Context c) {
         return (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
@@ -85,21 +85,20 @@ final class Scheduler {
         long when = System.currentTimeMillis() + minutes * 60_000L;
         String id = base.id.startsWith("snooze-") ? base.id : "snooze-" + base.id;
         schedule(c, new AlarmItem(id, base.title, base.date, base.start, base.end, base.note,
-                base.startsAtMs, when, base.minutesBefore));
+                base.startsAtMs, when, base.minutesBefore, base.habits, base.tasks));
     }
 
     // ---- The re-reads of Personal OS --------------------------------------------------------
 
     static long nextSyncMs(long now) {
         long best = Long.MAX_VALUE;
-        for (int[] t : SYNC_TIMES) {
+        for (int minute : SYNC_MINUTES) {
             Calendar cal = Calendar.getInstance();
             cal.setTimeInMillis(now);
-            cal.set(Calendar.HOUR_OF_DAY, t[0]);
-            cal.set(Calendar.MINUTE, t[1]);
+            cal.set(Calendar.MINUTE, minute);
             cal.set(Calendar.SECOND, 0);
             cal.set(Calendar.MILLISECOND, 0);
-            if (cal.getTimeInMillis() <= now + 1000) cal.add(Calendar.DAY_OF_YEAR, 1);
+            if (cal.getTimeInMillis() <= now + 1000) cal.add(Calendar.HOUR_OF_DAY, 1);
             best = Math.min(best, cal.getTimeInMillis());
         }
         return best;

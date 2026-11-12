@@ -135,7 +135,9 @@ public class AlarmService extends Service {
                 this, 12, stop, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
         String text = item.timeRange();
-        if (!item.note.isEmpty()) text = text.isEmpty() ? item.note : text + "  -  " + item.note;
+        String details = item.details();
+        if (details.isEmpty()) details = item.note; // test alarm
+        if (!details.isEmpty()) text = text.isEmpty() ? details : text + "\n" + details;
 
         Notification.Builder b = new Notification.Builder(this, CHANNEL_RING)
                 .setSmallIcon(R.drawable.ic_alarm_small)

@@ -240,7 +240,7 @@ public class MainActivity extends Activity {
         }
         if (Prefs.nextSyncMs(this) > 0L) {
             s.append("\nNext automatic sync: ").append(when.format(new Date(Prefs.nextSyncMs(this))))
-                    .append("  (every night at 11 pm, 12 am, 3 am and 4 am)");
+                    .append("  (every hour at :05 and :45)");
         }
         statusView.setText(s.toString());
 
