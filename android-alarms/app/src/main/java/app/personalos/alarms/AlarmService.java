@@ -21,6 +21,7 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.provider.Settings;
 
 /** Rings: loud sound on the alarm volume, vibration, and a full-screen alarm screen with Snooze / Dismiss. */
 public class AlarmService extends Service {
@@ -77,6 +78,18 @@ public class AlarmService extends Service {
             startForeground(NOTIF_RING, n);
         }
         startSound();
+        // Backup: with "Display over other apps" allowed, open the alarm screen directly, in case the
+        // phone (Xiaomi does this) keeps the full-screen notification as a small banner.
+        if (Settings.canDrawOverlays(this)) {
+            try {
+                Intent screen = new Intent(this, AlarmActivity.class)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                item.putInto(screen);
+                startActivity(screen);
+            } catch (Exception ignored) {
+                // the notification still shows the alarm
+            }
+        }
         main.removeCallbacks(autoStop);
         main.postDelayed(autoStop, AUTO_STOP_MS);
 

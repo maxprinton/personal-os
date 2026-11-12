@@ -100,6 +100,7 @@ public class MainActivity extends Activity {
         root.addView(button("4. Autostart (Xiaomi)", v -> openAutostart()));
         root.addView(button("5. Other permissions: pop-ups and lock screen", v -> openAppSettings()));
         root.addView(button("6. Allow installing updates", v -> openInstallSettings()));
+        root.addView(button("7. Display over other apps", v -> openOverlaySettings()));
 
         setContentView(scroll);
 
@@ -168,6 +169,13 @@ public class MainActivity extends Activity {
 
     private boolean canInstall() {
         return getPackageManager().canRequestPackageInstalls();
+    }
+
+    private void openOverlaySettings() {
+        if (!startActivitySafely(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + getPackageName())))) {
+            openAppSettings();
+        }
     }
 
     private void openInstallSettings() {
@@ -273,6 +281,7 @@ public class MainActivity extends Activity {
                         + mark(canFullScreen()) + " Full-screen alarms\n"
                         + mark(ignoresBattery()) + " No battery limits\n"
                         + mark(canInstall()) + " Installing updates\n"
+                        + mark(Settings.canDrawOverlays(this)) + " Display over other apps\n"
                         + "(Autostart and pop-ups cannot be checked by the app: allow them in steps 4 and 5.)");
     }
 

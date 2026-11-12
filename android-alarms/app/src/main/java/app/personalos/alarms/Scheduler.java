@@ -43,8 +43,13 @@ final class Scheduler {
         Intent show = new Intent(c, MainActivity.class);
         PendingIntent showPi = PendingIntent.getActivity(
                 c, 1, show, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        am(c).setAlarmClock(new AlarmManager.AlarmClockInfo(a.alarmAtMs, showPi),
-                firePi(c, a, PendingIntent.FLAG_UPDATE_CURRENT));
+        PendingIntent fire = firePi(c, a, PendingIntent.FLAG_UPDATE_CURRENT);
+        try {
+            am(c).setAlarmClock(new AlarmManager.AlarmClockInfo(a.alarmAtMs, showPi), fire);
+        } catch (SecurityException e) {
+            // Exact alarms refused by the system: fall back to one that may ring a little late
+            am(c).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, a.alarmAtMs, fire);
+        }
     }
 
     static void cancel(Context c, AlarmItem a) {

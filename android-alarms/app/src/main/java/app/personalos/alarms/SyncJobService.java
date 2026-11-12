@@ -19,7 +19,7 @@ public class SyncJobService extends JobService {
         if (js == null) return;
         JobInfo.Builder b = new JobInfo.Builder(JOB_ID, new ComponentName(c, SyncJobService.class))
                 .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY);
-        if (Build.VERSION.SDK_INT >= 30) {
+        if (Build.VERSION.SDK_INT >= 31) {
             b.setExpedited(true);
         } else {
             b.setOverrideDeadline(0);

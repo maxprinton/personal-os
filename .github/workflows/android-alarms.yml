@@ -19,16 +19,19 @@ concurrency:
 
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    # A fixed, well-known image: it already has the Android SDK installed (no setup step needed).
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
+      - name: Accept the Android SDK licenses
+        continue-on-error: true
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -56,8 +59,9 @@ jobs:
 
       - name: Save it in the repository (Vercel then publishes it)
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Same author as your last commit, so Vercel accepts and publishes this commit too
+          git config user.name "$(git log -1 --format=%an)"
+          git config user.email "$(git log -1 --format=%ae)"
           git add public/downloads
           git commit -m "Android alarms app build ${{ github.run_number }}" || exit 0
           git pull --rebase origin "${{ github.ref_name }}"
