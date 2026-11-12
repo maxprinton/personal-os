@@ -27,7 +27,7 @@ import { ensurePaymentEvents, reschedulePaymentEvents, TEMPLATE_COLS } from "@/l
 import type { RepeatUnit } from "@/lib/calendar/recurrence";
 import { isMobileRequest, READ_ONLY_MESSAGE } from "@/lib/device";
 import type { CalResult, EditScope, FreeDayPolicy, HabitState, Occurrence, PaymentTemplate } from "@/lib/calendar/types";
-import { durationOf, findOccurrenceConflict } from "@/lib/calendar/overlap";
+import { durationOf, findOccurrenceConflict, spillsIntoToday } from "@/lib/calendar/overlap";
 
 /** Thrown when an edit comes from a phone (the calendar is read-only there). */
 class ReadOnlyError extends Error {}
@@ -209,7 +209,8 @@ export async function editOccurrence(input: EditOccurrenceInput): Promise<CalRes
     const occ = await getOccurrence(c.sb, c.userId, input.id);
     if (!occ) return { error: "That block is no longer on the calendar." };
     if (!isDate(input.date)) return { error: "Pick a date." };
-    const locked = pastGuard(c, occ.date, input.date);
+    const spill = spillsIntoToday(occ, c.today);
+    const locked = pastGuard(c, spill ? null : occ.date, spill && input.date === occ.date ? null : input.date);
     if (locked) return locked;
     const bad = checkTimes(input.start, input.end);
     if (bad) return { error: bad };
@@ -218,7 +219,7 @@ export async function editOccurrence(input: EditOccurrenceInput): Promise<CalRes
 
     if (input.scope === "forward") {
       if (!occ.slot_id) return { error: "This block was only for one day, so it has no weekly pattern to change." };
-      if (occ.date < c.today) return { error: "Past days can only be changed for that day." };
+      if (occ.date < c.today && !spill) return { error: "Past days can only be changed for that day." };
       const slot = await getSlot(c.sb, c.userId, occ.slot_id);
       if (!slot) return { error: "The weekly pattern of this block was not found." };
       if (slot.block_type_id !== occ.block_type_id) return { error: DETACHED };
@@ -297,12 +298,13 @@ export async function removeOccurrence(input: { id: string; scope: EditScope }):
     const c = await ctx();
     const occ = await getOccurrence(c.sb, c.userId, input.id);
     if (!occ) return { error: "That block is no longer on the calendar." };
-    const locked = pastGuard(c, occ.date);
+    const spill = spillsIntoToday(occ, c.today);
+    const locked = pastGuard(c, spill ? null : occ.date);
     if (locked) return locked;
 
     if (input.scope === "forward") {
       if (!occ.slot_id) return { error: "This block was only for one day." };
-      if (occ.date < c.today) return { error: "Past days can only be changed for that day." };
+      if (occ.date < c.today && !spill) return { error: "Past days can only be changed for that day." };
       const slot = await getSlot(c.sb, c.userId, occ.slot_id);
       if (!slot) return { error: "The weekly pattern of this block was not found." };
       if (slot.block_type_id !== occ.block_type_id) return { error: DETACHED };
@@ -606,7 +608,8 @@ export async function renameOccurrence(input: {
     if (!current) return { error: "This block was not found." };
     if (input.scope === "all") return await renameBlockType({ id: current.id, name });
     if (name.toLowerCase() === current.name.toLowerCase()) return { error: `It is already called “${current.name}”.` };
-    const locked = pastGuard(c, occ.date);
+    const spill = spillsIntoToday(occ, c.today);
+    const locked = pastGuard(c, spill ? null : occ.date);
     if (locked) return locked;
     const { count } = await c.sb
       .from("habit_checks")
@@ -618,7 +621,7 @@ export async function renameOccurrence(input: {
 
     if (input.scope === "slot_forward") {
       if (!occ.slot_id) return { error: "This block was only for one day, so it has no weekly time. Use “Only this day”." };
-      if (occ.date < c.today) return { error: "Past days can only be renamed for that day." };
+      if (occ.date < c.today && !spill) return { error: "Past days can only be renamed for that day." };
       const slot = await getSlot(c.sb, c.userId, occ.slot_id);
       if (!slot) return { error: "The weekly pattern of this block was not found." };
       if (slot.block_type_id !== occ.block_type_id) return { error: DETACHED };

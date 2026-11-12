@@ -96,3 +96,16 @@ export function assignLanes<T extends { start: number; end: number }>(items: T[]
   });
   return { placed, lanes: Math.max(1, laneEnds.length) };
 }
+
+/**
+ * An overnight block that started yesterday and is still running into today (e.g. 22:00 -> 06:00,
+ * seen at 5:00). Its date is "past", but for editing it counts as today's block: the weekly pattern
+ * can still be changed from today on.
+ */
+export function spillsIntoToday(occ: { date: string; start_time: string; end_time: string }, today: string): boolean {
+  if (occ.date >= today) return false;
+  if (occ.end_time.slice(0, 5) >= occ.start_time.slice(0, 5)) return false;
+  const d = new Date(`${occ.date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10) === today;
+}

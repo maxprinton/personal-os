@@ -3,12 +3,15 @@
 import type { EditScope, Occurrence } from "@/lib/calendar/types";
 import Modal, { btnPrimary, btnSecondary } from "@/components/calendar/Modal";
 import { dayLabel } from "@/components/calendar/util";
+import { spillsIntoToday } from "@/lib/calendar/overlap";
 
 /** Label for the "forward" option, or null when only "this day" is possible. */
-export function forwardLabel(occ: Pick<Occurrence, "slot_id" | "date" | "detached">, today: string) {
+export function forwardLabel(occ: Pick<Occurrence, "slot_id" | "date" | "detached" | "start_time" | "end_time">, today: string) {
   // A day renamed on its own has no weekly pattern of its own
-  if (!occ.slot_id || occ.detached || occ.date < today) return null;
-  return occ.date === today ? "From today on" : `From ${dayLabel(occ.date)} on`;
+  if (!occ.slot_id || occ.detached) return null;
+  // An overnight block from yesterday that is still running counts as today's
+  if (occ.date < today && !spillsIntoToday(occ, today)) return null;
+  return occ.date <= today ? "From today on" : `From ${dayLabel(occ.date)} on`;
 }
 
 /** Two buttons: "Only this day" (default) and "From today on". */
@@ -19,7 +22,7 @@ export function ScopeButtons({
   busy,
   onPick,
 }: {
-  occ: Pick<Occurrence, "slot_id" | "date" | "detached">;
+  occ: Pick<Occurrence, "slot_id" | "date" | "detached" | "start_time" | "end_time">;
   today: string;
   verb: string;
   busy?: boolean;
@@ -52,7 +55,7 @@ export default function ScopeDialog({
 }: {
   title: string;
   detail?: string;
-  occ: Pick<Occurrence, "slot_id" | "date" | "detached">;
+  occ: Pick<Occurrence, "slot_id" | "date" | "detached" | "start_time" | "end_time">;
   today: string;
   verb: string;
   onPick: (scope: EditScope) => void;

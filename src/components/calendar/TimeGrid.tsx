@@ -595,7 +595,7 @@ export default function TimeGrid({
               )}
 
               {/* Blocks */}
-              {blocksPerCol[col].map(({ o, top, bottom, cutTop, cutBottom }) => {
+              {blocksPerCol[col].map(({ o, top, bottom, cutTop, cutBottom, realStart: absStart }) => {
                 const type = typeById.get(o.block_type_id);
                 const color = type?.color ?? "#6366f1";
                 // Moving fades the original; copying (Alt) leaves it as it is
@@ -715,9 +715,11 @@ export default function TimeGrid({
                     {taskRows > 0 && blockTasks.length > taskRows && (
                       <p className="truncate leading-tight opacity-70">+{blockTasks.length - taskRows} more</p>
                     )}
-                    {!readOnly && !cutTop && !cutBottom && (
+                    {!readOnly && !cutBottom && (
+                      // The bottom edge is visible even when the block started the day before (cutTop):
+                      // resize from the block's real top (negative column minute), not the clipped one
                       <div
-                        onPointerDown={(e) => startDrag(e, o, col, top, "resize")}
+                        onPointerDown={(e) => startDrag(e, o, col, absStart - S, "resize")}
                         onPointerMove={moveDrag}
                         onPointerUp={endDrag}
                         className="absolute inset-x-0 bottom-0 h-1.5 cursor-ns-resize"
@@ -798,8 +800,8 @@ export default function TimeGrid({
                     preview.conflict ? "border-danger bg-danger-soft/80 text-danger" : "border-accent bg-surface/70"
                   }`}
                   style={{
-                    top: (preview.top / 60) * H,
-                    height: Math.max(((Math.min(preview.bottom, 1440) - preview.top) / 60) * H, 14),
+                    top: (Math.max(0, preview.top) / 60) * H,
+                    height: Math.max(((Math.min(preview.bottom, 1440) - Math.max(0, preview.top)) / 60) * H, 14),
                   }}
                 >
                   <p className="truncate font-medium">
