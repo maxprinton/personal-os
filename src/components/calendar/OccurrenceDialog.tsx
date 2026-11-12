@@ -10,6 +10,7 @@ import {
   setBlockTypeColor,
   type RenameScope,
   toggleOccurrenceDone,
+  moveHabit,
   updateHabit,
 } from "@/app/calendar-actions";
 import { habitsForOccurrence } from "@/lib/calendar/habitview";
@@ -172,10 +173,33 @@ export default function OccurrenceDialog({
         </div>
         {habits.length === 0 && <p className="text-xs text-muted">No habits in this block.</p>}
         <ul className="space-y-1">
-          {habits.map(({ habit, state }) => (
+          {habits.map(({ habit, state }, idx) => (
             <li key={habit.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
               <span>{habit.name}</span>
               <span className="flex items-center gap-2">
+                {editableHabits && habit.block_type_id === occ.block_type_id && habits.length > 1 && (
+                  // Reorder: saved for every day of this block (and Today, Habits, Telegram)
+                  <span className="flex flex-col leading-none">
+                    <button
+                      type="button"
+                      title="Move up"
+                      disabled={idx === 0}
+                      onClick={() => run(() => moveHabit({ id: habit.id, direction: "up" }))}
+                      className="text-[10px] text-faint hover:text-fg disabled:opacity-20"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      title="Move down"
+                      disabled={idx === habits.length - 1}
+                      onClick={() => run(() => moveHabit({ id: habit.id, direction: "down" }))}
+                      className="text-[10px] text-faint hover:text-fg disabled:opacity-20"
+                    >
+                      ▼
+                    </button>
+                  </span>
+                )}
                 <HabitControls habitId={habit.id} occurrenceId={occ.id} state={state} readOnly={!canMark} compact run={run} />
                 {editableHabits && habit.block_type_id === occ.block_type_id && (
                   <button

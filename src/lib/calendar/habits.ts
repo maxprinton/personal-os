@@ -6,11 +6,21 @@ import { habitRate, habitStreak, type Appearance } from "@/lib/calendar/streaks"
 import { habitProgress, habitsForOccurrence } from "@/lib/calendar/habitview";
 import type { Habit, HabitCheck, HabitState, Occurrence } from "@/lib/calendar/types";
 
+/**
+ * Habits in the order the user chose (habits.sort_order, migration 0056), then by creation.
+ * Without the migration it falls back to creation order.
+ */
 export async function getHabits(sb: SupabaseClient, userId: string, opts: { includeRemoved?: boolean } = {}) {
-  let q = sb.from("habits").select("id,name,block_type_id,active_from,deleted_at").eq("user_id", userId);
-  if (!opts.includeRemoved) q = q.is("deleted_at", null);
-  const { data } = await q.order("created_at");
-  return ((data ?? []) as (Habit & { deleted_at: string | null })[]).map((h) => ({
+  const build = (cols: string) => {
+    let q = sb.from("habits").select(cols).eq("user_id", userId);
+    if (!opts.includeRemoved) q = q.is("deleted_at", null);
+    return q;
+  };
+  const ordered = await build("id,name,block_type_id,active_from,deleted_at")
+    .order("sort_order", { ascending: true, nullsFirst: false })
+    .order("created_at");
+  const { data } = ordered.error ? await build("id,name,block_type_id,active_from,deleted_at").order("created_at") : ordered;
+  return ((data ?? []) as unknown as (Habit & { deleted_at: string | null })[]).map((h) => ({
     id: h.id,
     name: h.name,
     block_type_id: h.block_type_id,

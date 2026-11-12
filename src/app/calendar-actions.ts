@@ -988,6 +988,38 @@ export async function updateHabit(input: { id: string; name?: string; blockTypeI
   }
 }
 
+/**
+ * Move a habit one place up or down among the habits of its block. The order is saved
+ * (habits.sort_order) and used everywhere: block window, Today, focus panel, Habits page, Telegram.
+ */
+export async function moveHabit(input: { id: string; direction: "up" | "down" }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const { data: me } = await c.sb.from("habits").select("id,block_type_id").eq("id", input.id).eq("user_id", c.userId).maybeSingle();
+    if (!me) return { error: "That habit no longer exists." };
+    const blockId = (me as { block_type_id: string | null }).block_type_id;
+    let q = c.sb.from("habits").select("id").eq("user_id", c.userId).is("deleted_at", null);
+    q = blockId ? q.eq("block_type_id", blockId) : q.is("block_type_id", null);
+    const { data: rows, error: readErr } = await q
+      .order("sort_order", { ascending: true, nullsFirst: false })
+      .order("created_at");
+    if (readErr) return { error: "Habit order needs migration 0056 (MIGRACION-0056-orden-de-habitos.sql) in Supabase." };
+    const ids = ((rows ?? []) as { id: string }[]).map((r) => r.id);
+    const i = ids.indexOf(input.id);
+    const j = input.direction === "up" ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= ids.length) return done();
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    const results = await Promise.all(
+      ids.map((id, n) => c.sb.from("habits").update({ sort_order: n }).eq("id", id).eq("user_id", c.userId))
+    );
+    const bad = results.find((r) => r.error);
+    if (bad?.error) return { error: bad.error.message };
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
 /** Stop tracking a habit. Its past marks are kept. */
 export async function removeHabit(input: { id: string }): Promise<CalResult> {
   try {

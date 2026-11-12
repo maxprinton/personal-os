@@ -21,7 +21,9 @@ export function habitsForOccurrence(
       const habit = byId.get(c.habit_id);
       if (habit) out.push({ habit, state: c.state });
     }
-    return out;
+    // Same order as the user chose (habits arrive already sorted)
+    const rank = new Map(habits.map((h, i) => [h.id, i]));
+    return out.sort((a, b) => (rank.get(a.habit.id) ?? 0) - (rank.get(b.habit.id) ?? 0));
   }
   const current = habits.filter(
     (h) => !h.removed && h.block_type_id === occ.block_type_id && h.active_from <= occ.date
