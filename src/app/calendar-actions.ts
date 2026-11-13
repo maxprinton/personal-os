@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { addDays, dateRange, daysBetween, formatDateLong, formatMinutes, isDate, isTime, isoWeekday, localNow, minutesToTime, timeToMinutes, zonedToUtc } from "@/lib/time";
 import { copyBlockNote, releaseBlockNote, renameBlockNote } from "@/lib/block-notes";
+import { cleanRules } from "@/lib/alarm-rules";
 import { ensureOccurrences, getOccurrence, getOccurrences, getSlots } from "@/lib/calendar/model";
 import {
   afterOccurrencesChanged,
@@ -1004,6 +1005,29 @@ export async function setBlockAlarm(input: { blockTypeId: string; minutes: numbe
       .eq("user_id", c.userId);
     if (error) {
       return { error: /alarm_minutes_before/.test(error.message) ? "Alarms need migration 0057 (MIGRACION-0057-alarmas-android.sql) in Supabase." : error.message };
+    }
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/**
+ * Saves the phone-alarm rules of a block name (every day of that block). An empty list = no alarm.
+ * Replaces the old single "minutes before" setting, which is cleared.
+ */
+export async function setBlockAlarmRules(input: { blockTypeId: string; rules: unknown }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    if (!Array.isArray(input.rules)) return { error: "Those alarm rules are not valid." };
+    const rules = cleanRules(input.rules);
+    const { error } = await c.sb
+      .from("block_types")
+      .update({ alarm_rules: rules, alarm_minutes_before: null })
+      .eq("id", input.blockTypeId)
+      .eq("user_id", c.userId);
+    if (error) {
+      return { error: /alarm_rules/.test(error.message) ? "Alarm rules need migration 0058 (MIGRACION-0058-reglas-de-alarma.sql) in Supabase." : error.message };
     }
     return done();
   } catch (e) {

@@ -8,7 +8,7 @@ import android.media.Ringtone;
 import android.media.RingtoneManager;
 import android.net.Uri;
 
-/** The alarm sounds: eight made for this app (inside it) plus anything the phone offers. */
+/** The alarm sounds: eleven made for this app (inside it) plus anything the phone offers. */
 final class Ringtones {
     private Ringtones() {}
 
@@ -31,6 +31,9 @@ final class Ringtones {
     }
 
     static final Sound[] BUNDLED = {
+            new Sound("rooster", "Rooster", "Cock-a-doodle-doo, twice", R.raw.rooster),
+            new Sound("chime", "Soft chime", "Three gentle rising notes", R.raw.chime),
+            new Sound("bell", "Bell", "A ringing alarm-clock bell", R.raw.bell),
             new Sound("sunrise", "Sunrise", "Rising chimes, a kind way to wake up", R.raw.sunrise),
             new Sound("calm", "Calm rise", "A slow, soft swell", R.raw.calm),
             new Sound("bells", "Soft bells", "Gentle bell notes", R.raw.bells),
@@ -40,6 +43,18 @@ final class Ringtones {
             new Sound("digital", "Digital beeps", "The classic alarm clock", R.raw.digital),
             new Sound("alert", "Alert siren", "Loud and impossible to ignore", R.raw.alert),
     };
+
+    /**
+     * The sound to open for a ring: "default" (or an unknown name) means the sound chosen in the app,
+     * anything else is the id of a bundled sound.
+     */
+    static String resolve(Context c, String soundId) {
+        if (soundId != null && !soundId.isEmpty() && !"default".equals(soundId)) {
+            String choice = "raw:" + soundId;
+            if (bundled(choice) != null) return choice;
+        }
+        return Prefs.sound(c);
+    }
 
     static Sound bundled(String choice) {
         if (choice == null || !choice.startsWith("raw:")) return null;
@@ -76,22 +91,27 @@ final class Ringtones {
      * sound, so an alarm is never silent.
      */
     static MediaPlayer open(Context c, String choice) throws Exception {
+        return open(c, choice, true);
+    }
+
+    /** Same, and `loop` false plays the sound once (a quiet heads-up). */
+    static MediaPlayer open(Context c, String choice, boolean loop) throws Exception {
         try {
-            MediaPlayer p = tryOpen(c, choice);
+            MediaPlayer p = tryOpen(c, choice, loop);
             if (p != null) return p;
         } catch (Exception ignored) {
             // fall through to the defaults
         }
         try {
-            MediaPlayer p = tryOpen(c, "");
+            MediaPlayer p = tryOpen(c, "", loop);
             if (p != null) return p;
         } catch (Exception ignored) {
             // fall through to the bundled sound
         }
-        return tryOpen(c, BUNDLED[0].choice());
+        return tryOpen(c, "raw:sunrise", loop);
     }
 
-    private static MediaPlayer tryOpen(Context c, String choice) throws Exception {
+    private static MediaPlayer tryOpen(Context c, String choice, boolean loop) throws Exception {
         MediaPlayer p = new MediaPlayer();
         try {
             p.setAudioAttributes(new AudioAttributes.Builder()
@@ -114,7 +134,7 @@ final class Ringtones {
                 if (uri == null) throw new IllegalStateException("no default alarm sound");
                 p.setDataSource(c, uri);
             }
-            p.setLooping(true);
+            p.setLooping(loop);
             p.prepare();
             return p;
         } catch (Exception e) {

@@ -83,7 +83,7 @@ final class Prefs {
 
     /** The alarm sound: "" = the phone's default alarm, "raw:name" = one bundled in the app, "uri:..." = picked on the phone. */
     static String sound(Context c) {
-        return sp(c).getString("sound", "raw:sunrise");
+        return sp(c).getString("sound", "raw:rooster");
     }
 
     static void setSound(Context c, String choice) {
@@ -105,6 +105,41 @@ final class Prefs {
 
     static void setRamp(Context c, boolean on) {
         sp(c).edit().putBoolean("ramp", on).apply();
+    }
+
+    // ---- Chains the user already answered ("I'm up" / "Got it") ----------------------------------
+    // A sync brings the whole schedule again; without this note it would ring the rest of an answered chain.
+
+    private static JSONObject ackedMap(Context c) {
+        try {
+            JSONObject o = new JSONObject(sp(c).getString("acked", "{}"));
+            long now = System.currentTimeMillis();
+            java.util.Iterator<String> it = o.keys();
+            List<String> old = new ArrayList<>();
+            while (it.hasNext()) {
+                String k = it.next();
+                if (o.optLong(k, 0L) < now) old.add(k);
+            }
+            for (String k : old) o.remove(k);
+            return o;
+        } catch (Exception e) {
+            return new JSONObject();
+        }
+    }
+
+    static void ackChain(Context c, String chain) {
+        if (chain == null || chain.isEmpty()) return;
+        try {
+            JSONObject o = ackedMap(c);
+            o.put(chain, System.currentTimeMillis() + 3L * 86_400_000L);
+            sp(c).edit().putString("acked", o.toString()).apply();
+        } catch (Exception ignored) {
+            // the rest of the chain may ring once more; nothing else is affected
+        }
+    }
+
+    static boolean isAcked(Context c, String chain) {
+        return chain != null && !chain.isEmpty() && ackedMap(c).has(chain);
     }
 
     static List<AlarmItem> alarms(Context c) {

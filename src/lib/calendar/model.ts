@@ -3,6 +3,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDays, dateRange, daysBetween, isoWeekday } from "@/lib/time";
 import type { BlockType, Occurrence, Slot } from "@/lib/calendar/types";
+import { cleanRules } from "@/lib/alarm-rules";
 
 export const SLOT_COLS = "id,block_type_id,weekday,start_time,end_time,valid_from,valid_to";
 export const OCC_COLS = "id,block_type_id,slot_id,origin_date,date,start_time,end_time,status,is_override";
@@ -34,15 +35,18 @@ export async function getBlockTypes(
     if (!opts.includeDeleted) q = q.is("deleted_at", null);
     return q.order("name");
   };
-  // alarm_minutes_before exists after migration 0057; without it everything works as before
-  const withAlarm = await build("id,name,color,deleted_at,alarm_minutes_before");
-  const { data } = withAlarm.error ? await build("id,name,color,deleted_at") : withAlarm;
+  // alarm_minutes_before exists after migration 0057 and alarm_rules after 0058; without them everything works as before
+  let res = await build("id,name,color,deleted_at,alarm_minutes_before,alarm_rules");
+  if (res.error) res = await build("id,name,color,deleted_at,alarm_minutes_before");
+  if (res.error) res = await build("id,name,color,deleted_at");
+  const data = res.data;
   return ((data ?? []) as unknown as (BlockType & { deleted_at: string | null })[]).map((t) => ({
     id: t.id,
     name: t.name,
     color: t.color,
     ...(t.deleted_at ? { removed: true } : {}),
     ...(t.alarm_minutes_before !== undefined && t.alarm_minutes_before !== null ? { alarm_minutes_before: t.alarm_minutes_before } : {}),
+    ...(Array.isArray(t.alarm_rules) ? { alarm_rules: cleanRules(t.alarm_rules) } : {}),
   }));
 }
 

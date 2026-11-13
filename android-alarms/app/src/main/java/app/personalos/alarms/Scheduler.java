@@ -53,7 +53,12 @@ final class Scheduler {
     }
 
     static void cancel(Context c, AlarmItem a) {
-        PendingIntent pi = firePi(c, a, PendingIntent.FLAG_NO_CREATE);
+        cancelId(c, a.id);
+    }
+
+    /** The system finds an alarm by its data address (the id), so a bare item with that id is enough. */
+    static void cancelId(Context c, String id) {
+        PendingIntent pi = firePi(c, new AlarmItem(id, "", "", "", "", "", 0L, 0L, 0), PendingIntent.FLAG_NO_CREATE);
         if (pi != null) {
             am(c).cancel(pi);
             pi.cancel();
@@ -66,7 +71,8 @@ final class Scheduler {
         long now = System.currentTimeMillis();
         List<AlarmItem> keep = new ArrayList<>();
         for (AlarmItem a : fresh) {
-            if (a.alarmAtMs > now) keep.add(a);
+            // rings of a chain the user already answered stay silent
+            if (a.alarmAtMs > now && !Prefs.isAcked(c, a.chain)) keep.add(a);
         }
         Prefs.setAlarms(c, keep);
         for (AlarmItem a : keep) schedule(c, a);
@@ -84,8 +90,27 @@ final class Scheduler {
     static void snooze(Context c, AlarmItem base, int minutes) {
         long when = System.currentTimeMillis() + minutes * 60_000L;
         String id = base.id.startsWith("snooze-") ? base.id : "snooze-" + base.id;
-        schedule(c, new AlarmItem(id, base.title, base.date, base.start, base.end, base.note,
-                base.startsAtMs, when, base.minutesBefore, base.habits, base.tasks));
+        schedule(c, base.snoozedTo(id, when));
+    }
+
+    /**
+     * "I'm up" / "Got it": the rest of this chain never rings. The answer is remembered so a later sync
+     * does not bring the rings back, and a pending snooze of this chain is cancelled too.
+     */
+    static synchronized void answerChain(Context c, AlarmItem item) {
+        if (item == null || item.chain.isEmpty()) return;
+        Prefs.ackChain(c, item.chain);
+        List<AlarmItem> keep = new ArrayList<>();
+        for (AlarmItem a : Prefs.alarms(c)) {
+            if (item.chain.equals(a.chain)) {
+                cancel(c, a);
+                cancelId(c, "snooze-" + a.id);
+            } else {
+                keep.add(a);
+            }
+        }
+        cancelId(c, item.id.startsWith("snooze-") ? item.id : "snooze-" + item.id);
+        Prefs.setAlarms(c, keep);
     }
 
     // ---- The re-reads of Personal OS --------------------------------------------------------

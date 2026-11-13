@@ -1,4 +1,5 @@
 // Calendar v2 types shared by the server and the browser (no imports with side effects).
+import type { AlarmRing } from "@/lib/alarm-rules";
 
 /** removed = the block was deleted (kept so past days still show its name). */
 export type BlockType = {
@@ -8,6 +9,8 @@ export type BlockType = {
   removed?: boolean;
   /** Phone alarm (Android app): minutes before the block starts. null/undefined = no alarm. */
   alarm_minutes_before?: number | null;
+  /** Phone alarm rules (migration 0058): rings anchored to the start/end. null/undefined = use alarm_minutes_before. */
+  alarm_rules?: AlarmRing[] | null;
 };
 
 /** One weekly slot of a block type. weekday is ISO (1 = Monday). end < start = ends next day. */

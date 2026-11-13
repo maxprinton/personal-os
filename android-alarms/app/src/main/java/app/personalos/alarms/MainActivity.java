@@ -373,8 +373,10 @@ public class MainActivity extends Activity {
         alarmsBox.removeAllViews();
         List<AlarmItem> upcoming = new ArrayList<>();
         long now = System.currentTimeMillis();
-        for (AlarmItem a : Prefs.alarms(this)) {
-            if (a.alarmAtMs > now) upcoming.add(a);
+        List<AlarmItem> stored = Prefs.alarms(this);
+        for (AlarmItem a : stored) {
+            // a chain is listed once, by its first coming ring
+            if (a.alarmAtMs > now && !(a.seq > 0 && hasEarlier(stored, a, now))) upcoming.add(a);
         }
         Collections.sort(upcoming, new Comparator<AlarmItem>() {
             @Override
@@ -400,7 +402,10 @@ public class MainActivity extends Activity {
             col.setOrientation(LinearLayout.VERTICAL);
             col.addView(Ui.text(this, a.title.isEmpty() ? "Alarm" : a.title, 15, Ui.TEXT, true));
             String sub = day.format(new Date(a.alarmAtMs));
-            if (a.minutesBefore > 0) sub += "  -  " + a.minutesBefore + " min before";
+            if (a.total > 1) sub += "  -  " + a.total + " rings, every " + a.every + " min";
+            else if (a.isEnd()) sub += "  -  end of the block";
+            else if (a.minutesBefore > 0) sub += "  -  " + a.minutesBefore + " min before";
+            if (a.isNotify()) sub += "  -  quiet";
             col.addView(Ui.text(this, sub, 12, Ui.MUTED, false));
             row.addView(col);
             alarmsBox.addView(row);
@@ -411,6 +416,15 @@ public class MainActivity extends Activity {
 
         drawSound();
         drawChecks();
+    }
+
+    /** True when another stored ring of the same chain comes before this one (so the chain is listed once). */
+    private static boolean hasEarlier(List<AlarmItem> all, AlarmItem a, long now) {
+        if (a.chain.isEmpty()) return false;
+        for (AlarmItem o : all) {
+            if (a.chain.equals(o.chain) && o.alarmAtMs > now && o.alarmAtMs < a.alarmAtMs) return true;
+        }
+        return false;
     }
 
     private void drawSound() {

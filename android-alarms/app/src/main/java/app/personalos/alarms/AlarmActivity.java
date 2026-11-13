@@ -56,7 +56,7 @@ public class AlarmActivity extends Activity {
         root.setBackgroundColor(Ui.BG);
         root.setPadding(dp(20), dp(48), dp(20), dp(28));
 
-        TextView tag = Ui.text(this, "ALARM", 12, Ui.ACCENT, true);
+        TextView tag = Ui.text(this, item != null && item.isEnd() ? "END OF BLOCK" : "ALARM", 12, Ui.ACCENT, true);
         tag.setLetterSpacing(0.2f);
         root.addView(tag);
 
@@ -80,6 +80,18 @@ public class AlarmActivity extends Activity {
             chip.setPadding(dp(14), dp(6), dp(14), dp(6));
             root.addView(chip);
         }
+        // Where this ring is: "Starts now", "Ended 5 min ago", and "Ring 2 of 4" when it is part of a chain
+        if (item != null) {
+            String when = item.whenLabel(System.currentTimeMillis());
+            String ring = item.ringLabel();
+            String line = when.isEmpty() ? ring : (ring.isEmpty() ? when : when + "  -  " + ring);
+            if (!line.isEmpty()) {
+                TextView sub = Ui.text(this, line, 14, Ui.MUTED, false);
+                sub.setGravity(Gravity.CENTER);
+                sub.setPadding(0, dp(8), 0, 0);
+                root.addView(sub);
+            }
+        }
 
         // Habits and tasks of the block; they scroll if the list is long
         LinearLayout card = Ui.card(this, null);
@@ -99,20 +111,29 @@ public class AlarmActivity extends Activity {
         listLp.bottomMargin = dp(18);
         root.addView(scroll, listLp);
 
-        Button snooze = Ui.button(this, "Snooze 10 min", false, (View v) -> {
-            Intent i = new Intent(this, AlarmService.class).setAction(AlarmService.ACTION_SNOOZE);
+        // The second button silences this ring (more rings are coming) or snoozes it (the last ring of a start);
+        // at the end of a block there is none. The main button answers: "I'm up" / "Got it" / "Dismiss".
+        String second = item == null ? "Snooze 10 min" : AlarmService.secondLabel(item);
+        if (second != null) {
+            Button snooze = Ui.button(this, second, false, (View v) -> {
+                Intent i = new Intent(this, AlarmService.class).setAction(AlarmService.ACTION_SNOOZE);
+                if (item != null) item.putInto(i);
+                startService(i);
+            });
+            snooze.setTextSize(18);
+            root.addView(snooze, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(60)));
+        }
+
+        String ackText = item == null ? "Dismiss" : AlarmService.ackLabel(item);
+        Button dismiss = Ui.button(this, ackText, true, (View v) -> {
+            Intent i = new Intent(this, AlarmService.class).setAction(AlarmService.ACTION_ACK);
             if (item != null) item.putInto(i);
             startService(i);
         });
-        snooze.setTextSize(18);
-        root.addView(snooze, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(60)));
-
-        Button dismiss = Ui.button(this, "Dismiss", true, (View v) ->
-                startService(new Intent(this, AlarmService.class).setAction(AlarmService.ACTION_STOP)));
         dismiss.setTextSize(20);
         LinearLayout.LayoutParams dismissLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(68));
-        dismissLp.topMargin = dp(10);
+        if (second != null) dismissLp.topMargin = dp(10);
         root.addView(dismiss, dismissLp);
 
         setContentView(root);
