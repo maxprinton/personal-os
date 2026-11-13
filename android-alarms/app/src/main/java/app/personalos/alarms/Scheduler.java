@@ -6,11 +6,14 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
-/** Sets and cancels the real alarms, and the nightly re-reads of Personal OS. */
+/** Sets and cancels the real alarms, and the hourly re-reads of Personal OS. */
 final class Scheduler {
     private Scheduler() {}
 
@@ -129,13 +132,28 @@ final class Scheduler {
         return best;
     }
 
-    /** Arms the next re-read. It may arrive a few minutes late when the phone is in deep sleep. */
+    /**
+     * Arms the next re-read. Exact (on time even in deep sleep) when the phone allows it, otherwise the
+     * relaxed kind. Before replacing the stored time it checks whether the previous one really ran:
+     * if it came much later than planned, or not at all, the diary says so.
+     */
     static void armNextSync(Context c) {
+        long now = System.currentTimeMillis();
+        long due = Prefs.nextSyncMs(c);
+        if (due > 0L && due < now - 20 * 60_000L) {
+            SimpleDateFormat hm = new SimpleDateFormat("HH:mm", Locale.getDefault());
+            RingLog.add(c, RingLog.BAD, "The automatic sync due at " + hm.format(new Date(due)) + " only ran at "
+                    + hm.format(new Date(now)) + ". The phone is holding this app back in the background.");
+        }
         Intent i = new Intent(c, SyncReceiver.class).setAction(ACTION_SYNC);
         PendingIntent pi = PendingIntent.getBroadcast(
                 c, 2, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        long when = nextSyncMs(System.currentTimeMillis());
-        am(c).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pi);
+        long when = nextSyncMs(now);
+        try {
+            am(c).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pi);
+        } catch (SecurityException e) {
+            am(c).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pi);
+        }
         Prefs.setNextSync(c, when);
     }
 }

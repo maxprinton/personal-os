@@ -1,0 +1,5 @@
+Alarms app: hourly sync no longer dies silently
+
+- The x:05 / x:45 re-read is armed as an exact alarm (setExactAndAllowWhileIdle), with the relaxed one as fallback.
+- It now runs in a short foreground service (SyncService, dataSync) right when the alarm fires, instead of going through JobScheduler, which Xiaomi / standby buckets postpone.
+- The diary records when an automatic sync ran much later than planned or not at all.
