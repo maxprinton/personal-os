@@ -1,0 +1,6 @@
+Alarms app: alarm diary + tickable Xiaomi steps
+
+- New diary card (What happened to your alarms): alarm time reached, sound started, alarm screen opened, late or refused starts, and alarms that NEVER RANG (flagged on the next sync / app open).
+- Warns when the sound plays but the alarm screen does not open (Xiaomi pop-up / lock screen permission).
+- Xiaomi steps the app cannot read are now separate rows with Open + I did it: Autostart, Battery saver No restrictions, Pop-ups in background, Show on lock screen, Locked in recents.
+- Open button for pop-ups / lock screen goes straight to the app's Other permissions page.

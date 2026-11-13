@@ -46,6 +46,9 @@ public class MainActivity extends Activity {
     private LinearLayout nowBox;
     private LinearLayout soundBox;
     private LinearLayout checksBox;
+    private LinearLayout logBox;
+    /** Xiaomi / HyperOS steps the app cannot read: the user ticks them by hand ("I did it"). */
+    private static final String[] XIAOMI_KEYS = {"autostart", "batterysaver", "popups", "lockscreen", "recents"};
     private TextView checksSummary;
     private LinearLayout updateCard;
     private TextView updateView;
@@ -143,6 +146,20 @@ public class MainActivity extends Activity {
         checks.addView(checksBox);
         root.addView(checks, Ui.wrap(this, 12));
 
+        // ---- What happened to the alarms
+        LinearLayout logCard = Ui.card(this, "What happened to your alarms");
+        logCard.addView(Ui.text(this, "After a test, or a morning when nothing rang, read this from the top. "
+                + "It shows how far each alarm got.", 13, Ui.MUTED, false));
+        logBox = new LinearLayout(this);
+        logBox.setOrientation(LinearLayout.VERTICAL);
+        logBox.setPadding(0, dp(8), 0, 0);
+        logCard.addView(logBox);
+        logCard.addView(Ui.button(this, "Clear the log", false, v -> {
+            RingLog.clear(this);
+            refresh();
+        }), Ui.wrap(this, 10));
+        root.addView(logCard, Ui.wrap(this, 12));
+
         versionView = Ui.text(this, "", 12, Ui.MUTED, false);
         versionView.setGravity(Gravity.CENTER);
         versionView.setPadding(0, dp(18), 0, 0);
@@ -172,6 +189,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         Scheduler.armNextSync(this);
+        RingLog.flagMissed(this);
         final boolean fromNotification = getIntent() != null && getIntent().getBooleanExtra("install_update", false);
         if (fromNotification) getIntent().removeExtra("install_update");
         // Opening the app is also a re-read, so the list is fresh when you look at it.
@@ -329,7 +347,9 @@ public class MainActivity extends Activity {
         long when = System.currentTimeMillis() + 15_000L;
         Scheduler.schedule(this, new AlarmItem("test", "Test alarm", "", "", "",
                 "If you can see and hear this, your alarms work.", when, when, 0));
-        Toast.makeText(this, "Lock the screen. It rings in 15 seconds.", Toast.LENGTH_LONG).show();
+        RingLog.add(this, RingLog.INFO, "Test alarm set for "
+                + new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date(when)) + ".");
+        Toast.makeText(this, "Lock the screen and swipe this app out of recent apps. It rings in 15 seconds.", Toast.LENGTH_LONG).show();
     }
 
     // ---- Drawing ----------------------------------------------------------------------------
@@ -423,6 +443,7 @@ public class MainActivity extends Activity {
         drawNow();
         drawSound();
         drawChecks();
+        drawLog();
     }
 
     /** The cards that only matter at certain moments. */
@@ -523,10 +544,13 @@ public class MainActivity extends Activity {
         boolean b = ignoresBattery();
         boolean u = canInstall();
         boolean o = Settings.canDrawOverlays(this);
-        int missing = (n ? 0 : 1) + (f ? 0 : 1) + (b ? 0 : 1) + (o ? 0 : 1);
+        int manualMissing = 0;
+        for (String k : XIAOMI_KEYS) if (!RingLog.manual(this, k)) manualMissing++;
+        int missing = (n ? 0 : 1) + (f ? 0 : 1) + (b ? 0 : 1) + (o ? 0 : 1) + manualMissing;
         checksSummary.setText(missing == 0
-                ? "All the checkable steps are done. Allow the two Xiaomi steps too, then press Test alarm with the screen locked."
-                : missing + (missing == 1 ? " step" : " steps") + " left. Xiaomi stops apps in the background unless you allow all of these.");
+                ? "Everything is done. Now press Test alarm, lock the screen, swipe this app out of recent apps, and read the log below."
+                : missing + (missing == 1 ? " step" : " steps") + " left. Xiaomi stops apps in the background unless you allow all of these. "
+                + "The app cannot see the Xiaomi steps: turn each one on, come back and tap \"I did it\".");
         checksSummary.setTextColor(missing == 0 ? Ui.OK : Ui.MUTED);
 
         checkRow("Notifications", n ? 1 : 0, "Allow", v -> askNotifications());
@@ -534,8 +558,69 @@ public class MainActivity extends Activity {
         checkRow("No battery limits", b ? 1 : 0, "Allow", v -> openBatterySettings());
         checkRow("Display over other apps", o ? 1 : 0, "Allow", v -> openOverlaySettings());
         checkRow("Installing updates", u ? 1 : 0, "Allow", v -> openInstallSettings());
-        checkRow("Autostart (Xiaomi)", -1, "Open", v -> openAutostart());
-        checkRow("Pop-ups and lock screen (Xiaomi)", -1, "Open", v -> openAppSettings());
+        manualRow("Autostart (Xiaomi)", "autostart", v -> openAutostart());
+        manualRow("Battery saver: No restrictions (Xiaomi)", "batterysaver", v -> openAppSettings());
+        manualRow("Pop-ups while running in background (Xiaomi)", "popups", v -> openXiaomiPermissions());
+        manualRow("Show on lock screen (Xiaomi)", "lockscreen", v -> openXiaomiPermissions());
+        manualRow("App locked in recent apps (Xiaomi)", "recents", v -> Toast.makeText(this,
+                "Open recent apps, long-press this app's card and tap the lock.", Toast.LENGTH_LONG).show());
+    }
+
+    /** A step the app cannot read (Xiaomi): "Open" goes to the setting, "I did it" ticks it by hand. */
+    private void manualRow(String title, String key, View.OnClickListener open) {
+        final boolean done = RingLog.manual(this, key);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(7), 0, dp(7));
+        row.addView(Ui.dot(this, done ? Ui.OK : Ui.WARN));
+        TextView t = Ui.text(this, title, 15, Ui.TEXT, false);
+        row.addView(t, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(Ui.smallButton(this, "Open", open));
+        Button mark = Ui.smallButton(this, done ? "Undo" : "I did it", v -> {
+            RingLog.setManual(this, key, !RingLog.manual(this, key));
+            drawChecks();
+        });
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        p.leftMargin = dp(6);
+        row.addView(mark, p);
+        checksBox.addView(row);
+    }
+
+    /** The Xiaomi page "Other permissions" of this app (pop-ups, lock screen); the plain app page if it is not there. */
+    private void openXiaomiPermissions() {
+        Intent i = new Intent("miui.intent.action.APP_PERM_EDITOR");
+        i.setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity");
+        i.putExtra("extra_pkgname", getPackageName());
+        if (!startActivitySafely(i)) {
+            Toast.makeText(this, "Open Permissions > Other permissions and allow pop-ups and lock screen.", Toast.LENGTH_LONG).show();
+            openAppSettings();
+        }
+    }
+
+    /** The diary: newest first, coloured by how bad each line is. */
+    private void drawLog() {
+        logBox.removeAllViews();
+        List<RingLog.Entry> entries = RingLog.entries(this);
+        if (entries.isEmpty()) {
+            logBox.addView(Ui.text(this, "Nothing yet. Press Test alarm in 15 seconds and the steps will show here.",
+                    14, Ui.MUTED, false));
+            return;
+        }
+        SimpleDateFormat when = new SimpleDateFormat("EEE d MMM HH:mm:ss", Locale.getDefault());
+        for (int i = 0; i < entries.size() && i < 30; i++) {
+            RingLog.Entry e = entries.get(i);
+            int color = RingLog.BAD.equals(e.kind) ? Ui.BAD
+                    : RingLog.WARN.equals(e.kind) ? Ui.WARN
+                    : RingLog.OK.equals(e.kind) ? Ui.OK : Ui.TEXT;
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.VERTICAL);
+            row.setPadding(0, dp(5), 0, dp(5));
+            row.addView(Ui.text(this, when.format(new Date(e.t)), 11, Ui.MUTED, false));
+            row.addView(Ui.text(this, e.text, 13, color, RingLog.BAD.equals(e.kind)));
+            logBox.addView(row);
+        }
     }
 
     /** state: 1 = done, 0 = missing, -1 = the app cannot check it. */

@@ -38,10 +38,17 @@ public class AlarmActivity extends Activity {
     private String checkinDate = "";
     private boolean showingCheckin;
 
+    /** When the alarm screen last opened (the service checks it a few seconds after the sound starts). */
+    static volatile long lastShownMs = 0L;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         instance = this;
+        lastShownMs = System.currentTimeMillis();
+        if (getIntent() == null || !getIntent().getBooleanExtra("checkinOnly", false)) {
+            RingLog.add(this, RingLog.OK, "Alarm screen opened.");
+        }
         setShowWhenLocked(true);
         setTurnScreenOn(true);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -51,6 +58,7 @@ public class AlarmActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        lastShownMs = System.currentTimeMillis();
         // While the check-in is open, a new intent must not wipe what was picked
         if (showingCheckin && AlarmService.checkinItem != null) return;
         setIntent(intent);

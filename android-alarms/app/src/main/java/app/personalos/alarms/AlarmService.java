@@ -168,6 +168,7 @@ public class AlarmService extends Service {
         current = item;
         ensureChannels();
         Answers.rang(this, item);
+        RingLog.add(this, RingLog.OK, "Sound started: " + RingLog.label(item) + ".");
         // Morning: last night's "Going to sleep" reminder is no longer needed
         if (item.wake) getSystemService(NotificationManager.class).cancel(NOTIF_SLEEP);
         Notification n = buildNotification(item);
@@ -190,10 +191,22 @@ public class AlarmService extends Service {
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
                     item.putInto(screen);
                     startActivity(screen);
-                } catch (Exception ignored) {
+                } catch (Exception e) {
                     // the notification still shows the alarm
+                    RingLog.add(this, RingLog.BAD, "Opening the alarm screen was refused (" + e.getClass().getSimpleName() + ").");
                 }
+            } else {
+                RingLog.add(this, RingLog.WARN, "\"Display over other apps\" is off, so the alarm screen can only come from the notification.");
             }
+            // Six seconds later: did the screen really open? (Xiaomi blocks it without pop-up / lock screen permission)
+            final long ringStartedAt = System.currentTimeMillis();
+            final AlarmItem ringing = item;
+            main.postDelayed(() -> {
+                if (current == ringing && player != null && AlarmActivity.lastShownMs < ringStartedAt) {
+                    RingLog.add(this, RingLog.BAD, "The sound played but the alarm screen did NOT open. On Xiaomi turn on "
+                            + "\"Display pop-up windows while running in background\" and \"Show on lock screen\" for this app.");
+                }
+            }, 6000L);
             main.postDelayed(autoStop, AUTO_STOP_MS);
         }
 

@@ -34,12 +34,15 @@ final class Sync {
     }
 
     private static Result fail(Context c, boolean retry, String message) {
+        RingLog.add(c, retry ? RingLog.WARN : RingLog.BAD, "Sync failed: " + message);
         Prefs.setSync(c, System.currentTimeMillis(), false, message);
         return new Result(false, retry, message, 0);
     }
 
     static synchronized Result run(Context ctx) {
         Context c = ctx.getApplicationContext();
+        // Before the list is replaced: which alarms of the last day never reached the app?
+        RingLog.flagMissed(c);
         String base = Prefs.baseUrl(c);
         String key = Prefs.key(c);
         if (base.isEmpty() || key.isEmpty()) {
