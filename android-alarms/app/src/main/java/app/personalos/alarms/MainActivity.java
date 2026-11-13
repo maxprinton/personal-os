@@ -43,6 +43,7 @@ public class MainActivity extends Activity {
     private TextView statusTitle;
     private TextView statusDetail;
     private LinearLayout alarmsBox;
+    private LinearLayout nowBox;
     private LinearLayout soundBox;
     private LinearLayout checksBox;
     private TextView checksSummary;
@@ -87,6 +88,11 @@ public class MainActivity extends Activity {
         statusDetail.setPadding(0, dp(6), 0, 0);
         statusCard.addView(statusDetail);
         root.addView(statusCard, Ui.wrap(this, 14));
+
+        // ---- Right now: a morning check-in that wasn't saved, or "Going to sleep" in the evening
+        nowBox = new LinearLayout(this);
+        nowBox.setOrientation(LinearLayout.VERTICAL);
+        root.addView(nowBox, Ui.wrap(this, 0));
 
         // ---- Update (only visible when there is one)
         updateCard = Ui.card(this, "Update ready");
@@ -385,7 +391,7 @@ public class MainActivity extends Activity {
             }
         });
         if (upcoming.isEmpty()) {
-            alarmsBox.addView(Ui.text(this, "None yet. Mark a block with \"Ring an alarm on my phone\" in Personal OS.",
+            alarmsBox.addView(Ui.text(this, "None yet. In Personal OS, open a block and turn on \"Ring alarms on my phone\".",
                     14, Ui.MUTED, false));
         }
         SimpleDateFormat day = new SimpleDateFormat("EEE d MMM", Locale.getDefault());
@@ -414,8 +420,45 @@ public class MainActivity extends Activity {
             alarmsBox.addView(Ui.text(this, "+ " + (upcoming.size() - 8) + " more", 12, Ui.MUTED, false));
         }
 
+        drawNow();
         drawSound();
         drawChecks();
+    }
+
+    /** The cards that only matter at certain moments. */
+    private void drawNow() {
+        nowBox.removeAllViews();
+        String pending = Prefs.checkinPending(this);
+        if (!pending.isEmpty() && !Prefs.checkinDone(this, pending)) {
+            LinearLayout card = Ui.card(this, null);
+            card.addView(Ui.text(this, "Morning check-in", 17, Ui.TEXT, true));
+            card.addView(Ui.text(this, "Not saved yet. It takes 20 seconds.", 14, Ui.MUTED, false));
+            card.addView(Ui.button(this, "Fill in the check-in", true, v -> startActivity(
+                    new Intent(this, AlarmActivity.class).putExtra("checkinOnly", true).putExtra("checkinDate", pending))),
+                    Ui.wrap(this, 10));
+            nowBox.addView(card, Ui.wrap(this, 12));
+        }
+        int hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+        if (hour >= 18 || hour < 4) {
+            long slept = Prefs.sleptAt(this);
+            boolean savedTonight = slept > 0 && System.currentTimeMillis() - slept < 10 * 3600_000L;
+            LinearLayout card = Ui.card(this, null);
+            card.addView(Ui.text(this, "Tonight", 17, Ui.TEXT, true));
+            if (savedTonight) {
+                SimpleDateFormat hm = new SimpleDateFormat("HH:mm", Locale.getDefault());
+                card.addView(Ui.text(this, "Bedtime saved at " + hm.format(new Date(slept)) + ". Good night.", 14, Ui.MUTED, false));
+            } else {
+                card.addView(Ui.text(this, "Tap when you go to sleep. It saves your bedtime.", 14, Ui.MUTED, false));
+                card.addView(Ui.button(this, "Going to sleep", false, v -> {
+                    Answers.sleep(this);
+                    NotificationManager nm = getSystemService(NotificationManager.class);
+                    if (nm != null) nm.cancel(AlarmService.NOTIF_SLEEP);
+                    Toast.makeText(this, "Bedtime saved. Good night.", Toast.LENGTH_SHORT).show();
+                    refresh();
+                }), Ui.wrap(this, 10));
+            }
+            nowBox.addView(card, Ui.wrap(this, 12));
+        }
     }
 
     /** True when another stored ring of the same chain comes before this one (so the chain is listed once). */

@@ -19,7 +19,7 @@ import {
   unassignedText,
   type ReminderSettings,
 } from "@/lib/reminders";
-import { addDays, formatMinutes, timeToMinutes } from "@/lib/time";
+import { addDays, formatMinutes, timeToMinutes, utcToLocal } from "@/lib/time";
 import { habitRow } from "@/lib/bot/habits";
 import { blockDoneRow, payRow } from "@/lib/bot/calendar";
 import { makeCtx } from "@/lib/bot/core";
@@ -53,11 +53,28 @@ async function send(chatId: number, text: string, keyboard?: { text: string; cal
   await tg("sendMessage", { chat_id: chatId, text, ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}) });
 }
 
-async function runForUser(admin: SupabaseClient, s: ReminderSettings & { blockEnd?: boolean }) {
+type PhoneLink = { linked: boolean; lastSync: string | null };
+
+async function runForUser(admin: SupabaseClient, s: ReminderSettings & { blockEnd?: boolean; phone?: PhoneLink }) {
   const now = nowFor(s);
   const date = now.date;
   const day = await dayData(admin, s, date);
   let sent = 0;
+  // Blocks that ring on the phone: the phone acts, Telegram stays quiet before and after them
+  const leftToPhone = (i: { kind: string; phoneAlarm?: boolean }) => Boolean(s.phone?.linked && i.kind === "block" && i.phoneAlarm);
+
+  // ⏰ The phone stopped reading its alarms for 3+ hours (daytime only): one warning per silence
+  if (s.phone?.linked && s.phone.lastSync && now.minutes >= 6 * 60 && now.minutes < 23 * 60) {
+    const quietFor = Date.now() - Date.parse(s.phone.lastSync);
+    if (quietFor > 3 * 3600_000 && (await claim(admin, s.user_id, "alarmsync", s.phone.lastSync))) {
+      const since = formatMinutes(utcToLocal(s.phone.lastSync, s.timezone).minutes);
+      await send(
+        s.telegram_chat_id,
+        `⏰ Your phone hasn't synced its alarms since ${since}. Open Personal OS Alarms on the phone so your next alarms are right.`
+      );
+      sent++;
+    }
+  }
 
   if (s.reminder_morning_enabled) {
     const at = timeToMinutes(s.reminder_morning_time);
@@ -85,6 +102,7 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings & { blockEn
 
   if (s.reminder_before_minutes > 0) {
     for (const item of day.items) {
+      if (leftToPhone(item)) continue;
       const diff = item.start - now.minutes;
       if (diff > 0 && diff <= s.reminder_before_minutes) {
         if (await claim(admin, s.user_id, "before", `${item.kind}:${item.id}:${date}`)) {
@@ -148,7 +166,9 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings & { blockEn
 
   // When a block ends: what is still open in it (tasks, habits), with ✓ for the block
   if (s.blockEnd) {
-    const ended = day.items.filter((i) => i.kind === "block" && i.end <= 1440 && now.minutes >= i.end && now.minutes < i.end + 20);
+    const ended = day.items.filter(
+      (i) => i.kind === "block" && !leftToPhone(i) && i.end <= 1440 && now.minutes >= i.end && now.minutes < i.end + 20
+    );
     if (ended.length) {
       const { data: occRows } = await admin
         .from("block_occurrences")
@@ -261,6 +281,18 @@ async function settlePendingAccounts(admin: SupabaseClient, s: ReminderSettings 
   return sent;
 }
 
+/** Who has the phone app linked (an alarm key) and when it last synced (migration 0059; empty before it). */
+async function phoneLinks(admin: SupabaseClient) {
+  const map = new Map<string, PhoneLink>();
+  let res = await admin.from("user_settings").select("user_id,alarm_key_hash,alarm_last_sync_at");
+  if (res.error) res = await admin.from("user_settings").select("user_id,alarm_key_hash");
+  if (res.error) return map;
+  for (const r of (res.data ?? []) as { user_id: string; alarm_key_hash: string | null; alarm_last_sync_at?: string | null }[]) {
+    map.set(r.user_id, { linked: Boolean(r.alarm_key_hash), lastSync: r.alarm_last_sync_at ?? null });
+  }
+  return map;
+}
+
 /** reminder_block_end (migration 0019); ON when the column doesn't exist yet. */
 async function blockEndPrefs(admin: SupabaseClient) {
   const { data, error } = await admin.from("user_settings").select("user_id,reminder_block_end");
@@ -335,9 +367,10 @@ export async function POST(req: Request) {
   const { data } = await admin.from("user_settings").select(REMINDER_COLUMNS).not("telegram_chat_id", "is", null);
   let sent = 0;
   const blockEnd = await blockEndPrefs(admin);
+  const phones = await phoneLinks(admin);
   for (const s of (data ?? []) as unknown as ReminderSettings[]) {
     try {
-      sent += await runForUser(admin, { ...s, blockEnd: blockEnd.get(s.user_id) ?? true });
+      sent += await runForUser(admin, { ...s, blockEnd: blockEnd.get(s.user_id) ?? true, phone: phones.get(s.user_id) });
     } catch {
       // one user's problem must not stop the others
     }

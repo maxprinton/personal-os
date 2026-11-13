@@ -31,8 +31,14 @@ public class AlarmService extends Service {
     static final String ACTION_SNOOZE = "app.personalos.alarms.SNOOZE";
     /** Just stop the sound. */
     static final String ACTION_STOP = "app.personalos.alarms.STOP";
-    /** "I'm up" / "Got it": stop the sound and cancel the rest of the chain. */
+    /** An answer (extra "answer": Started, Skip today, Done...): stop the sound and cancel the rest of the chain. */
     static final String ACTION_ACK = "app.personalos.alarms.ACK";
+    /** "I'm up" on a wake ring with a check-in to do: the chain stops, the sound goes on until the check-in is saved. */
+    static final String ACTION_CHECKIN_START = "app.personalos.alarms.CHECKIN_START";
+    /** The check-in was saved: stop the sound. */
+    static final String ACTION_CHECKIN_DONE = "app.personalos.alarms.CHECKIN_DONE";
+    /** The wake ring whose check-in is open right now (null = none). The alarm screen shows the check-in while set. */
+    static volatile AlarmItem checkinItem;
 
     private static final String CHANNEL_RING = "alarm_ring";
     private static final String CHANNEL_MISSED = "alarm_missed";
@@ -40,6 +46,10 @@ public class AlarmService extends Service {
     private static final int NOTIF_RING = 4242;
     private static final int NOTIF_MISSED = 4243;
     private static final int NOTIF_NOTE_BASE = 4300;
+    static final int NOTIF_SLEEP = 4250;
+    static final int NOTIF_CHECKIN = 4251;
+    /** The rooster stops by itself if the check-in isn't saved within 30 minutes. */
+    private static final long CHECKIN_MAX_MS = 30 * 60 * 1000L;
     private static final int SNOOZE_MINUTES = 10;
     private static final long AUTO_STOP_MS = 5 * 60 * 1000L;
     /** A quiet heads-up never plays longer than this, even if its sound is long. */
@@ -48,6 +58,7 @@ public class AlarmService extends Service {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Runnable autoStop = () -> stopRinging(true);
     private final Runnable notifyDone = this::finishNotify;
+    private final Runnable checkinTimeout = this::checkinTimedOut;
     private float rampStart = 0.15f;
     private int rampSteps = 30;
     private static final long RAMP_TICK_MS = 1000L;
@@ -88,15 +99,59 @@ public class AlarmService extends Service {
         if (ACTION_ACK.equals(action)) {
             AlarmItem item = AlarmItem.from(intent);
             if (item == null) item = current;
+            String answer = intent.getStringExtra("answer");
+            if (answer == null || answer.isEmpty()) answer = defaultAnswer(item);
+            Answers.answer(this, item, answer);
             Scheduler.answerChain(this, item);
+            // The Sleep routine started: a quiet notification waits for "Going to sleep"
+            if (item != null && item.bed && Answers.STARTED.equals(answer) && !intent.getBooleanExtra("sleptNow", false)) {
+                showSleepNotification();
+            }
+            if (intent.getBooleanExtra("sleptNow", false)) Answers.sleep(this);
             stopRinging(false);
             return START_NOT_STICKY;
         }
         if (ACTION_SNOOZE.equals(action)) {
+            // During the check-in the alarm can only be stopped by saving it
+            if (checkinItem != null) return START_NOT_STICKY;
             AlarmItem item = AlarmItem.from(intent);
             if (item == null) item = current;
             // With more rings coming the chain is already the "snooze"; the last ring of a start can be snoozed.
-            if (item != null && !item.hasMore() && !item.isEnd()) Scheduler.snooze(this, item, SNOOZE_MINUTES);
+            if (item != null && !item.hasMore() && !item.isEnd()) {
+                Scheduler.snooze(this, item, SNOOZE_MINUTES);
+                Answers.answer(this, item, Answers.SNOOZE);
+            } else {
+                Answers.answer(this, item, Answers.SILENCE);
+            }
+            stopRinging(false);
+            return START_NOT_STICKY;
+        }
+        if (ACTION_CHECKIN_START.equals(action)) {
+            AlarmItem item = AlarmItem.from(intent);
+            if (item == null) item = current;
+            if (item != null) {
+                checkinItem = item;
+                Answers.answer(this, item, Answers.STARTED); // the wake-up time
+                Prefs.setWokeAt(this, System.currentTimeMillis());
+                Prefs.setCheckinPending(this, item.date);
+                Scheduler.answerChain(this, item); // no more rings: this one keeps sounding instead
+                getSystemService(NotificationManager.class).notify(NOTIF_RING, checkinNotification(item));
+                main.removeCallbacks(autoStop);
+                main.removeCallbacks(checkinTimeout);
+                main.postDelayed(checkinTimeout, CHECKIN_MAX_MS);
+                if (wake != null && wake.isHeld()) wake.release();
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                if (pm != null) {
+                    wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "personalos:checkin");
+                    wake.acquire(CHECKIN_MAX_MS + 5000);
+                }
+            }
+            return START_NOT_STICKY;
+        }
+        if (ACTION_CHECKIN_DONE.equals(action)) {
+            checkinItem = null;
+            main.removeCallbacks(checkinTimeout);
+            getSystemService(NotificationManager.class).cancel(NOTIF_CHECKIN);
             stopRinging(false);
             return START_NOT_STICKY;
         }
@@ -112,6 +167,9 @@ public class AlarmService extends Service {
         releaseSound();
         current = item;
         ensureChannels();
+        Answers.rang(this, item);
+        // Morning: last night's "Going to sleep" reminder is no longer needed
+        if (item.wake) getSystemService(NotificationManager.class).cancel(NOTIF_SLEEP);
         Notification n = buildNotification(item);
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(NOTIF_RING, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
@@ -150,7 +208,70 @@ public class AlarmService extends Service {
         releaseSound();
         main.removeCallbacks(autoStop);
         main.removeCallbacks(notifyDone);
+        main.removeCallbacks(checkinTimeout);
         super.onDestroy();
+    }
+
+    /** The answer of the main button when a notification or older screen gives none. */
+    static String defaultAnswer(AlarmItem item) {
+        if (item == null || item.occurrenceId.isEmpty()) return Answers.DISMISS;
+        return item.isEnd() ? Answers.DONE : Answers.STARTED;
+    }
+
+    /** While the check-in is open: no buttons, tapping opens the check-in. */
+    private Notification checkinNotification(AlarmItem item) {
+        Intent screen = new Intent(this, AlarmActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        item.putInto(screen);
+        PendingIntent screenPi = PendingIntent.getActivity(
+                this, 10, screen, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        return new Notification.Builder(this, CHANNEL_RING)
+                .setSmallIcon(R.drawable.ic_alarm_small)
+                .setContentTitle("Morning check-in")
+                .setContentText("Save it to stop the alarm.")
+                .setCategory(Notification.CATEGORY_ALARM)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setOngoing(true)
+                .setContentIntent(screenPi)
+                .setFullScreenIntent(screenPi, true)
+                .build();
+    }
+
+    /** After the Sleep routine starts: a quiet, lasting notification with a "Going to sleep" button. */
+    private void showSleepNotification() {
+        ensureChannels();
+        Intent tap = new Intent(this, SleepReceiver.class).setAction(SleepReceiver.ACTION_SLEEP);
+        PendingIntent tapPi = PendingIntent.getBroadcast(this, 30, tap, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        getSystemService(NotificationManager.class).notify(NOTIF_SLEEP, new Notification.Builder(this, CHANNEL_NOTE)
+                .setSmallIcon(R.drawable.ic_alarm_small)
+                .setContentTitle("Tap when you go to sleep")
+                .setContentText("Your bedtime is saved the moment you tap.")
+                .setOngoing(true)
+                .setContentIntent(tapPi)
+                .addAction(new Notification.Action.Builder(
+                        Icon.createWithResource(this, R.drawable.ic_alarm_small), "Going to sleep", tapPi).build())
+                .build());
+    }
+
+    /** 30 minutes without saving the check-in: stop the sound, leave a notification that opens it. */
+    private void checkinTimedOut() {
+        AlarmItem item = checkinItem;
+        checkinItem = null;
+        stopRinging(false);
+        if (item == null) return;
+        ensureChannels();
+        Intent open = new Intent(this, AlarmActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                .putExtra("checkinOnly", true)
+                .putExtra("checkinDate", item.date);
+        PendingIntent pi = PendingIntent.getActivity(this, 31, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        getSystemService(NotificationManager.class).notify(NOTIF_CHECKIN, new Notification.Builder(this, CHANNEL_MISSED)
+                .setSmallIcon(R.drawable.ic_alarm_small)
+                .setContentTitle("Your morning check-in is waiting")
+                .setContentText("Tap to save it. The alarm stopped after 30 minutes.")
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build());
     }
 
     private void ensureChannels() {
@@ -203,11 +324,21 @@ public class AlarmService extends Service {
 
         Icon icon = Icon.createWithResource(this, R.drawable.ic_alarm_small);
         if (item.isNotify()) {
-            // No takeover: tapping opens the app
+            // No takeover: tapping opens the app; the answers are the notification's buttons
             Intent open = new Intent(this, MainActivity.class);
             b.setContentIntent(PendingIntent.getActivity(
                     this, 14, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT));
-            b.addAction(new Notification.Action.Builder(icon, ackLabel(item), actionPi(ACTION_ACK, item, 13)).build());
+            if (item.occurrenceId.isEmpty()) {
+                b.addAction(new Notification.Action.Builder(icon, "Dismiss", answerPi(item, Answers.DISMISS, 13)).build());
+            } else if (item.isEnd()) {
+                b.addAction(new Notification.Action.Builder(icon, "Done", answerPi(item, Answers.DONE, 13)).build());
+                b.addAction(new Notification.Action.Builder(icon, "Partial", answerPi(item, Answers.PARTIAL, 15)).build());
+                b.addAction(new Notification.Action.Builder(icon, "Didn't do it", answerPi(item, Answers.NOT_DONE, 16)).build());
+            } else {
+                b.addAction(new Notification.Action.Builder(icon, "Started", answerPi(item, Answers.STARTED, 13)).build());
+                b.addAction(new Notification.Action.Builder(icon, "Skip today", answerPi(item, Answers.SKIP, 15)).build());
+                b.addAction(new Notification.Action.Builder(icon, "Already done", answerPi(item, Answers.ALREADY_DONE, 16)).build());
+            }
             return b.build();
         }
 
@@ -221,20 +352,32 @@ public class AlarmService extends Service {
         if (second != null) {
             b.addAction(new Notification.Action.Builder(icon, second, actionPi(ACTION_SNOOZE, item, 11)).build());
         }
-        b.addAction(new Notification.Action.Builder(icon, ackLabel(item), actionPi(ACTION_ACK, item, 13)).build());
+        // A wake ring with a check-in is answered on the alarm screen (the check-in opens there)
+        if (!(item.checkin && !Prefs.checkinDone(this, item.date))) {
+            b.addAction(new Notification.Action.Builder(icon, ackLabel(item), answerPi(item, defaultAnswer(item), 13)).build());
+        }
         return b.build();
     }
 
-    /** The main answer: "I'm up" for a chain of the start, "Got it" at the end of a block, else "Dismiss". */
-    static String ackLabel(AlarmItem item) {
-        if (item.isEnd()) return "Got it";
-        return item.total > 1 ? "I'm up" : "Dismiss";
+    private PendingIntent answerPi(AlarmItem item, String answer, int requestCode) {
+        Intent i = new Intent(this, AlarmService.class).setAction(ACTION_ACK).putExtra("answer", answer);
+        item.putInto(i);
+        return PendingIntent.getService(this, requestCode, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
     }
 
-    /** The second button: silence (more rings come), snooze (last ring of a start), or none (end of a block). */
+    /** The main answer's words: "I'm up" (wake-up), "Start routine" (Sleep), "Started", "Done" (end), "Dismiss" (test). */
+    static String ackLabel(AlarmItem item) {
+        if (item.occurrenceId.isEmpty()) return "Dismiss";
+        if (item.isEnd()) return "Done";
+        if (item.wake) return "I'm up";
+        if (item.bed) return "Start routine";
+        return "Started";
+    }
+
+    /** The quiet button: silence (more rings come), snooze (last ring of a start), or none (end of a block). */
     static String secondLabel(AlarmItem item) {
         if (item.hasMore()) {
-            return item.every > 0 ? "Silence - again in " + item.every + " min" : "Silence";
+            return item.every > 0 ? "Silence for " + item.every + " min" : "Silence";
         }
         if (item.isEnd()) return null;
         return "Snooze " + SNOOZE_MINUTES + " min";
@@ -335,6 +478,7 @@ public class AlarmService extends Service {
         releaseSound();
         stopForeground(STOP_FOREGROUND_REMOVE);
         if (missed && current != null) {
+            Answers.answer(this, current, Answers.MISSED);
             NotificationManager nm = getSystemService(NotificationManager.class);
             ensureChannels();
             nm.notify(NOTIF_MISSED, new Notification.Builder(this, CHANNEL_MISSED)

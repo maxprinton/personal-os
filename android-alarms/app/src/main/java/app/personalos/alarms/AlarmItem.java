@@ -6,6 +6,9 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * One ring of an alarm: it comes from Personal OS, or it is a snooze / test alarm made on the phone.
  * A rule can ring several times in a row (a "chain": the first ring and its repeats); every ring of the
@@ -40,6 +43,20 @@ final class AlarmItem {
     final int level;
     /** Minutes between the rings of the chain (0 = a single ring). */
     final int every;
+
+    // Set after construction (they travel with every copy: JSON, intents, snoozes)
+    /** The block appearance and its block, for the answers sent back to Personal OS. */
+    String occurrenceId = "";
+    String blockTypeId = "";
+    /** The first full-screen ring of the morning: "I'm up" is the wake-up time. */
+    boolean wake;
+    /** The start of an overnight block (Sleep): offers "Going to sleep". */
+    boolean bed;
+    /** Wake ring whose morning check-in is not done: it keeps ringing until the check-in is saved. */
+    boolean checkin;
+    /** JSON lists [{id,name}] / [{id,title}] of the habits and tasks that can be ticked on the alarm. */
+    String habitItems = "[]";
+    String taskItems = "[]";
 
     AlarmItem(String id, String title, String date, String start, String end, String note,
               long startsAtMs, long alarmAtMs, int minutesBefore) {
@@ -78,7 +95,7 @@ final class AlarmItem {
     }
 
     static AlarmItem fromJson(JSONObject o) {
-        return new AlarmItem(
+        AlarmItem a = new AlarmItem(
                 o.optString("id"),
                 o.optString("title", "Block"),
                 o.optString("date"),
@@ -99,6 +116,16 @@ final class AlarmItem {
                 o.optString("style", "alarm"),
                 o.optInt("level", 0),
                 o.optInt("every", 0));
+        a.occurrenceId = o.optString("occurrenceId", "");
+        a.blockTypeId = o.optString("blockTypeId", "");
+        a.wake = o.optBoolean("wake", false);
+        a.bed = o.optBoolean("bed", false);
+        a.checkin = o.optBoolean("checkin", false);
+        JSONArray hi = o.optJSONArray("habitItems");
+        a.habitItems = hi != null ? hi.toString() : o.optString("habitItems", "[]");
+        JSONArray ti = o.optJSONArray("taskItems");
+        a.taskItems = ti != null ? ti.toString() : o.optString("taskItems", "[]");
+        return a;
     }
 
     /** A JSON list (from Personal OS) or a stored string -> one item per line. */
@@ -157,6 +184,13 @@ final class AlarmItem {
         o.put("style", style);
         o.put("level", level);
         o.put("every", every);
+        o.put("occurrenceId", occurrenceId);
+        o.put("blockTypeId", blockTypeId);
+        o.put("wake", wake);
+        o.put("bed", bed);
+        o.put("checkin", checkin);
+        o.put("habitItems", habitItems);
+        o.put("taskItems", taskItems);
         return o;
     }
 
@@ -181,11 +215,18 @@ final class AlarmItem {
         i.putExtra("style", style);
         i.putExtra("level", level);
         i.putExtra("every", every);
+        i.putExtra("occurrenceId", occurrenceId);
+        i.putExtra("blockTypeId", blockTypeId);
+        i.putExtra("wake", wake);
+        i.putExtra("bed", bed);
+        i.putExtra("checkin", checkin);
+        i.putExtra("habitItems", habitItems);
+        i.putExtra("taskItems", taskItems);
     }
 
     static AlarmItem from(Intent i) {
         if (i == null || !i.hasExtra("id")) return null;
-        return new AlarmItem(
+        AlarmItem a = new AlarmItem(
                 i.getStringExtra("id"),
                 i.getStringExtra("title"),
                 i.getStringExtra("date"),
@@ -206,12 +247,68 @@ final class AlarmItem {
                 i.getStringExtra("style"),
                 i.getIntExtra("level", 0),
                 i.getIntExtra("every", 0));
+        a.occurrenceId = nz(i.getStringExtra("occurrenceId"), "");
+        a.blockTypeId = nz(i.getStringExtra("blockTypeId"), "");
+        a.wake = i.getBooleanExtra("wake", false);
+        a.bed = i.getBooleanExtra("bed", false);
+        a.checkin = i.getBooleanExtra("checkin", false);
+        a.habitItems = nz(i.getStringExtra("habitItems"), "[]");
+        a.taskItems = nz(i.getStringExtra("taskItems"), "[]");
+        return a;
+    }
+
+    private static String nz(String s, String fallback) {
+        return s == null || s.isEmpty() ? fallback : s;
     }
 
     /** The same ring at another time (a snooze). It keeps the chain, so "I'm up" still cancels it. */
     AlarmItem snoozedTo(String newId, long when) {
-        return new AlarmItem(newId, title, date, start, end, note, startsAtMs, endsAtMs, when, minutesBefore,
+        AlarmItem a = new AlarmItem(newId, title, date, start, end, note, startsAtMs, endsAtMs, when, minutesBefore,
                 habits, tasks, chain, seq, total, anchor, sound, style, level, every);
+        a.occurrenceId = occurrenceId;
+        a.blockTypeId = blockTypeId;
+        a.wake = wake;
+        a.bed = bed;
+        a.checkin = checkin;
+        a.habitItems = habitItems;
+        a.taskItems = taskItems;
+        return a;
+    }
+
+    /** One habit or task that can be ticked on the alarm: its id and its name. */
+    static final class Tick {
+        final String id;
+        final String name;
+        final boolean isHabit;
+
+        Tick(String id, String name, boolean isHabit) {
+            this.id = id;
+            this.name = name;
+            this.isHabit = isHabit;
+        }
+    }
+
+    /** The habits (with ids) and then the tasks of the block. Empty for alarms from an older Personal OS. */
+    List<Tick> ticks() {
+        List<Tick> out = new ArrayList<>();
+        addTicks(out, habitItems, "name", true);
+        addTicks(out, taskItems, "title", false);
+        return out;
+    }
+
+    private static void addTicks(List<Tick> out, String json, String nameKey, boolean isHabit) {
+        try {
+            JSONArray arr = new JSONArray(json == null || json.isEmpty() ? "[]" : json);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
+                String id = o.optString("id", "");
+                String name = o.optString(nameKey, "").trim();
+                if (!id.isEmpty() && !name.isEmpty()) out.add(new Tick(id, name, isHabit));
+            }
+        } catch (JSONException ignored) {
+            // a damaged list shows nothing to tick
+        }
     }
 
     boolean isNotify() {

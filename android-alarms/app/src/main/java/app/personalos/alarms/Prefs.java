@@ -142,6 +142,87 @@ final class Prefs {
         return chain != null && !chain.isEmpty() && ackedMap(c).has(chain);
     }
 
+    // ---- Answers waiting to reach Personal OS (sent again until accepted) -----------------------
+
+    static synchronized JSONArray pendingEvents(Context c) {
+        try {
+            return new JSONArray(sp(c).getString("events", "[]"));
+        } catch (Exception e) {
+            return new JSONArray();
+        }
+    }
+
+    static synchronized void addEvent(Context c, JSONObject ev) {
+        JSONArray arr = pendingEvents(c);
+        arr.put(ev);
+        // Keep the newest 300 if the phone is offline for a long time
+        JSONArray keep = new JSONArray();
+        for (int i = Math.max(0, arr.length() - 300); i < arr.length(); i++) keep.put(arr.opt(i));
+        sp(c).edit().putString("events", keep.toString()).apply();
+    }
+
+    /** Removes the events Personal OS accepted (by their client id). */
+    static synchronized void removeEvents(Context c, java.util.Set<String> accepted) {
+        JSONArray arr = pendingEvents(c);
+        JSONArray keep = new JSONArray();
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o != null && !accepted.contains(o.optString("clientId"))) keep.put(o);
+        }
+        sp(c).edit().putString("events", keep.toString()).apply();
+    }
+
+    // ---- Ticks made on the alarm (so the list stays ticked while it rings) -----------------------
+
+    static boolean ticked(Context c, String key) {
+        return sp(c).getStringSet("ticked", java.util.Collections.<String>emptySet()).contains(key);
+    }
+
+    static void setTicked(Context c, String key, boolean on) {
+        java.util.Set<String> cur = new java.util.HashSet<>(sp(c).getStringSet("ticked", java.util.Collections.<String>emptySet()));
+        if (on) cur.add(key);
+        else cur.remove(key);
+        // Old ticks are of no use after a while: keep the list short
+        if (cur.size() > 200) cur.clear();
+        sp(c).edit().putStringSet("ticked", cur).apply();
+    }
+
+    // ---- Morning check-in and sleep ----------------------------------------------------------------
+
+    static boolean checkinDone(Context c, String date) {
+        return date != null && date.equals(sp(c).getString("checkinDone", ""));
+    }
+
+    static void setCheckinDone(Context c, String date) {
+        sp(c).edit().putString("checkinDone", date).putString("checkinPending", "").apply();
+    }
+
+    /** The day whose check-in was started (the alarm said "I'm up") but not saved yet ("" = none). */
+    static String checkinPending(Context c) {
+        return sp(c).getString("checkinPending", "");
+    }
+
+    static void setCheckinPending(Context c, String date) {
+        sp(c).edit().putString("checkinPending", date == null ? "" : date).apply();
+    }
+
+    /** When "Going to sleep" was last tapped on this phone (0 = never), and when "I'm up" was. */
+    static long sleptAt(Context c) {
+        return sp(c).getLong("sleptAt", 0L);
+    }
+
+    static void setSleptAt(Context c, long ms) {
+        sp(c).edit().putLong("sleptAt", ms).apply();
+    }
+
+    static long wokeAt(Context c) {
+        return sp(c).getLong("wokeAt", 0L);
+    }
+
+    static void setWokeAt(Context c, long ms) {
+        sp(c).edit().putLong("wokeAt", ms).apply();
+    }
+
     static List<AlarmItem> alarms(Context c) {
         List<AlarmItem> out = new ArrayList<>();
         try {

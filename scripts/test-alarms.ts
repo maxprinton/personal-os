@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { buildAlarms, generateAlarmKey, hashAlarmKey, noteSnippet } from "@/lib/alarms";
 import { cleanRules, describeRing, effectiveRules, PRESETS, type AlarmRing } from "@/lib/alarm-rules";
+import { cleanAlarmEvent, habitMarkFor, ringsToAnswer } from "@/lib/alarm-answers";
 
 let passed = 0;
 let failed = 0;
@@ -226,6 +227,100 @@ test("every preset is valid and survives cleaning unchanged", () => {
   const wake = PRESETS.find((p) => p.id === "wake")!.rings[0];
   assert.equal(wake.sound, "rooster");
   assert.ok(wake.repeats >= 1 && wake.louder);
+});
+
+// ---- The phone answers back: wake / bed / check-in flags, event checks, rings-to-answer ------------------
+
+test("the wake chain = the earliest full-screen start ring of a block before noon; it asks the check-in until done", () => {
+  const types = [
+    { id: "m", name: "Morning", alarm_rules: [ring({ anchor: "start", offset: -15, sound: "rooster", repeats: 2 })] },
+    { id: "w", name: "Work", alarm_rules: [ring({ anchor: "start", offset: -5 })] },
+    { id: "q", name: "Quiet", alarm_rules: [ring({ anchor: "start", offset: -60, style: "notify" })] },
+    { id: "s", name: "Sleep", alarm_rules: [ring({ anchor: "start", offset: 0 })] },
+  ];
+  const occs = [
+    occ("m1", "m", "2026-11-13", "06:00", "07:00"),
+    occ("w1", "w", "2026-11-13", "07:00", "14:00"),
+    occ("q1", "q", "2026-11-13", "05:30", "06:00"),
+    occ("s1", "s", "2026-11-13", "21:00", "05:00"),
+    occ("m2", "m", "2026-11-14", "07:00", "08:00"),
+  ];
+  const a = buildAlarms({ occurrences: occs, types, notes: new Map(), timezone: TZ, now, checkinDone: new Set(["2026-11-14"]) });
+  const wake = a.filter((x) => x.wake);
+  assert.deepEqual([...new Set(wake.map((x) => x.occurrenceId))], ["m1", "m2"]);
+  assert.equal(wake.filter((x) => x.date === "2026-11-13").length, 3); // the whole chain
+  assert.ok(a.filter((x) => x.date === "2026-11-13" && x.wake).every((x) => x.checkin));
+  assert.ok(a.filter((x) => x.date === "2026-11-14").every((x) => !x.checkin));
+  assert.ok(!a.find((x) => x.occurrenceId === "q1")!.wake); // a quiet banner is never the wake-up
+  // Sleep runs overnight: its start ring offers "Going to sleep"
+  assert.ok(a.find((x) => x.occurrenceId === "s1")!.bed);
+  assert.ok(!a.find((x) => x.occurrenceId === "w1")!.bed);
+});
+
+test("habits and tasks travel with their ids for ticking", () => {
+  const a = buildAlarms({
+    occurrences: [occ("1", "gym", "2026-11-13", "07:00", "08:00")],
+    types, notes: new Map(), timezone: TZ, now,
+    habitItems: new Map([["1", [{ id: "h1", name: "Stretch" }]]]),
+    taskItems: new Map([["1", [{ id: "t1", title: "Buy chalk" }]]]),
+  });
+  assert.deepEqual(a[0].habitItems, [{ id: "h1", name: "Stretch" }]);
+  assert.deepEqual(a[0].taskItems, [{ id: "t1", title: "Buy chalk" }]);
+  assert.equal(a[0].occurrenceId, "1");
+  assert.equal(a[0].blockTypeId, "gym");
+});
+
+const U1 = "11111111-1111-4111-8111-111111111111";
+const U2 = "22222222-2222-4222-8222-222222222222";
+const NOW = Date.parse("2026-11-13T12:00:00Z");
+
+test("events from the phone are checked field by field", () => {
+  const ok = cleanAlarmEvent({ clientId: "c1", kind: "answer", answer: "skip", at: NOW - 1000, occurrenceId: U1, seq: 2, total: 4, anchor: "start", wake: true }, NOW);
+  assert.equal(ok?.answer, "skip");
+  assert.equal(ok?.seq, 2);
+  assert.equal(ok?.wake, true);
+  assert.equal(cleanAlarmEvent({ clientId: "c1", kind: "answer", answer: "explode", at: NOW }, NOW), null);
+  assert.equal(cleanAlarmEvent({ clientId: "c1", kind: "nope", at: NOW }, NOW), null);
+  assert.equal(cleanAlarmEvent({ kind: "rang", at: NOW }, NOW), null);
+  assert.equal(cleanAlarmEvent({ clientId: "c1", kind: "rang", at: NOW + 3600_000 }, NOW), null); // future
+  assert.equal(cleanAlarmEvent({ clientId: "c1", kind: "rang", at: NOW - 9 * 86_400_000 }, NOW), null); // too old
+  assert.equal(cleanAlarmEvent({ clientId: "c1", kind: "rang", at: NOW, occurrenceId: "not-a-uuid" }, NOW)?.occurrenceId, undefined);
+  // a habit tick needs its block; a task tick doesn't
+  assert.equal(cleanAlarmEvent({ clientId: "c2", kind: "tick", habitId: U2, at: NOW }, NOW), null);
+  assert.equal(cleanAlarmEvent({ clientId: "c2", kind: "tick", habitId: U2, occurrenceId: U1, at: NOW, done: false }, NOW)?.done, false);
+  assert.equal(cleanAlarmEvent({ clientId: "c3", kind: "tick", taskId: U2, at: NOW }, NOW)?.done, true);
+  // check-in: scales clamped to their range, at least one answer
+  const ci = cleanAlarmEvent({ clientId: "c4", kind: "checkin", date: "2026-11-13", at: NOW, mood: 7, energy: 11, sleepQuality: 4, highlight: "  Gym PR  " }, NOW);
+  assert.equal(ci?.mood, 7);
+  assert.equal(ci?.energy, undefined);
+  assert.equal(ci?.sleepQuality, 4);
+  assert.equal(ci?.highlight, "Gym PR");
+  assert.equal(cleanAlarmEvent({ clientId: "c5", kind: "checkin", date: "2026-11-13", at: NOW }, NOW), null);
+  assert.equal(cleanAlarmEvent({ clientId: "c6", kind: "checkin", date: "13/11", at: NOW, mood: 5 }, NOW), null);
+});
+
+test("answers leave the right habit mark: skip excused, didn't do it missed, done done", () => {
+  assert.equal(habitMarkFor("skip"), "skipped");
+  assert.equal(habitMarkFor("not_done"), "missed");
+  assert.equal(habitMarkFor("done"), "done");
+  assert.equal(habitMarkFor("already_done"), "done");
+  assert.equal(habitMarkFor("partial"), null);
+  assert.equal(habitMarkFor("started"), null);
+  assert.equal(habitMarkFor("silence"), null);
+});
+
+test("rings to answer: first real answer of each chain, averaged per block; Silence doesn't count", () => {
+  const rows = [
+    { chain: "a|0|1", kind: "answer", answer: "silence", seq: 0, block_type_id: "m", at: "2026-11-10T10:00:00Z" },
+    { chain: "a|0|1", kind: "answer", answer: "started", seq: 2, block_type_id: "m", at: "2026-11-10T10:10:00Z" },
+    { chain: "a|0|1", kind: "answer", answer: "done", seq: 3, block_type_id: "m", at: "2026-11-10T10:15:00Z" },
+    { chain: "b|0|2", kind: "answer", answer: "started", seq: 0, block_type_id: "m", at: "2026-11-11T10:00:00Z" },
+    { chain: "c|0|3", kind: "answer", answer: "done", seq: 1, block_type_id: "g", at: "2026-11-11T20:00:00Z" },
+    { chain: "d|0|4", kind: "rang", answer: null, seq: 0, block_type_id: "g", at: "2026-11-12T20:00:00Z" },
+  ];
+  const r = ringsToAnswer(rows);
+  assert.deepEqual(r.get("m"), { average: 2, chains: 2 }); // 3 rings, then 1 ring
+  assert.deepEqual(r.get("g"), { average: 2, chains: 1 });
 });
 
 console.log(`${passed} passed, ${failed} failed`);

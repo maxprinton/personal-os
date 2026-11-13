@@ -41,6 +41,7 @@
             android:launchMode="singleTask"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
 
         <service
@@ -63,6 +64,10 @@
 
         <receiver
             android:name=".InstallReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".SleepReceiver"
             android:exported="false" />
 
         <receiver

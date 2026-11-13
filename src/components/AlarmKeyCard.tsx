@@ -4,7 +4,26 @@ import { useEffect, useState } from "react";
 import { createAlarmKey, revokeAlarmKey } from "@/app/settings-actions";
 
 /** Personal key for the Android alarms app. The key is shown once (only its hash is stored). */
-export default function AlarmKeyCard({ hasKey, createdAt, appUrl }: { hasKey: boolean; createdAt: string | null; appUrl: string }) {
+/** "5 min ago", "3 h ago", "2 days ago". */
+function ago(iso: string) {
+  const min = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  const h = Math.round(min / 60);
+  return h < 48 ? `${h} h ago` : `${Math.round(h / 24)} days ago`;
+}
+
+export default function AlarmKeyCard({
+  hasKey,
+  createdAt,
+  lastSync = null,
+  appUrl,
+}: {
+  hasKey: boolean;
+  createdAt: string | null;
+  lastSync?: string | null;
+  appUrl: string;
+}) {
   const [key, setKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -96,6 +115,11 @@ export default function AlarmKeyCard({ hasKey, createdAt, appUrl }: { hasKey: bo
       ) : (
         <p className="text-sm text-muted">
           {hasKey ? `A key is active (created ${createdAt ? new Date(createdAt).toLocaleDateString() : "earlier"}).` : "No key yet."}
+          {hasKey && (
+            <span className={lastSync && Date.now() - Date.parse(lastSync) > 3 * 3600_000 ? " text-warning" : ""}>
+              {lastSync ? ` The phone last synced ${ago(lastSync)}.` : " The phone hasn't synced yet."}
+            </span>
+          )}
         </p>
       )}
       {error && <p className="text-sm text-danger">{error}</p>}

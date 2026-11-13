@@ -50,6 +50,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const alarmRow = await supabase.from("user_settings").select("alarm_key_hash,alarm_key_created_at").maybeSingle();
   const alarmHasKey = !alarmRow.error && Boolean(alarmRow.data?.alarm_key_hash);
   const alarmCreated = (!alarmRow.error && (alarmRow.data?.alarm_key_created_at as string | null)) || null;
+  // When the phone last read its alarms (migration 0059)
+  const syncRow = await supabase.from("user_settings").select("alarm_last_sync_at").maybeSingle();
+  const alarmLastSync = (!syncRow.error && (syncRow.data?.alarm_last_sync_at as string | null)) || null;
   const reqHeaders = await headers();
   const host = reqHeaders.get("x-forwarded-host") ?? reqHeaders.get("host") ?? "";
   const appUrl = host ? `${host.startsWith("localhost") ? "http" : "https"}://${host}` : "";
@@ -193,7 +196,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         </section>
         </div>
         <div hidden={tab !== "alarms"} className="space-y-6">
-          <AlarmKeyCard hasKey={alarmHasKey} createdAt={alarmCreated} appUrl={appUrl} />
+          <AlarmKeyCard hasKey={alarmHasKey} createdAt={alarmCreated} lastSync={alarmLastSync} appUrl={appUrl} />
         </div>
         <div hidden={tab !== "data"} className="space-y-6">
         <section className="space-y-3 card p-5">

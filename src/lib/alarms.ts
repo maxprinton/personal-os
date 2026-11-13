@@ -4,6 +4,7 @@
 // asks for the next days, sets real alarms, and replaces them all on every sync.
 import { createHash, randomBytes } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { addDays, localNow, zonedToUtc } from "@/lib/time";
 import { blockNotesByKey, noteKey } from "@/lib/block-notes";
 import { getBlockTypes, getOccurrences } from "@/lib/calendar/model";
@@ -42,6 +43,17 @@ export type PhoneAlarm = {
   level: number;
   /** Minutes between the rings of this chain (0 when it has one ring). */
   every: number;
+  occurrenceId: string;
+  blockTypeId: string;
+  /** The first full-screen ring of the morning (before 12:00): "I'm up" there is your wake-up time. */
+  wake: boolean;
+  /** A ring of the start of an overnight block (Sleep): it offers "Going to sleep". */
+  bed: boolean;
+  /** Wake ring of a day whose check-in (mood, energy, sleep quality) is not done yet: it rings until it is. */
+  checkin: boolean;
+  /** Habits and tasks with their ids, so they can be ticked on the alarm. */
+  habitItems: { id: string; name: string }[];
+  taskItems: { id: string; title: string }[];
   /** Names of the block's habits still to do, in the user's order. */
   habits: string[];
   /** Titles of the pending tasks placed in the block that day. */
@@ -79,6 +91,11 @@ export function buildAlarms(args: {
   /** occurrence id -> habit names / task titles (optional) */
   habits?: Map<string, string[]>;
   tasks?: Map<string, string[]>;
+  /** occurrence id -> habits / tasks with ids (optional) */
+  habitItems?: Map<string, { id: string; name: string }[]>;
+  taskItems?: Map<string, { id: string; title: string }[]>;
+  /** Days (YYYY-MM-DD) whose morning check-in is already done. */
+  checkinDone?: Set<string>;
   timezone: string;
   now: Date;
   days?: number;
@@ -130,11 +147,74 @@ export function buildAlarms(args: {
           style: r.style,
           level: levelOf(r, k),
           every: times.length > 1 ? r.every : 0,
+          occurrenceId: o.id,
+          blockTypeId: o.block_type_id,
+          wake: false,
+          bed: r.anchor === "start" && end < start,
+          checkin: false,
+          habitItems: args.habitItems?.get(o.id) ?? [],
+          taskItems: args.taskItems?.get(o.id) ?? [],
         });
       });
     });
   }
+  markWake(out, args.checkinDone);
   return out.sort((a, b) => a.alarmAtMs - b.alarmAtMs || a.id.localeCompare(b.id));
+}
+
+/** The base time (first ring) of a chain, read from its id "occ|ring|base". */
+function chainBase(chain: string) {
+  return Number(chain.split("|")[2] ?? 0);
+}
+
+/**
+ * The wake chain of each day = the earliest full-screen ring of the start of a block that starts before 12:00.
+ * Every ring of that chain gets `wake`, and `checkin` when that day's check-in is not done yet.
+ */
+export function markWake(list: PhoneAlarm[], checkinDone?: Set<string>) {
+  const best = new Map<string, { chain: string; base: number }>();
+  for (const a of list) {
+    if (a.anchor !== "start" || a.style !== "alarm" || a.start >= "12:00") continue;
+    const base = chainBase(a.chain);
+    const cur = best.get(a.date);
+    if (!cur || base < cur.base) best.set(a.date, { chain: a.chain, base });
+  }
+  const wakeChains = new Set([...best.values()].map((b) => b.chain));
+  for (const a of list) {
+    if (!wakeChains.has(a.chain)) continue;
+    a.wake = true;
+    a.checkin = !(checkinDone?.has(a.date) ?? false);
+  }
+}
+
+/** The phone sends its key as "Authorization: Bearer <key>": the user it belongs to, or null. */
+export async function alarmUser(request: Request) {
+  const auth = request.headers.get("authorization") ?? "";
+  const key = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+  if (!key) return { error: "Missing key", status: 401 } as const;
+  const admin = createAdminClient();
+  if (!admin) return { error: "Server not ready", status: 503 } as const;
+  const { data } = await admin
+    .from("user_settings")
+    .select("user_id,timezone")
+    .eq("alarm_key_hash", hashAlarmKey(key))
+    .maybeSingle();
+  if (!data) return { error: "Wrong key", status: 401 } as const;
+  return { admin, userId: data.user_id as string, timezone: (data.timezone as string | null) ?? "America/Guayaquil" } as const;
+}
+
+/** Days from..to whose morning check-in (mood, energy and sleep quality) is filled. */
+async function checkinDays(sb: SupabaseClient, userId: string, from: string, to: string) {
+  const first = await sb.from("daily_facts").select("date,mood,energy,sleep_quality").eq("user_id", userId).gte("date", from).lte("date", to);
+  // Before migration 0059 there is no sleep_quality: mood and energy are enough
+  const rows = first.error
+    ? (await sb.from("daily_facts").select("date,mood,energy").eq("user_id", userId).gte("date", from).lte("date", to)).data
+    : first.data;
+  const done = new Set<string>();
+  for (const r of (rows ?? []) as { date: string; mood: number | null; energy: number | null; sleep_quality?: number | null }[]) {
+    if (r.mood != null && r.energy != null && (r.sleep_quality === undefined || r.sleep_quality != null)) done.add(r.date);
+  }
+  return done;
 }
 
 /** Loads one user's upcoming alarms. Works with the admin client (the phone has no browser session). */
@@ -153,20 +233,17 @@ export async function loadAlarms(sb: SupabaseClient, userId: string, timezone: s
   const alarmTypes = new Set(types.filter((t) => hasAlarm(t)).map((t) => t.id));
   const habits = new Map<string, string[]>();
   const tasks = new Map<string, string[]>();
+  const habitItems = new Map<string, { id: string; name: string }[]>();
+  const taskItems = new Map<string, { id: string; title: string }[]>();
   for (const o of occurrences) {
     if (!alarmTypes.has(o.block_type_id)) continue;
-    habits.set(
-      o.id,
-      habitsForOccurrence(o, allHabits, checks, today)
-        .filter((h) => h.state !== "done" && h.state !== "skipped")
-        .map((h) => h.habit.name)
-    );
-    tasks.set(
-      o.id,
-      tasksForOccurrence(o, occurrences, allTasks)
-        .filter((t) => t.status === "pending")
-        .map((t) => t.title)
-    );
+    const openHabits = habitsForOccurrence(o, allHabits, checks, today).filter((h) => h.state !== "done" && h.state !== "skipped");
+    const openTasks = tasksForOccurrence(o, occurrences, allTasks).filter((t) => t.status === "pending");
+    habits.set(o.id, openHabits.map((h) => h.habit.name));
+    tasks.set(o.id, openTasks.map((t) => t.title));
+    habitItems.set(o.id, openHabits.map((h) => ({ id: h.habit.id, name: h.habit.name })));
+    taskItems.set(o.id, openTasks.map((t) => ({ id: t.id, title: t.title })));
   }
-  return buildAlarms({ occurrences, types, notes: noteText, habits, tasks, timezone, now });
+  const checkinDone = await checkinDays(sb, userId, today, to).catch(() => new Set<string>());
+  return buildAlarms({ occurrences, types, notes: noteText, habits, tasks, habitItems, taskItems, checkinDone, timezone, now });
 }

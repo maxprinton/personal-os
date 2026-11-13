@@ -6,6 +6,7 @@ import Section from "@/components/ui/Section";
 import CheckinForm from "@/components/insights/CheckinForm";
 import { currentUserId, getBlockTypes } from "@/lib/calendar/model";
 import { buildRows, findPatterns, UNLOCK_DAYS as UNLOCK } from "@/lib/patterns";
+import { ringsToAnswer, type RingRow } from "@/lib/alarm-answers";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,7 @@ type Fact = {
   ai_calls: number;
   mood: number | null;
   energy: number | null;
+  sleep_quality?: number | null;
   bedtime: string | null;
   wake_at: string | null;
   highlight: string | null;
@@ -51,7 +53,7 @@ export default async function InsightsPage() {
   await supabase.rpc("refresh_my_daily_facts", { p_from: addDays(today, -7), p_to: today });
 
   const userId = await currentUserId(supabase);
-  const [factsRes, scoresRes, weeksRes, runwayRes, occRes, worthRes, rateRes] = await Promise.all([
+  const [factsRes, scoresRes, weeksRes, runwayRes, occRes, worthRes, rateRes, alarmRes] = await Promise.all([
     supabase.from("daily_facts").select("*").gte("date", gridStart).lte("date", today).order("date"),
     supabase.from("daily_scores").select("date,score,unlogged").gte("date", gridStart).lte("date", today),
     supabase.from("weekly_summary").select("*").order("week", { ascending: false }).limit(2),
@@ -59,6 +61,12 @@ export default async function InsightsPage() {
     supabase.from("block_occurrences").select("id,date,block_type_id,status,focus").gte("date", gridStart).lte("date", today).in("status", ["done", "partial"]),
     supabase.from("transactions").select("amount,worth_it").is("deleted_at", null).eq("type", "expense").eq("worth_it", false).gte("occurred_at", `${addDays(today, -27)}T00:00:00Z`),
     supabase.from("work_settings").select("substitute_rate").maybeSingle(),
+    // Answers from the phone alarms, last 14 days (empty before migration 0059)
+    supabase
+      .from("alarm_events")
+      .select("chain,kind,answer,seq,block_type_id,at")
+      .eq("kind", "answer")
+      .gte("at", new Date(Date.now() - 14 * 86_400_000).toISOString()),
   ]);
   const types = userId ? await getBlockTypes(supabase, userId, { includeDeleted: true }) : [];
   const typeName = new Map(types.map((t) => [t.id, t.name]));
@@ -143,6 +151,36 @@ export default async function InsightsPage() {
       {hint && <p className="text-xs text-faint">{hint}</p>}
     </div>
   );
+  // ---- Phone alarms: how many rings each block takes, and how the answers went ----
+  const alarmRows = (alarmRes.error ? [] : (alarmRes.data ?? [])) as RingRow[];
+  const rings = ringsToAnswer(alarmRows);
+  const answerTally = new Map<string, { started: number; done: number; partial: number; skipped: number; missed: number }>();
+  for (const r of alarmRows) {
+    if (!r.block_type_id) continue;
+    const t = answerTally.get(r.block_type_id) ?? { started: 0, done: 0, partial: 0, skipped: 0, missed: 0 };
+    if (r.answer === "started") t.started++;
+    if (r.answer === "done" || r.answer === "already_done") t.done++;
+    if (r.answer === "partial") t.partial++;
+    if (r.answer === "skip") t.skipped++;
+    if (r.answer === "not_done") t.missed++;
+    answerTally.set(r.block_type_id, t);
+  }
+  const alarmBlocks = [...new Set([...rings.keys(), ...answerTally.keys()])]
+    .map((id) => ({ id, name: typeName.get(id) ?? "Block", rings: rings.get(id) ?? null, tally: answerTally.get(id) }))
+    .sort((a, b) => (b.rings?.chains ?? 0) - (a.rings?.chains ?? 0));
+  const tallyText = (t?: { started: number; done: number; partial: number; skipped: number; missed: number }) =>
+    t
+      ? [
+          t.started && `started ${t.started}`,
+          t.done && `done ${t.done}`,
+          t.partial && `partial ${t.partial}`,
+          t.skipped && `skipped ${t.skipped}`,
+          t.missed && `not done ${t.missed}`,
+        ]
+          .filter(Boolean)
+          .join(", ")
+      : "";
+
   const todayFact = factOf.get(today);
   const slept = todayFact ? sleepMinutes(todayFact.bedtime, todayFact.wake_at) : null;
 
@@ -160,6 +198,7 @@ export default async function InsightsPage() {
         {todayFact && (
           <p className="text-sm text-muted">
             Today: mood {todayFact.mood ?? "—"} · energy {todayFact.energy ?? "—"} · sleep {slept ? formatDuration(slept) : "—"}
+            {todayFact.sleep_quality ? `, quality ${todayFact.sleep_quality}/5` : ""}
           </p>
         )}
         <CheckinForm dates={dates} initial={initial} blocks={blocksByDate} />
@@ -226,6 +265,32 @@ export default async function InsightsPage() {
           </ul>
         )}
         <p className="text-xs text-muted">Minutes done vs planned over the last 28 days.</p>
+      </Section>
+
+      <Section title="Phone alarms" count={alarmBlocks.length}>
+        {alarmBlocks.length === 0 ? (
+          <p className="text-sm text-muted">
+            Nothing yet. When you answer alarms on the phone (Started, Done, Skip today…), this shows how many rings each block takes you.
+          </p>
+        ) : (
+          <ul className="divide-y divide-line rounded-lg border border-line bg-surface shadow-card">
+            {alarmBlocks.map((b) => (
+              <li key={b.id} className="flex items-baseline justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{b.name}</p>
+                  {tallyText(b.tally) && <p className="text-xs text-muted">{tallyText(b.tally)}</p>}
+                </div>
+                {b.rings && (
+                  <p className="shrink-0 text-right">
+                    <span className="text-lg font-semibold tabular-nums">{b.rings.average}</span>
+                    <span className="text-xs text-muted"> {b.rings.average === 1 ? "ring" : "rings"} to answer</span>
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-xs text-muted">Last 14 days. 1 = you answered at the first ring; higher means the alarm had to repeat.</p>
       </Section>
 
       <Section title="Money and notes">

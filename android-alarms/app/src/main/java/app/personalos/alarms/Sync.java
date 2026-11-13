@@ -45,6 +45,8 @@ final class Sync {
         if (base.isEmpty() || key.isEmpty()) {
             return fail(c, false, "Enter the address and the key first.");
         }
+        // Answers first, so the alarms read next already reflect them (ticked habits, closed blocks)
+        Answers.flush(c);
         HttpURLConnection con = null;
         try {
             URL url = new URL(base + "/api/alarms");

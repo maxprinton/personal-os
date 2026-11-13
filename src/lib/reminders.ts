@@ -1,3 +1,4 @@
+import { hasAlarm } from "@/lib/alarm-rules";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDays, formatDateLong, formatMinutes, localNow, timeToMinutes } from "@/lib/time";
 import { freeDatesBetween, getBlockTypes, getOccurrence, getOccurrences } from "@/lib/calendar/model";
@@ -31,7 +32,16 @@ export const REMINDER_COLUMNS =
   "user_id,timezone,telegram_chat_id,reminder_morning_enabled,reminder_morning_time,reminder_evening_enabled,reminder_evening_time,reminder_before_minutes,reminder_insights,reminder_unassigned_nag";
 
 /** block: id is the occurrence id and blockTypeId its block type. */
-export type DayItem = { kind: "block" | "event"; id: string; title: string; start: number; end: number; blockTypeId?: string };
+export type DayItem = {
+  kind: "block" | "event";
+  id: string;
+  title: string;
+  start: number;
+  end: number;
+  blockTypeId?: string;
+  /** The block rings on the phone (alarm rules): Telegram leaves its before/after messages to the phone. */
+  phoneAlarm?: boolean;
+};
 
 /** One habit mark to make today: a habit inside one appearance of its block. */
 export type DayHabit = {
@@ -64,6 +74,7 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
     notesToReview(admin, s.user_id, date).catch(() => []),
   ]);
   const typeName = new Map(types.map((x) => [x.id, x.name]));
+  const ringsOnPhone = new Set(types.filter((x) => hasAlarm(x)).map((x) => x.id));
 
   const items: DayItem[] = [];
   const dayHabits: DayHabit[] = [];
@@ -78,6 +89,7 @@ export async function dayData(admin: SupabaseClient, s: Pick<ReminderSettings, "
       start: span.start,
       end: span.continues ? timeToMinutes(o.end_time) + 1440 : span.end,
       blockTypeId: o.block_type_id,
+      phoneAlarm: ringsOnPhone.has(o.block_type_id),
     });
     for (const x of habitsForOccurrence(o, habits, checks, date)) {
       dayHabits.push({
