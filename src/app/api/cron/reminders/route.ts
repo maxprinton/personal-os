@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { botToken, tg } from "@/lib/telegram";
 import { runMaintenance } from "@/lib/calendar/maintenance";
+import { healSeries } from "@/lib/calendar/series";
 import { runTemplateSchedules } from "@/lib/notes-db/templates";
 import { writingInsight } from "@/lib/writing/insight";
 import {
@@ -317,6 +318,12 @@ export async function POST(req: Request) {
       await runMaintenance(admin, u.user_id, u.timezone ?? "America/Guayaquil");
     } catch {
       // one user's problem must not stop the others
+    }
+    try {
+      // Recurring tasks: a series whose last task is done but has no open one gets its next task (safety net)
+      await healSeries(admin, u.user_id, u.timezone ?? "America/Guayaquil");
+    } catch {
+      // no migration yet, or a one-off error: never stops the rest of the cron
     }
   }
   // ✨ Nightly (about 02:00 local): the AI categorizes whatever is still uncategorized and files proposals for new

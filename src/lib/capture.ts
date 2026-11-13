@@ -4,6 +4,7 @@ import { aiJson } from "@/lib/ai";
 import { localNow, zonedToUtc } from "@/lib/time";
 import { getBlockTypes } from "@/lib/calendar/model";
 import { autoPlaceTasks } from "@/lib/calendar/tasks";
+import { makeTaskRecurring } from "@/lib/calendar/series";
 import { bestMatches } from "@/lib/bot/text";
 
 // Works with both the signed-in user's client (RLS) and the admin client (Telegram).
@@ -263,8 +264,19 @@ export async function saveParsed(
     if (error || !data) throw new Error(error?.message ?? "Could not save task");
     if (homeId) await autoPlace(supabase, userId, ctx.today);
     if (tags.length) await addTags(supabase, userId, "task", data.id as string, tags);
+    // "every 3 days": the task becomes the first one of a recurring series (counted from when it is marked done)
+    let repeat = parsed.repeat;
+    let repeatNote = "";
+    if (repeat) {
+      const rep = await makeTaskRecurring(supabase, userId, data.id as string, repeat);
+      if ("error" in rep) {
+        repeat = undefined;
+        repeatNote = ` ⚠️ it could not repeat: ${rep.error}`;
+      }
+    }
     const summary =
-      describe({ ...parsed, title: finalTitle, date: day === ctx.today ? null : day }) +
+      describe({ ...parsed, repeat, title: finalTitle, date: day === ctx.today ? null : day }) +
+      repeatNote +
       (homeName ? ` · home: ${homeName}` : "") +
       (tags.length ? ` · #${tags.join(" #")}` : "");
     return { entityType: "task", id: data.id, summary };

@@ -1,0 +1,6 @@
+Alarms answer back: Started/Skip/Done buttons, morning check-in, Going to sleep, tick on the alarm, sync watchdog
+
+The phone now sends every ring and answer to Personal OS (new alarm_events table, POST /api/alarms/answer, offline queue, no double counting). Start rings: Started / I'm up, Skip today (habits skipped), Already done. End rings: Done, Partial, Didn't do it (habits missed). Habits and tasks can be ticked on the alarm screen. The first full-screen ring of the morning opens a check-in (sleep quality 1-5, mood, energy, yesterday's highlight) and keeps ringing until it is saved (stops after 30 min); "I'm up" fills the wake-up time and "Going to sleep" the bedtime. Telegram stops its before/after messages for blocks that ring on the phone, and warns once if the phone hasn't synced for 3 hours. Insights shows rings-to-answer per block; Settings shows the last sync. Redesigned alarm screen. Migration 0059 (MIGRACION-0059-respuestas-de-alarma.sql). Tests: npm run test:alarms (24).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01KLS7nLd5zxvBcCBrV5pFKn

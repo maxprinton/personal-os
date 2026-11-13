@@ -8,6 +8,7 @@ import { getOccurrence } from "@/lib/calendar/model";
 import { getChecks, getHabits, recomputeOccurrenceStatus, setHabitCheck } from "@/lib/calendar/habits";
 import { habitsForOccurrence } from "@/lib/calendar/habitview";
 import type { HabitState, Occurrence } from "@/lib/calendar/types";
+import { syncSeriesOnToggle } from "@/lib/calendar/series";
 
 /** Answers of a ring of the START of a block. */
 export const START_ANSWERS = ["started", "skip", "already_done"] as const;
@@ -265,6 +266,7 @@ async function applyOne(admin: SupabaseClient, userId: string, tz: string, ev: A
       if (r.error) return r.error.message;
       const occId = (r.data?.[0] as { occurrence_id?: string | null } | undefined)?.occurrence_id;
       if (occId) await recomputeOccurrenceStatus(admin, userId, occId, today);
+      await syncSeriesOnToggle(admin, userId, tz, ev.taskId, Boolean(ev.done)); // recurring task: next one (or undo)
       return null;
     }
     const occ = await getOccurrence(admin, userId, ev.occurrenceId!);

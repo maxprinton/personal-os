@@ -5,6 +5,7 @@ import { formatDateLong } from "@/lib/time";
 import Icon from "@/components/ui/Icon";
 import TaskEditor, { type TaskEditOptions } from "@/components/TaskEditor";
 import TaskActions from "@/components/TaskActions";
+import type { SeriesBrief } from "@/lib/calendar/series";
 
 export type TaskRowData = {
   id: string;
@@ -46,6 +47,7 @@ export default function TaskRow({
   today,
   places,
   editOptions,
+  series,
 }: {
   task: TaskRowData;
   tags?: Tag[];
@@ -53,6 +55,8 @@ export default function TaskRow({
   places?: TaskPlaces;
   /** Blocks and events to choose from; when given, the row shows an Edit button. */
   editOptions?: TaskEditOptions;
+  /** Set when this task repeats after being done (from getSeriesBriefs). */
+  series?: SeriesBrief | null;
 }) {
   const home = task.home_block_type_id ? places?.blockName.get(task.home_block_type_id) : undefined;
   const placed = task.occurrence_id ? places?.placedIn.get(task.occurrence_id) : undefined;
@@ -78,6 +82,14 @@ export default function TaskRow({
       <div className="min-w-0 flex-1 basis-[calc(100%-2.5rem)] space-y-1 sm:basis-0">
         <p className={`font-medium ${done ? "text-faint line-through" : ""} ${failed ? "text-danger" : ""} ${task.status === "archived" ? "text-faint" : ""}`}>
           {task.title}
+          {series && (
+            <span
+              title={`${series.label}${series.active ? "" : " (paused)"}: when you mark it done, the next one appears ${series.every} ${series.unit === "days" && series.every === 1 ? "day" : series.unit} later`}
+              className="ml-2 inline-block rounded-full bg-accent-soft px-2 py-px align-middle text-[11px] font-medium text-accent"
+            >
+              ↻ {series.label}{series.active ? "" : " · paused"}
+            </span>
+          )}
           {task.rolled_over_count > 0 && (
             <span
               title="Moved counter: +1 each time a day ends with it undone, +1 per manual move to another day"
@@ -115,6 +127,7 @@ export default function TaskRow({
               home_block_type_id: task.home_block_type_id,
               event_id: task.event_id,
               tags: tags.map((t) => t.name),
+              series: series ? { id: series.id, unit: series.unit, every: series.every, active: series.active } : null,
             }}
           />
         )}

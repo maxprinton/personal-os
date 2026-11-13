@@ -5,6 +5,7 @@ export const W = {
   menu: ["/menu", "menu", "/teclado"],
   tasks: ["/tareas", "tareas", "/tasks", "tasks", "/todo", "mis tareas", "todas las tareas", "all tasks"],
   archived: ["/archivadas", "archivadas", "/archived", "archived", "/archivo"],
+  recurring: ["/recurrentes", "recurrentes", "/recurring", "recurring", "/repetir", "/repeticiones", "tareas recurrentes", "recurring tasks"],
   payments: ["/pagos", "pagos", "/payments", "payments", "/bills", "bills", "que tengo que pagar", "por pagar"],
   categorize: ["/categorizar", "categorizar", "/categorize", "categorize", "/autocat", "/categorias", "categorias automaticas"],
   proposals: ["/propuestas", "propuestas", "/proposals", "proposals", "/nuevascategorias"],

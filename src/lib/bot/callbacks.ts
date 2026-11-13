@@ -10,8 +10,9 @@ import { ask, btn, edit, editKb, keyboardOf, logAction, remember, replaceRows, s
 import { unpackDate } from "@/lib/bot/text";
 import {
   archiveTask, archivedRow, blockRows, completeTask, dateRows, doneRow, menuRows, moveToDate, moveToNextBlock, movedRow,
-  placeInBlock, reopenTask, taskListView, taskRow, unarchiveTask, undoMove,
+  placeInBlock, reopenTask, seriesRow, taskListView, taskRow, unarchiveTask, undoMove,
 } from "@/lib/bot/tasks";
+import { getSeries, pauseSeries, resumeSeries } from "@/lib/calendar/series";
 import { habitRow, habitTitle, markHabit, markedRow, saveHabit, unmarkHabit } from "@/lib/bot/habits";
 import { blockDoneRow, confirmPay, payMenu, saveFreeDay, skipPay, toggleBlockDone } from "@/lib/bot/calendar";
 import {
@@ -220,6 +221,20 @@ async function route(c: Ctx, cq: CallbackQuery, chatId: number, msgId: number | 
       const r = await unarchiveTask(c, id(a));
       await say(r.text);
       return swap(a, r.ok ? [taskRow({ id: id(a), title: r.title ?? "task" })] : []);
+    }
+    // ---- Recurring tasks: ⏸ Pause / ▶ Resume ---------------------------------------------------
+    case "sr": {
+      const s = await getSeries(c.admin, c.userId, id(a));
+      if (!s) return say("That recurring task no longer exists.", true);
+      if (s.active) {
+        await pauseSeries(c.admin, c.userId, s.id);
+        await say("⏸ Paused");
+        return swap(a, [seriesRow({ id: s.id, title: s.title, active: false })]);
+      }
+      const r = await resumeSeries(c.admin, c.userId, c.tz, s.id);
+      if (r.error) return say(r.error, true);
+      await say("▶ Resumed");
+      return swap(a, [seriesRow({ id: s.id, title: s.title, active: true })]);
     }
     case "pl": {
       const v = await taskListView(c, Number(a) || 0);

@@ -11,6 +11,7 @@ import type { HabitState } from "@/lib/calendar/types";
 import { packId } from "@/lib/telegram";
 import { getDuePayments } from "@/lib/calendar/payments";
 import { taskRows } from "@/lib/bot/tasks";
+import { nextText, syncSeriesOnToggle } from "@/lib/calendar/series";
 import { notesToReview, reviewLine } from "@/lib/notes-db/review";
 
 // Server-only: runs with the admin client, so EVERY query filters by user_id.
@@ -187,7 +188,8 @@ export async function completeTaskFromBot(admin: SupabaseClient, userId: string,
     .eq("id", task.id)
     .eq("user_id", userId);
   if (task.occurrence_id) await recomputeOccurrenceStatus(admin, userId, task.occurrence_id as string, localNow(timezone).date);
-  return { ok: true, text: `✓ Done: ${task.title}` };
+  const series = await syncSeriesOnToggle(admin, userId, timezone, task.id as string, true);
+  return { ok: true, text: `✓ Done: ${task.title}${series.next ? `\n🔁 ${nextText(series.next)}` : ""}` };
 }
 
 export function beforeText(item: DayItem, minutes: number, ctx: { tasks: string[]; notes: string[] }) {

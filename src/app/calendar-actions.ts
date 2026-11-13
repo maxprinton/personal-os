@@ -26,6 +26,7 @@ import { autoPlaceTasks, countMove, getTask, nextOccurrenceAfter } from "@/lib/c
 import { applyFreeDays, syncTypeWithFreeDays, undoFreeDays } from "@/lib/calendar/freedays";
 import { ensurePaymentEvents, reschedulePaymentEvents, TEMPLATE_COLS } from "@/lib/calendar/payments";
 import type { RepeatUnit } from "@/lib/calendar/recurrence";
+import { nextText, syncSeriesOnToggle } from "@/lib/calendar/series";
 import { isMobileRequest, READ_ONLY_MESSAGE } from "@/lib/device";
 import type { CalResult, EditScope, FreeDayPolicy, HabitState, Occurrence, PaymentTemplate } from "@/lib/calendar/types";
 import { durationOf, findOccurrenceConflict, spillsIntoToday } from "@/lib/calendar/overlap";
@@ -1203,7 +1204,8 @@ export async function setTaskDone(input: { taskId: string; done: boolean }): Pro
       .eq("user_id", c.userId);
     if (error) return { error: error.message };
     if (task.occurrence_id) await recomputeOccurrenceStatus(c.sb, c.userId, task.occurrence_id, c.today);
-    return done();
+    const series = await syncSeriesOnToggle(c.sb, c.userId, c.timezone, task.id, input.done);
+    return done(series.next ? `Done. ${nextText(series.next)}` : undefined);
   } catch (e) {
     return fail(e);
   }

@@ -2,7 +2,8 @@
 // eq, is, in, not, order, limit, single, maybeSingle, count head. Nothing is sent anywhere.
 export type Row = Record<string, unknown>;
 let idc = 0;
-export function fakeDb(tables: Record<string, Row[]>) {
+/** `defaults` = column defaults the real database would fill in on insert, per table. */
+export function fakeDb(tables: Record<string, Row[]>, defaults: Record<string, Row> = {}) {
   const from = (table: string) => {
     const rows = (tables[table] ??= []);
     const filters: ((r: Row) => boolean)[] = [];
@@ -10,19 +11,21 @@ export function fakeDb(tables: Record<string, Row[]>) {
     let ins: Row[] | null = null;
     let del = false;
     let head = false;
+    let selected = false;
     let ord: { col: string; asc: boolean } | null = null;
     let lim = Infinity;
     let off = 0;
     const run = () => {
       if (ins) {
-        const made = ins.map((r) => ({ id: `id${++idc}`, created_at: new Date(1e12 + idc * 1000).toISOString(), updated_at: "", ...r }));
+        const made = ins.map((r) => ({ id: `id${++idc}`, created_at: new Date(1e12 + idc * 1000).toISOString(), updated_at: "", ...(defaults[table] ?? {}), ...r }));
         rows.push(...made);
         return { data: made.map((r) => ({ ...r })), error: null as null | { message: string } };
       }
       let hit = rows.filter((r) => filters.every((f) => f(r)));
       if (patch) {
         for (const r of hit) Object.assign(r, patch);
-        return { data: null, error: null };
+        // update(...).select() returns the updated rows (how the app claims a row atomically)
+        return { data: selected ? hit.map((r) => JSON.parse(JSON.stringify(r)) as Row) : null, error: null };
       }
       if (del) {
         for (const r of hit) rows.splice(rows.indexOf(r), 1);
@@ -37,7 +40,7 @@ export function fakeDb(tables: Record<string, Row[]>) {
       return { data: head ? null : hit.map((r) => JSON.parse(JSON.stringify(r)) as Row), error: null, count: total };
     };
     const q: Record<string, unknown> = {
-      select: (_c?: string, o?: { head?: boolean }) => ((head = !!o?.head), q),
+      select: (_c?: string, o?: { head?: boolean }) => ((head = !!o?.head), (selected = true), q),
       insert: (r: Row | Row[]) => ((ins = Array.isArray(r) ? r : [r]), q),
       update: (p: Row) => ((patch = p), q),
       delete: () => ((del = true), q),
@@ -52,6 +55,7 @@ export function fakeDb(tables: Record<string, Row[]>) {
       in: (k: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[k])), q),
       not: (k: string, _op: string, v: unknown) => (filters.push((r) => (r[k] ?? null) !== v), q),
       order: (col: string, o?: { ascending?: boolean }) => ((ord = { col, asc: o?.ascending !== false }), q),
+      or: (_expr: string) => q, // the real filter is not simulated
       limit: (n: number) => ((lim = n), q),
       maybeSingle: async () => ({ data: run().data?.[0] ?? null, error: null }),
       single: async () => {

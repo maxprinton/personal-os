@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { localNow } from "@/lib/time";
 import { countMove, getTask, rescheduleTarget } from "@/lib/calendar/tasks";
 import { recomputeOccurrenceStatus } from "@/lib/calendar/habits";
+import { pauseIfOpenDropped } from "@/lib/calendar/series";
 
 // Server-only: task actions from Telegram buttons (admin client, so EVERY query filters by user_id).
 
@@ -41,5 +42,6 @@ export async function archiveFromBot(admin: SupabaseClient, userId: string, time
     .eq("user_id", userId);
   if (error) return { ok: false, text: "Archiving needs the database update (migration 0015) first." };
   if (task.occurrence_id) await recomputeOccurrenceStatus(admin, userId, task.occurrence_id, today);
-  return { ok: true, text: `🗄 Archived “${task.title}” (restore it in the app: Tasks → Archived)` };
+  const paused = await pauseIfOpenDropped(admin, userId, task.id);
+  return { ok: true, text: `🗄 Archived “${task.title}” (restore it in the app: Tasks → Archived)${paused.paused ? "\n⏸ Its repeat is paused (Tasks → Recurring in the app)." : ""}` };
 }

@@ -1,5 +1,5 @@
 // "Every N days / weeks / months / years" (pure). Idea taken from the LifeOS prototype's events.
-import { dateRange, daysBetween } from "@/lib/time";
+import { addDays, dateRange, daysBetween } from "@/lib/time";
 
 export type RepeatUnit = "none" | "days" | "weeks" | "months" | "years";
 
@@ -42,3 +42,20 @@ export function describeRepeat(unit: RepeatUnit, every: number) {
   return every === 1 ? `Every ${name}` : `Every ${every} ${name}s`;
 }
 
+/**
+ * A date plus "N days / weeks / months / years" (pure). Used by recurring tasks that repeat AFTER being done:
+ * the next due date counts from the day it was finished. Months and years clamp to the last day of the
+ * month (Jan 31 + 1 month = Feb 28), like repeatsOn does for payments.
+ */
+export function addInterval(date: string, unit: RepeatUnit, every: number) {
+  const n = Math.max(1, Math.floor(every) || 1);
+  if (unit === "none") return date;
+  if (unit === "days") return addDays(date, n);
+  if (unit === "weeks") return addDays(date, 7 * n);
+  const [y, m, d] = date.split("-").map(Number);
+  const total = y * 12 + (m - 1) + (unit === "years" ? 12 * n : n);
+  const ny = Math.floor(total / 12);
+  const nm = (total % 12) + 1;
+  const nd = Math.min(d, lastDayOfMonth(ny, nm));
+  return `${String(ny).padStart(4, "0")}-${String(nm).padStart(2, "0")}-${String(nd).padStart(2, "0")}`;
+}

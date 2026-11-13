@@ -5,6 +5,7 @@ import { addDays, formatMinutes, timeToMinutes } from "@/lib/time";
 import { getBlockTypes, getOccurrence, getOccurrences } from "@/lib/calendar/model";
 import { autoPlaceTasks, countMove, getTask, rescheduleTarget, TASK_COLS, type TaskDb } from "@/lib/calendar/tasks";
 import { recomputeOccurrenceStatus } from "@/lib/calendar/habits";
+import { adoptRestored, describeSeries, loadSeriesViews, nextText, pauseIfOpenDropped, syncSeriesOnToggle } from "@/lib/calendar/series";
 import type { Ctx } from "@/lib/bot/core";
 import { btn, pk, type Btn, type Kb } from "@/lib/bot/tg";
 import { packDate, shortDay, wdDay } from "@/lib/bot/text";
@@ -87,7 +88,9 @@ export async function completeTask(c: Ctx, id: string): Promise<Result> {
     .eq("user_id", c.userId);
   if (error) return { ok: false, text: "Could not save that. Try again." };
   if (task.occurrence_id) await recomputeOccurrenceStatus(c.admin, c.userId, task.occurrence_id, c.today);
-  return { ok: true, text: `✓ Done: ${task.title}`, title: task.title };
+  // Recurring task: the next one is created now (counting from today)
+  const series = await syncSeriesOnToggle(c.admin, c.userId, c.tz, task.id, true);
+  return { ok: true, text: `✓ Done: ${task.title}${series.next ? `\n🔁 ${nextText(series.next)}` : ""}`, title: task.title };
 }
 
 /** Undo of ✓: open again (on today if its day is past). */
@@ -103,7 +106,8 @@ export async function reopenTask(c: Ctx, id: string): Promise<Result> {
     .eq("user_id", c.userId);
   if (task.occurrence_id) await recomputeOccurrenceStatus(c.admin, c.userId, task.occurrence_id, c.today);
   if (past) await autoPlaceTasks(c.admin, c.userId, c.today);
-  return { ok: true, text: `↩ Open again: ${task.title}`, title: task.title };
+  const series = await syncSeriesOnToggle(c.admin, c.userId, c.tz, task.id, false);
+  return { ok: true, text: `↩ Open again: ${task.title}${series.restored ? "\n🔁 The next repeat was removed." : ""}`, title: task.title };
 }
 
 type MoveResult = Result & { label?: string; prevDate?: string | null; prevOcc?: string | null };
@@ -231,7 +235,8 @@ export async function archiveTask(c: Ctx, id: string): Promise<MoveResult> {
     .eq("user_id", c.userId);
   if (error) return { ok: false, text: "Archiving needs the database update (migration 0015) first." };
   if (task.occurrence_id) await recomputeOccurrenceStatus(c.admin, c.userId, task.occurrence_id, c.today);
-  return { ok: true, text: `🗄 Archived “${task.title}”`, title: task.title, prevDate: task.scheduled_for, prevOcc: task.occurrence_id };
+  const paused = await pauseIfOpenDropped(c.admin, c.userId, task.id);
+  return { ok: true, text: `🗄 Archived “${task.title}”${paused.paused ? "\n⏸ Its repeat is paused (Tasks → Recurring in the app)." : ""}`, title: task.title, prevDate: task.scheduled_for, prevOcc: task.occurrence_id };
 }
 
 /** Back from the archive: to its old place if that is still ahead, else today. */
@@ -251,6 +256,7 @@ export async function unarchiveTask(c: Ctx, id: string, prevDate: string | null 
     .eq("id", task.id)
     .eq("user_id", c.userId);
   if (occ) await recomputeOccurrenceStatus(c.admin, c.userId, occ, c.today);
+  await adoptRestored(c.admin, c.userId, task.id);
   await autoPlaceTasks(c.admin, c.userId, c.today);
   return { ok: true, text: `↩ Restored “${task.title}”${keep ? "" : " for today"}`, title: task.title };
 }
@@ -334,5 +340,28 @@ export async function archivedView(c: Ctx): Promise<{ text: string; kb: Kb }> {
   return {
     text: `🗄 Archived tasks (latest ${rows.length})\nTap one to bring it back for today.`,
     kb: rows.map((t) => [btn(`↩ ${t.title}`, `tr:${pk(t.id)}`)]),
+  };
+}
+
+/** One button per recurring task: ⏸ Pause / ▶ Resume (tapping swaps just that row). */
+export const seriesRow = (x: { id: string; title: string; active: boolean }): Btn[] => [
+  btn(`${x.active ? "⏸ Pause" : "▶ Resume"} ${x.title}`.slice(0, 44), `sr:${pk(x.id)}`),
+];
+
+/** /recurring: every task that repeats after you finish it, with when it is due. */
+export async function recurringView(c: Ctx): Promise<{ text: string; kb: Kb }> {
+  const views = await loadSeriesViews(c.admin, c.userId, c.tz);
+  if (!views.length) {
+    return {
+      text: "🔁 No recurring tasks yet.\nMake one by adding “every 3 days” to a task: t: clean the bathroom every 3 days. The next one appears 3 days after you mark it done.",
+      kb: [],
+    };
+  }
+  const lines = views.map(
+    (v) => `${v.series.active ? "🔁" : "⏸"} ${v.series.title} · ${describeSeries(v.series.repeat_unit, v.series.repeat_every)}\n    ${v.status}${v.late ? " ⚠️" : ""}`
+  );
+  return {
+    text: `🔁 Recurring tasks\n\n${lines.join("\n")}`,
+    kb: views.slice(0, 12).map((v) => seriesRow({ id: v.series.id, title: v.series.title, active: v.series.active })),
   };
 }

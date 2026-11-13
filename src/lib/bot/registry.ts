@@ -79,12 +79,14 @@ export const FEATURES: Feature[] = [
       "Start with t: or task: / tarea:.",
       "A date in the text sets the day: viernes, 5 nov, mañana, en 3 días.",
       "@Block puts it in a block, #tag adds a tag.",
+      "Add “every 3 days” (or “cada 2 semanas”, “every month”) and it repeats: 3 days after you mark it done, the next one appears.",
       "Any short text without a command also becomes a task for today.",
     ],
     examples: [
       { text: "t: llamar a mamá el viernes" },
       { text: "t: informe @Deep work #trabajo" },
       { text: "tarea: dentista 5 nov" },
+      { text: "t: limpiar el baño cada 3 días", note: "Repeats 3 days after you finish it (see /recurring)." },
       { text: "buy milk", note: "No command: a short text becomes a task for today." },
     ],
   },
@@ -199,6 +201,16 @@ export const FEATURES: Feature[] = [
     examples: [{ text: "/day viernes" }, { text: "what do I have on the 5th" }],
   },
   { id: "tasks", group: "see", title: "All open tasks", wordsKey: "tasks", canonical: "/tasks", summary: "Every open task, 8 per page, with buttons.", how: ["✓ done · ⏭ next time its block happens · ⋯ date, block, rename, archive.", "Only the row you tap changes; an Undo appears in its place."], examples: [{ text: "/tasks" }] },
+  {
+    id: "recurring", group: "see", title: "Recurring tasks", wordsKey: "recurring", canonical: "/recurring",
+    summary: "Tasks that come back by themselves after you finish them, with when each is due. ⏸ Pause / ▶ Resume.",
+    how: [
+      "Create one by adding “every 3 days” to a task: t: clean the bathroom every 3 days.",
+      "The interval counts from the day you mark it done: finish it on day 4 and the next one is due 3 days after day 4.",
+      "Pausing keeps it in the list; resuming brings its next task back. Edit or stop one in the app (Tasks → Recurring).",
+    ],
+    examples: [{ text: "/recurring" }, { text: "t: water plants every 2 days" }],
+  },
   { id: "archived", group: "see", title: "Archived tasks", wordsKey: "archived", canonical: "/archived", summary: "Archived tasks, with ↩ to bring one back to today.", how: ["Archive from the ⋯ menu of a task."], examples: [{ text: "/archived" }] },
   { id: "payments", group: "see", locked: true, title: "Payments", wordsKey: "payments", canonical: "/payments", summary: "Payments to do now (💳 Pay / Skip) and the next three weeks.", how: ["💳 Pay offers the account you used last time (⭐) and the expected amount, or “Another amount”.", "If it was already paid, it warns you first."], examples: [{ text: "/payments" }] },
   {

@@ -6,8 +6,11 @@ import { aiJson, hasAi } from "@/lib/ai";
 import { inSim } from "@/lib/bot/sim/store";
 import { AMOUNT, findDate, fold, toAmount as amountOf, type DateMode } from "@/lib/bot/text";
 
+/** "Repeat after I finish it": the next one appears `every` units after the day it is marked done. */
+export type RepeatSpec = { unit: "days" | "weeks" | "months" | "years"; every: number };
+
 export type Parsed =
-  | { kind: "task"; title: string; date: string | null }
+  | { kind: "task"; title: string; date: string | null; repeat?: RepeatSpec }
   | { kind: "note"; title: string; content: string }
   | { kind: "transfer"; amount: number; from: string; to: string; date: string | null }
   | {
@@ -54,6 +57,35 @@ export function guessCategory(text: string, available: string[] = []): string | 
 function extractDay(text: string, today: string, mode: DateMode = "future"): { text: string; date: string | null } {
   const hit = findDate(text, today, mode);
   return hit ? { text: hit.rest, date: hit.date } : { text, date: null };
+}
+
+const REPEAT_UNIT_WORDS = String.raw`days?|weeks?|months?|years?|d[ií]as?|semanas?|mes|meses|a[ñn]os?`;
+const REPEAT_AFTER = String.raw`(?:\s*[,\-—]?\s*(?:after\s+(?:i\s+)?(?:finish(?:ing)?|do(?:ing)?|complet(?:e|ing)|done)(?:\s+it)?|despu[eé]s\s+de\s+(?:hacerl[ao]|terminarl[ao]|completarl[ao])))?`;
+const REPEAT_RE = new RegExp(String.raw`\s*\b(?:every|each|cada)\s+(?:(other|otro|otra|\d{1,3})\s+)?(${REPEAT_UNIT_WORDS})\b${REPEAT_AFTER}`, "iu");
+
+/**
+ * "clean the bathroom every 3 days" / "cada 2 semanas" / "every other day" / "each month" -> the text without
+ * those words and the repeat rule (it always counts from the day the task is marked done). "every Monday" is not
+ * read (no unit), so it stays part of the title.
+ */
+export function extractRepeat(input: string): { text: string; repeat: RepeatSpec | null } {
+  const m = REPEAT_RE.exec(input);
+  if (!m) return { text: input, repeat: null };
+  const rest = (input.slice(0, m.index) + " " + input.slice(m.index + m[0].length)).replace(/\s{2,}/g, " ").replace(/\s+([,.;])/g, "$1").trim();
+  if (!rest) return { text: input, repeat: null };
+  const q = m[1]?.toLowerCase();
+  const every = !q ? 1 : /^\d+$/.test(q) ? Math.min(366, Math.max(1, Number(q))) : 2;
+  const w = fold(m[2])[0];
+  const unit: RepeatSpec["unit"] = w === "d" ? "days" : w === "w" || w === "s" ? "weeks" : w === "m" ? "months" : "years";
+  return { text: rest, repeat: { unit, every } };
+}
+
+function cleanRepeat(v: unknown): RepeatSpec | undefined {
+  if (!v || typeof v !== "object") return undefined;
+  const r = v as Record<string, unknown>;
+  const every = Math.floor(Number(r.every));
+  if (!["days", "weeks", "months", "years"].includes(String(r.unit)) || !Number.isFinite(every) || every < 1 || every > 366) return undefined;
+  return { unit: r.unit as RepeatSpec["unit"], every };
 }
 
 const toAmount = (s: string) => amountOf(s);
@@ -104,8 +136,9 @@ export function ruleGuess(input: string, today: string): Parsed {
     const [first, ...rest] = text.split("\n");
     return { kind: "note", title: first.slice(0, 120), content: rest.length ? rest.join("\n").trim() : text };
   }
-  const d = extractDay(text, today);
-  return { kind: "task", title: cap(d.text), date: d.date };
+  const r = extractRepeat(text);
+  const d = extractDay(r.text, today);
+  return { kind: "task", title: cap(d.text), date: d.date, ...(r.repeat ? { repeat: r.repeat } : {}) };
 }
 
 /** Only messages with a clear pattern (task:, note:, spent 12…, +300…, $45…); null otherwise. */
@@ -114,8 +147,9 @@ export function ruleParseStrict(input: string, today: string, categories: string
 
   let m = /^(?:(?:task|todo|tarea)\s*[:\-]|t\s*:)\s*([\s\S]+)$/i.exec(text);
   if (m) {
-    const d = extractDay(m[1].trim(), today);
-    return { kind: "task", title: cap(d.text), date: d.date };
+    const r = extractRepeat(m[1].trim());
+    const d = extractDay(r.text, today);
+    return { kind: "task", title: cap(d.text), date: d.date, ...(r.repeat ? { repeat: r.repeat } : {}) };
   }
 
   m = /^(?:(?:note|nota)\s*[:\-]|n\s*:)\s*([\s\S]+)$/i.exec(text);
@@ -167,7 +201,8 @@ export function validateParsed(o: unknown): Parsed | null {
   if (!o || typeof o !== "object") return null;
   const x = o as Record<string, unknown>;
   if (x.kind === "task" && typeof x.title === "string" && x.title.trim()) {
-    return { kind: "task", title: x.title.trim().slice(0, 300), date: isDate(x.date) ? x.date : null };
+    const repeat = cleanRepeat(x.repeat);
+    return { kind: "task", title: x.title.trim().slice(0, 300), date: isDate(x.date) ? x.date : null, ...(repeat ? { repeat } : {}) };
   }
   if (x.kind === "note" && typeof x.title === "string") {
     return { kind: "note", title: x.title.trim().slice(0, 200) || "Note", content: typeof x.content === "string" ? x.content : "" };
@@ -196,7 +231,7 @@ export function validateParsed(o: unknown): Parsed | null {
 function aiSystem(today: string, categories: string[], accounts: string[]) {
   return [
     `Today is ${today}. You turn one short personal message (English or Spanish) into ONE JSON object and nothing else.`,
-    `Shapes: {"kind":"task","title":string,"date":"YYYY-MM-DD"|null}`,
+    `Shapes: {"kind":"task","title":string,"date":"YYYY-MM-DD"|null,"repeat":{"unit":"days"|"weeks"|"months"|"years","every":number}|null}`,
     `| {"kind":"note","title":string,"content":string}`,
     `| {"kind":"transaction","txnType":"expense"|"income","amount":number,"description":string,"category":string|null,"date":"YYYY-MM-DD"|null}`,
     `| {"kind":"transfer","amount":number,"from":string,"to":string,"date":"YYYY-MM-DD"|null}.`,
@@ -205,6 +240,7 @@ function aiSystem(today: string, categories: string[], accounts: string[]) {
     `Things to do are tasks (title short, in the user's language, without the date words); money spent or received are transactions`,
     `(description = what it was for, without the amount, date or account); ideas, thoughts and longer text are notes.`,
     `Relative dates ("mañana", "ayer", "el viernes", "next monday") become YYYY-MM-DD; no date = null.`,
+    `A task that comes back by itself ("every 3 days", "cada 2 semanas") gets repeat (counted from when it is done) and the title WITHOUT those words; otherwise repeat is null.`,
   ].join("\n");
 }
 
@@ -247,7 +283,7 @@ export function describe(p: Parsed) {
     const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(p.amount);
     return `Transfer: ${money} · ${p.from} → ${p.to}${p.date ? ` (${p.date})` : ""}`;
   }
-  if (p.kind === "task") return `Task: ${p.title}${p.date ? ` (${p.date})` : ""}`;
+  if (p.kind === "task") return `Task: ${p.title}${p.date ? ` (${p.date})` : ""}${p.repeat ? ` · repeats ${p.repeat.every === 1 ? `every ${p.repeat.unit.slice(0, -1)}` : `every ${p.repeat.every} ${p.repeat.unit}`} after done` : ""}`;
   if (p.kind === "note") return `Note: ${p.title}`;
   const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(p.amount);
   return `${p.txnType === "income" ? "Income" : "Expense"}: ${money}${p.description ? ` · ${p.description}` : ""}${p.category ? ` · ${p.category}` : ""}${p.date ? ` (${p.date})` : ""}`;

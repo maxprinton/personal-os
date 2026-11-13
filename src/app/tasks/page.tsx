@@ -8,6 +8,8 @@ import { getTagsFor, idsWithTag } from "@/lib/tags";
 import { addDays, localNow, utcToLocal } from "@/lib/time";
 import TaskForm from "@/components/TaskForm";
 import TaskRow, { type TaskRowData } from "@/components/TaskRow";
+import RecurringSection from "@/components/RecurringSection";
+import { getSeriesBriefs, loadSeriesViews } from "@/lib/calendar/series";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +40,8 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
   const blockOptions = types.map((t) => ({ value: t.id, label: t.name }));
   const eventOptions = upcoming.map((e) => ({ value: e.id, label: `${e.title} (${e.date})` }));
   const editOptions = { blocks: blockOptions, events: eventOptions };
+  const seriesOf = userId ? await getSeriesBriefs(supabase, userId, tasks.map((t) => t.id)) : new Map();
+  const seriesViews = userId ? await loadSeriesViews(supabase, userId, timezone) : [];
 
   const groups: { title: string; items: TaskWithDone[]; empty?: string }[] = [
     {
@@ -61,7 +65,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
           <p className="text-sm text-muted">
-            Each task has a home block: every morning it goes into that block if the block is on the calendar that day. If it isnNothing moves silently: undone tasks show up in the morning ritual on Today.apos;t done by the end of its day, it moves to the next time its block happens (or to the next day), and the morning ritual on Today shows where it went.
+            Each task has a home block: every morning it goes into that block if the block is on the calendar that day. If it isn&apos;t done by the end of its day, it moves to the next time its block happens (or to the next day), and the morning ritual on Today shows where it went. Nothing moves silently.
             {tag && (
               <>
                 {" "}Filtered by <strong>#{tag}</strong> · <Link href="/tasks" className="underline">clear</Link>
@@ -70,6 +74,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
           </p>
         </div>
         <TaskForm today={today} blockOptions={blockOptions} eventOptions={eventOptions} />
+        <RecurringSection views={seriesViews} today={today} blockOptions={blockOptions} />
         {groups.map((g) =>
           g.items.length || g.empty ? (
             <section key={g.title} className="space-y-2">
@@ -79,7 +84,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
               {g.items.length ? (
                 <ul className="space-y-2">
                   {g.items.map((t) => (
-                    <TaskRow key={t.id} task={t} tags={tags.get(t.id)} today={today} places={places} editOptions={editOptions} />
+                    <TaskRow key={t.id} task={t} tags={tags.get(t.id)} today={today} places={places} editOptions={editOptions} series={seriesOf.get(t.id)} />
                   ))}
                 </ul>
               ) : (

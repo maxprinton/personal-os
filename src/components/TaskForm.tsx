@@ -1,11 +1,12 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { createTask } from "@/app/task-actions";
 import type { ActionState } from "@/app/actions";
 import { emitCalendarChanged } from "@/components/calendar/util";
 
 import { WritingInput } from "@/components/WritingField";
+import RepeatFields from "@/components/RepeatFields";
 type Option = { value: string; label: string };
 
 /** New task. Its home block is where it goes each morning when that block is on the calendar. */
@@ -20,9 +21,11 @@ export default function TaskForm({
 }) {
   const [state, action, pending] = useActionState<ActionState, FormData>(createTask, {});
   const formRef = useRef<HTMLFormElement>(null);
+  const [repeating, setRepeating] = useState(false);
   useEffect(() => {
     if (state.ok) {
       formRef.current?.reset();
+      setRepeating(false);
       emitCalendarChanged();
     }
   }, [state]);
@@ -57,10 +60,11 @@ export default function TaskForm({
           <select name="rollover_policy" defaultValue="migrate" className="mt-1 w-full rounded-md border border-line-strong px-3 py-2">
             <option value="migrate">Reschedule to the next time its block happens (else tomorrow)</option>
             <option value="backlog">Send to backlog</option>
-            <option value="graveyard">Mark as failed</option>
+            {!repeating && <option value="graveyard">Mark as failed</option>}
           </select>
         </label>
       </div>
+      <RepeatFields key={String(state.at ?? 0)} onChange={setRepeating} />
       <label className="block text-sm">Tags (comma separated)
         <input name="tags" placeholder="work, errands" className="mt-1 w-full rounded-md border border-line-strong px-3 py-2" />
       </label>

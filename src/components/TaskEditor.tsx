@@ -2,11 +2,13 @@
 
 import { useActionState, useEffect, useState } from "react";
 import { editTask, updateTask } from "@/app/task-actions";
+import { skipThisTime } from "@/app/series-actions";
 import type { ActionState } from "@/app/actions";
 import Modal, { btnPrimary, btnSecondary, inputCls } from "@/components/calendar/Modal";
 import { emitCalendarChanged } from "@/components/calendar/util";
 
 import { WritingInput } from "@/components/WritingField";
+import RepeatFields from "@/components/RepeatFields";
 type Option = { value: string; label: string };
 export type TaskEditOptions = { blocks: Option[]; events: Option[] };
 
@@ -19,6 +21,8 @@ export type EditableTask = {
   home_block_type_id?: string | null;
   event_id?: string | null;
   tags: string[];
+  /** Set when this task is the open task of a recurring series. */
+  series?: { id: string; unit: string; every: number; active: boolean } | null;
 };
 
 /** "Edit" button + window with every field of a task. */
@@ -42,6 +46,8 @@ function EditWindow({ task, options, onClose }: { task: EditableTask; options: T
   const [state, action, pending] = useActionState<ActionState, FormData>(editTask, {});
   const [status, setStatus] = useState(task.status);
   const [eventId, setEventId] = useState(task.event_id ?? "");
+  const [repeating, setRepeating] = useState(Boolean(task.series));
+  const [skipNote, setSkipNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (state.ok) {
@@ -58,6 +64,7 @@ function EditWindow({ task, options, onClose }: { task: EditableTask; options: T
     ? [{ value: task.home_block_type_id, label: "Current block (removed)" }, ...options.blocks]
     : options.blocks;
   const planned = status === "pending";
+  const open = status === "pending" || status === "backlog";
 
   return (
     <Modal title="Edit task" onClose={onClose} wide>
@@ -117,9 +124,39 @@ function EditWindow({ task, options, onClose }: { task: EditableTask; options: T
           <select name="rollover_policy" defaultValue={task.rollover_policy} className={`mt-1 ${inputCls}`}>
             <option value="migrate">Reschedule to the next time its block happens (else tomorrow)</option>
             <option value="backlog">Send to backlog</option>
-            <option value="graveyard">Mark as failed</option>
+            {!repeating && <option value="graveyard">Mark as failed</option>}
           </select>
         </label>
+
+        {open && (
+          <div className="space-y-2 rounded-md border border-line p-3">
+            <RepeatFields
+              defaultRepeating={Boolean(task.series)}
+              defaultEvery={task.series?.every ?? 3}
+              defaultUnit={task.series?.unit ?? "days"}
+              onChange={setRepeating}
+            />
+            {task.series && repeating && (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                <span>Changing the title, home block or end-of-day rule here changes every future repeat too.</span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const r = await skipThisTime({ taskId: task.id });
+                    if (r.error) return setSkipNote(r.error);
+                    emitCalendarChanged();
+                    onClose();
+                  }}
+                  className="rounded-md border border-edge px-2 py-1 transition-colors hover:bg-subtle"
+                >
+                  Skip this time
+                </button>
+                {skipNote && <span className="text-danger">{skipNote}</span>}
+              </div>
+            )}
+            {task.series && !repeating && <p className="text-xs text-muted">Save to stop repeating. This task stays; no new ones will appear.</p>}
+          </div>
+        )}
 
         <label className="block text-sm">
           Tags (comma separated)

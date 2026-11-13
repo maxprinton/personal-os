@@ -9,6 +9,7 @@ import { localNow } from "@/lib/time";
 import { clearActivity, setActivity } from "@/lib/habits";
 import { autoPlaceTasks, countMove, getTask, rescheduleTarget } from "@/lib/calendar/tasks";
 import { recomputeOccurrenceStatus } from "@/lib/calendar/habits";
+import { adoptRestored, endSeries, makeTaskRecurring, nextText, pauseIfOpenDropped, syncSeriesOnToggle, updateSeries } from "@/lib/calendar/series";
 import type { ActionState } from "@/app/actions";
 
 const POLICIES = ["migrate", "backlog", "graveyard"] as const;
@@ -77,6 +78,12 @@ export async function createTask(_prev: ActionState, form: FormData): Promise<Ac
   } = await supabase.auth.getUser();
   if (user && home && !event_id) await autoPlaceTasks(supabase, user.id, today);
 
+  // "Repeat: after I finish it": this task becomes the first one of a recurring series
+  if (user && String(form.get("repeat_mode") ?? "") === "after") {
+    const rep = await makeTaskRecurring(supabase, user.id, data.id as string, { unit: form.get("repeat_unit"), every: form.get("repeat_every") });
+    if ("error" in rep) return { error: `Task saved, but it could not repeat: ${rep.error}` };
+  }
+
   const tags = parseTags(String(form.get("tags") ?? ""));
   if (tags.length) await setTags(supabase, "task", data.id, tags);
 
@@ -125,6 +132,16 @@ export async function updateTask(form: FormData) {
       if (done) await setActivity(supabase, "task", id, date, "completed");
       else await clearActivity(supabase, "task", id, date);
     }
+    // Recurring tasks: done creates the next one; undone removes it again (untouched ones only)
+    {
+      const {
+        data: { user: seriesUser },
+      } = await supabase.auth.getUser();
+      if (seriesUser) {
+        const { timezone: seriesTz } = await getSettings(supabase);
+        await syncSeriesOnToggle(supabase, seriesUser.id, seriesTz, id, done);
+      }
+    }
     revalidatePath("/habits");
   } else if (op === "backlog") {
     await supabase
@@ -157,6 +174,11 @@ export async function updateTask(form: FormData) {
       .eq("source_id", id);
     await supabase.from("entity_tags").update({ deleted_at: now }).eq("entity_type", "task").eq("entity_id", id);
     await supabase.from("tasks").update({ deleted_at: now }).eq("id", id);
+    // Deleting the open task of a recurring series pauses the series (it never silently comes back)
+    const {
+      data: { user: delUser },
+    } = await supabase.auth.getUser();
+    if (delUser) await pauseIfOpenDropped(supabase, delUser.id, id);
   }
   refresh();
 }
@@ -277,6 +299,23 @@ export async function editTask(_prev: ActionState, form: FormData): Promise<Acti
   if (before.occurrence_id) await recomputeOccurrenceStatus(supabase, user.id, before.occurrence_id, today);
   if (status === "pending" && home && !event_id && !keepPlace) await autoPlaceTasks(supabase, user.id, today);
 
+  // Recurring series: ticking / unticking / archiving / restoring from the editor behaves like the buttons
+  if (before.status !== "completed" && status === "completed") await syncSeriesOnToggle(supabase, user.id, timezone, id, true);
+  else if (before.status === "completed" && status !== "completed") await syncSeriesOnToggle(supabase, user.id, timezone, id, false);
+  if (status === "archived" && before.status !== "archived") await pauseIfOpenDropped(supabase, user.id, id);
+  if (before.status === "archived" && (status === "pending" || status === "backlog")) await adoptRestored(supabase, user.id, id);
+
+  // Repeat field: start / change the series (title, home block and rule follow to every future repeat), or stop it
+  const repeatMode = String(form.get("repeat_mode") ?? "");
+  if (repeatMode === "after" && (status === "pending" || status === "backlog")) {
+    const rep = await makeTaskRecurring(supabase, user.id, id, { unit: form.get("repeat_unit"), every: form.get("repeat_every") });
+    if ("error" in rep) return { error: `Saved, but it could not repeat: ${rep.error}` };
+    await updateSeries(supabase, user.id, rep.seriesId, { title, homeBlockId: home, policy }, timezone);
+  } else if (repeatMode === "none") {
+    const { data: link } = await supabase.from("tasks").select("series_id").eq("id", id).eq("user_id", user.id).maybeSingle();
+    if (link?.series_id) await endSeries(supabase, user.id, link.series_id as string);
+  }
+
   await setTags(supabase, "task", id, parseTags(String(form.get("tags") ?? "")));
   refresh();
   return { ok: true, at: Date.now() };
@@ -293,7 +332,7 @@ async function taskCtx() {
   } = await supabase.auth.getUser();
   if (!user) throw new Error("You are signed out. Sign in again.");
   const { timezone } = await getSettings(supabase);
-  return { supabase, userId: user.id, today: localNow(timezone).date };
+  return { supabase, userId: user.id, timezone, today: localNow(timezone).date };
 }
 
 /** Where "Next time it happens" would send a task (shown in the Reschedule menu). */
@@ -388,8 +427,14 @@ export async function archiveTask(input: { taskId: string }): Promise<TaskAction
       return { error: error.message };
     }
     if (task.occurrence_id) await recomputeOccurrenceStatus(supabase, userId, task.occurrence_id, today);
+    const paused = await pauseIfOpenDropped(supabase, userId, task.id);
     refresh();
-    return { ok: true, message: "Archived. Find it in Tasks → Archived." };
+    return {
+      ok: true,
+      message: paused.paused
+        ? "Archived. Its recurring series is paused: resume it in Tasks → Recurring."
+        : "Archived. Find it in Tasks → Archived.",
+    };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Something went wrong." };
   }
@@ -405,6 +450,7 @@ export async function restoreTask(input: { taskId: string }): Promise<TaskAction
       .eq("id", input.taskId)
       .eq("user_id", userId);
     if (error) return { error: error.message };
+    await adoptRestored(supabase, userId, input.taskId);
     await autoPlaceTasks(supabase, userId, today);
     refresh();
     return { ok: true, message: "Restored for today." };
@@ -416,7 +462,7 @@ export async function restoreTask(input: { taskId: string }): Promise<TaskAction
 /** Tick / untick from any list. */
 export async function toggleTaskDone(input: { taskId: string; done: boolean }): Promise<TaskActionResult> {
   try {
-    const { supabase, userId, today } = await taskCtx();
+    const { supabase, userId, today, timezone } = await taskCtx();
     const task = await getTask(supabase, userId, input.taskId);
     if (!task) return { error: "That task no longer exists." };
     const { error } = await supabase
@@ -426,8 +472,9 @@ export async function toggleTaskDone(input: { taskId: string; done: boolean }): 
       .eq("user_id", userId);
     if (error) return { error: error.message };
     if (task.occurrence_id) await recomputeOccurrenceStatus(supabase, userId, task.occurrence_id, today);
+    const series = await syncSeriesOnToggle(supabase, userId, timezone, task.id, input.done);
     refresh();
-    return { ok: true };
+    return series.next ? { ok: true, message: `Done. ${nextText(series.next)}` } : series.restored ? { ok: true, message: "Reopened. The next repeat was removed." } : { ok: true };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Something went wrong." };
   }

@@ -13,7 +13,7 @@ import { makeCtx, type Ctx } from "@/lib/bot/core";
 import { btn, pk, recall, remember, send, type Kb } from "@/lib/bot/tg";
 import { commandArg, isNoise, isOneOf, onlyDate } from "@/lib/bot/text";
 import { parseBlockNoteCmd, parseEventCmd, parseFreeDayCmd, parseMetricCmd, parsePaymentCmd, parseSetBalanceCmd } from "@/lib/bot/intents";
-import { archivedView, taskListView } from "@/lib/bot/tasks";
+import { archivedView, recurringView, taskListView } from "@/lib/bot/tasks";
 import { createHabit, resolveDone } from "@/lib/bot/habits";
 import { appendBlockNote, askFreeDay, createEvent, createPaymentTemplate, paymentsView } from "@/lib/bot/calendar";
 import { accounts, askSetBalance, budgetAlert, budgetView, movementsView, setReceipt, unassignedView } from "@/lib/bot/finance";
@@ -301,6 +301,7 @@ async function views(c: Ctx, text: string): Promise<boolean> {
     }
     if (isOneOf(text, W.tasks)) return await hit(taskListView(c, 0));
     if (isOneOf(text, W.archived)) return await hit(archivedView(c));
+    if (isOneOf(text, W.recurring)) return await hit(recurringView(c));
     if (isOneOf(text, W.payments)) return await hit(paymentsView(c));
     if (isOneOf(text, W.unassigned)) return await hit(unassignedView(c, 0));
     if (isOneOf(text, W.categorize)) {

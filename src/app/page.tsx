@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import AutoRefresh from "@/components/AutoRefresh";
 import TaskRow, { type TaskRowData } from "@/components/TaskRow";
+import { getSeriesBriefs } from "@/lib/calendar/series";
 import { getContextFor } from "@/lib/links";
 import { getTagsFor } from "@/lib/tags";
 import { getMetrics } from "@/lib/habits";
@@ -72,6 +73,7 @@ export default async function CommandCenter() {
     .order("scheduled_for")
     .order("created_at");
   const todayTasks = (taskData ?? []) as TaskRowData[];
+  const seriesOf = userId ? await getSeriesBriefs(supabase, userId, todayTasks.map((t) => t.id)) : new Map();
   const [blockTypes, upcomingEvents] = userId
     ? await Promise.all([getBlockTypes(supabase, userId), getEvents(supabase, userId, now.date, addDays(now.date, 14), timezone)])
     : [[], []];
@@ -261,7 +263,7 @@ export default async function CommandCenter() {
               {todayTasks.length ? (
                 <ul className="space-y-2">
                   {todayTasks.map((t) => (
-                    <TaskRow key={t.id} task={t} tags={taskTags.get(t.id)} today={now.date} places={places} editOptions={editOptions} />
+                    <TaskRow key={t.id} task={t} tags={taskTags.get(t.id)} today={now.date} places={places} editOptions={editOptions} series={seriesOf.get(t.id)} />
                   ))}
                 </ul>
               ) : (
