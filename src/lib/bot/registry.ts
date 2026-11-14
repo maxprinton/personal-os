@@ -284,6 +284,7 @@ export const FEATURES: Feature[] = [
   // ---- Setup -----------------------------------------------------------------------------
   { id: "help", group: "setup", locked: true, title: "Help and buttons", wordsKey: "help", canonical: "/help", summary: "Everything the bot understands, and the buttons under the keyboard.", how: ["Buttons: 📅 Today · ▶️ Now · 🌙 Tomorrow · 📋 Tasks · 💳 Payments · 💰 Balance · 🔎 Search · ⚙️ Settings · ❓ Help."], examples: [{ text: "/help" }] },
   { id: "menu", group: "setup", title: "Show the keyboard buttons", wordsKey: "menu", canonical: "/menu", summary: "Brings the buttons back if you don't see them.", how: [], examples: [{ text: "/menu" }] },
+  { id: "hidemenu", group: "setup", title: "Hide the keyboard buttons", wordsKey: "hidemenu", canonical: "/hidemenu", summary: "Removes the buttons under the keyboard. /menu brings them back.", how: [], examples: [{ text: "/hidemenu" }] },
   { id: "link", group: "setup", title: "Link this chat", summary: "In Settings → Telegram get a code, then send /link CODE in the chat.", how: ["Linking only works in the real Telegram chat, not in the simulator."], examples: [] },
   { id: "noise", group: "setup", title: "Things that are not saved", summary: "“ok”, “gracias”, “hola”, “jaja”, 👍 … get a 👋 and nothing is saved.", how: [], examples: [{ text: "gracias" }] },
 ];

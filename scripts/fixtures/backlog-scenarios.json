@@ -1,0 +1,42 @@
+{
+  "caps": { "now": 2, "next": 5, "verifying": 3 },
+  "scenarios": [
+    { "name": "inbox -> later", "item": { "status": "inbox" }, "to": "later", "ok": true },
+    { "name": "later -> inbox", "item": { "status": "later" }, "to": "inbox", "ok": true },
+    { "name": "inbox -> next without size", "item": { "status": "inbox" }, "to": "next", "error": "Set a size (S, M or L) before moving it to Next." },
+    { "name": "inbox -> next with size", "item": { "status": "inbox", "size": "M" }, "to": "next", "ok": true },
+    { "name": "inbox -> next when Next is full", "item": { "status": "inbox", "size": "M" }, "to": "next", "counts": { "next": 5 }, "error": "Next already has 5 items. Move one first." },
+    { "name": "inbox -> next with 4 in Next", "item": { "status": "inbox", "size": "S" }, "to": "next", "counts": { "next": 4 }, "ok": true },
+    { "name": "next -> later", "item": { "status": "next", "size": "S" }, "to": "later", "ok": true },
+    { "name": "later -> now without spec", "item": { "status": "later", "size": "S" }, "to": "now", "error": "Add a spec link before moving it to Now." },
+    { "name": "later -> now without size", "item": { "status": "later", "spec_link": "claude/x.md" }, "to": "now", "error": "Set a size (S, M or L) before moving it to Now." },
+    { "name": "later -> now with size and spec", "item": { "status": "later", "size": "S", "spec_link": "claude/x.md" }, "to": "now", "ok": true },
+    { "name": "next -> now with 1 in Now", "item": { "status": "next", "size": "S", "spec_link": "claude/x.md" }, "to": "now", "counts": { "now": 1 }, "ok": true },
+    { "name": "next -> now when Now is full", "item": { "status": "next", "size": "S", "spec_link": "claude/x.md" }, "to": "now", "counts": { "now": 2 }, "error": "Now already has 2 items. Finish, verify or move one first." },
+    { "name": "bug -> now with no size or spec", "item": { "status": "inbox", "type": "bug" }, "to": "now", "ok": true },
+    { "name": "bug -> now when Now is full", "item": { "status": "later", "type": "bug" }, "to": "now", "counts": { "now": 2 }, "ok": true },
+    { "name": "now -> next when Next is full", "item": { "status": "now", "size": "S", "spec_link": "claude/x.md" }, "to": "next", "counts": { "next": 5 }, "error": "Next already has 5 items. Move one first." },
+    { "name": "now -> next with 4 in Next", "item": { "status": "now", "size": "S", "spec_link": "claude/x.md" }, "to": "next", "counts": { "next": 4 }, "ok": true },
+    { "name": "now -> verifying", "item": { "status": "now", "size": "S", "spec_link": "claude/x.md" }, "to": "verifying", "ok": true },
+    { "name": "now -> verifying when Verifying is full", "item": { "status": "now", "size": "S", "spec_link": "claude/x.md" }, "to": "verifying", "counts": { "verifying": 3 }, "error": "Verifying already has 3 items. Mark one done or reopen it first." },
+    { "name": "now -> done is not allowed", "item": { "status": "now", "size": "S", "spec_link": "claude/x.md" }, "to": "done", "error": "Cannot move from now to done." },
+    { "name": "verifying -> done", "item": { "status": "verifying", "size": "S", "spec_link": "claude/x.md" }, "to": "done", "ok": true },
+    { "name": "verifying -> now (reopen) when Now is full", "item": { "status": "verifying", "size": "S", "spec_link": "claude/x.md" }, "to": "now", "counts": { "now": 2 }, "ok": true, "reopen": true },
+    { "name": "done -> now (reopen) when Now is full", "item": { "status": "done", "size": "S", "spec_link": "claude/x.md" }, "to": "now", "counts": { "now": 2 }, "ok": true, "reopen": true },
+    { "name": "done -> later is not allowed", "item": { "status": "done", "size": "S", "spec_link": "claude/x.md" }, "to": "later", "error": "Cannot move from done to later." },
+    { "name": "inbox -> done is not allowed", "item": { "status": "inbox" }, "to": "done", "error": "Cannot move from inbox to done." },
+    { "name": "inbox -> parked without reason", "item": { "status": "inbox" }, "to": "parked", "error": "Give a reason before parking it." },
+    { "name": "inbox -> parked with reason", "item": { "status": "inbox", "parked_reason": "Not now, too big" }, "to": "parked", "ok": true },
+    { "name": "verifying -> parked with reason", "item": { "status": "verifying", "size": "S", "spec_link": "x", "parked_reason": "Did not need it" }, "to": "parked", "ok": true },
+    { "name": "parked -> inbox", "item": { "status": "parked", "parked_reason": "Not now" }, "to": "inbox", "ok": true },
+    { "name": "parked -> now is not allowed", "item": { "status": "parked", "parked_reason": "Not now" }, "to": "now", "error": "Cannot move from parked to now." }
+  ],
+  "creates": [
+    { "name": "create in inbox", "item": { "status": "inbox" }, "ok": true },
+    { "name": "create in later", "item": { "status": "later" }, "ok": true },
+    { "name": "create in verifying is not allowed", "item": { "status": "verifying" }, "error": "New items can start in inbox, later, next, now or parked, not verifying." },
+    { "name": "create in done is not allowed", "item": { "status": "done" }, "error": "New items can start in inbox, later, next, now or parked, not done." },
+    { "name": "create in parked without reason", "item": { "status": "parked" }, "error": "Give a reason before parking it." },
+    { "name": "create in now when Now is full", "item": { "status": "now", "size": "S", "spec_link": "claude/x.md" }, "counts": { "now": 2 }, "error": "Now already has 2 items. Finish, verify or move one first." }
+  ]
+}

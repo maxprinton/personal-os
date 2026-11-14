@@ -265,6 +265,10 @@ async function views(c: Ctx, text: string): Promise<boolean> {
       await tg("sendMessage", { chat_id: chatId, text: "⌨️ The buttons are below the keyboard. Tap ⌨ in the chat bar if you don't see them.", reply_markup: MENU_KEYBOARD });
       return true;
     }
+    if (isOneOf(text, W.hidemenu)) {
+      await tg("sendMessage", { chat_id: chatId, text: "🙈 Buttons hidden. Send /menu to bring them back.", reply_markup: { remove_keyboard: true } });
+      return true;
+    }
     if (isNowRequest(text)) {
       const r = await nowStatus(c.admin, c.userId, c.tz);
       for (let i = 0; i < r.text.length; i++) await send(chatId, r.text[i], i === r.text.length - 1 ? r.keyboard : null);

@@ -3,6 +3,7 @@
 export const W = {
   help: ["/help", "/start", "help", "ayuda", "/ayuda"],
   menu: ["/menu", "menu", "/teclado"],
+  hidemenu: ["/hidemenu", "hidemenu", "hide menu", "/ocultarmenu", "ocultar menu", "ocultar teclado"],
   tasks: ["/tareas", "tareas", "/tasks", "tasks", "/todo", "mis tareas", "todas las tareas", "all tasks"],
   archived: ["/archivadas", "archivadas", "/archived", "archived", "/archivo"],
   recurring: ["/recurrentes", "recurrentes", "/recurring", "recurring", "/repetir", "/repeticiones", "tareas recurrentes", "recurring tasks"],
