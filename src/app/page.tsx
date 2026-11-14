@@ -34,6 +34,7 @@ import { notesToReview } from "@/lib/notes-db/review";
 import { AiUsageLine } from "@/components/AiUsageSection";
 import TodayTile from "@/components/insights/TodayTile";
 import VerifyDueLine from "@/components/backlog/VerifyDueLine";
+import StepsLine from "@/components/backlog/StepsLine";
 
 export const dynamic = "force-dynamic";
 
@@ -156,6 +157,7 @@ export default async function CommandCenter() {
         </header>
 
         <TodayTile supabase={supabase} today={now.date} />
+        {userId && <StepsLine supabase={supabase} userId={userId} />}
         {userId && <VerifyDueLine supabase={supabase} userId={userId} />}
 
         {/* Focus: what should I be doing right now? */}

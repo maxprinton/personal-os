@@ -214,3 +214,92 @@ export async function saveSettings(sb: SupabaseClient, userId: string, s: Partia
   const { error } = await sb.from("backlog_settings").upsert(row, { onConflict: "user_id" });
   return error ? { ok: false, error: friendly(error) } : { ok: true };
 }
+
+// ---- Claude's activity feed (migration 0062): what Claude is doing and did, newest first ----
+export type ActivityRow = {
+  id: string;
+  kind: "start" | "update" | "finish" | "blocked" | "note" | "decision";
+  text: string;
+  at: string;
+  work_id: string | null;
+  item: { number: number; title: string } | null;
+};
+
+export async function listActivity(sb: SupabaseClient, userId: string, opts: { limit?: number; itemId?: string } = {}): Promise<{ rows: ActivityRow[]; working: ActivityRow[] }> {
+  let q = sb.from("backlog_activity").select("id,kind,text,at,work_id,item_id").eq("user_id", userId).order("at", { ascending: false }).limit(opts.limit ?? 30);
+  if (opts.itemId) q = q.eq("item_id", opts.itemId);
+  const { data, error } = await q;
+  if (error || !data) return { rows: [], working: [] };
+  const ids = Array.from(new Set(data.map((r) => r.item_id).filter((x): x is string => !!x)));
+  const byId = new Map<string, { number: number; title: string }>();
+  if (ids.length) {
+    const { data: items } = await sb.from("backlog_items").select("id,number,title").eq("user_id", userId).in("id", ids);
+    for (const i of items ?? []) byId.set(i.id as string, { number: i.number as number, title: i.title as string });
+  }
+  const rows: ActivityRow[] = data.map((r) => ({ id: r.id, kind: r.kind, text: r.text, at: r.at, work_id: r.work_id, item: r.item_id ? byId.get(r.item_id) ?? null : null }));
+  const finished = new Set(rows.filter((r) => r.kind === "finish" && r.work_id).map((r) => r.work_id));
+  const working = rows.filter((r) => r.kind === "start" && !finished.has(r.id));
+  return { rows, working };
+}
+
+// ---- Waiting-on-you queue (migration 0063): steps the user must do outside the app ----
+export type StepRow = {
+  id: string;
+  kind: "migration" | "publish" | "keys" | "other";
+  title: string;
+  detail: string | null;
+  ref: string | null;
+  status: "pending" | "done" | "skipped";
+  check_result: "unchecked" | "verified" | "mismatch";
+  check_note: string | null;
+  asked_at: string;
+  done_at: string | null;
+  item: { number: number; title: string } | null;
+};
+
+export async function listSteps(sb: SupabaseClient, userId: string, opts: { status?: "pending" | "done"; limit?: number } = {}): Promise<StepRow[]> {
+  let q = sb
+    .from("backlog_steps")
+    .select("id,kind,title,detail,ref,status,check_result,check_note,asked_at,done_at,item_id")
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .order(opts.status === "done" ? "done_at" : "asked_at", { ascending: false })
+    .limit(opts.limit ?? 30);
+  if (opts.status === "pending") q = q.eq("status", "pending");
+  else if (opts.status === "done") q = q.neq("status", "pending");
+  const { data, error } = await q;
+  if (error || !data) return [];
+  const ids = Array.from(new Set(data.map((r) => r.item_id).filter((x): x is string => !!x)));
+  const byId = new Map<string, { number: number; title: string }>();
+  if (ids.length) {
+    const { data: items } = await sb.from("backlog_items").select("id,number,title").eq("user_id", userId).in("id", ids);
+    for (const i of items ?? []) byId.set(i.id as string, { number: i.number as number, title: i.title as string });
+  }
+  return data.map((r) => ({
+    id: r.id as string,
+    kind: r.kind as StepRow["kind"],
+    title: r.title as string,
+    detail: (r.detail as string | null) ?? null,
+    ref: (r.ref as string | null) ?? null,
+    status: r.status as StepRow["status"],
+    check_result: r.check_result as StepRow["check_result"],
+    check_note: (r.check_note as string | null) ?? null,
+    asked_at: r.asked_at as string,
+    done_at: (r.done_at as string | null) ?? null,
+    item: r.item_id ? byId.get(r.item_id as string) ?? null : null,
+  }));
+}
+
+/** The user says a step is done (or skipped). Closed on their word; Claude adds the check result when it verifies. */
+export async function closeStep(sb: SupabaseClient, userId: string, id: string, how: "done" | "skipped", by: "user" | "telegram" = "user"): Promise<{ ok: boolean; error?: string }> {
+  const { data, error } = await sb
+    .from("backlog_steps")
+    .update({ status: how, done_at: new Date().toISOString(), done_by: by })
+    .eq("id", id)
+    .eq("user_id", userId)
+    .eq("status", "pending")
+    .select("id");
+  if (error) return { ok: false, error: error.message };
+  if (!data?.length) return { ok: false, error: "That step is already closed." };
+  return { ok: true };
+}

@@ -143,7 +143,8 @@ export default function ItemEditor({
           </label>
           <label className="text-sm">
             Spec link (needed before Now)
-            <input value={spec} onChange={(e) => setSpec(e.target.value)} maxLength={300} placeholder="claude/…-spec.md" className={`${inputCls} mt-1`} />
+            <input value={spec} onChange={(e) => setSpec(e.target.value)} maxLength={300} placeholder="/notes/… (the spec note)" className={`${inputCls} mt-1`} />
+            {spec.startsWith("/") && <a href={spec} className="mt-1 inline-block text-xs underline">Open the spec note</a>}
           </label>
         </div>
         <label className="block text-sm">

@@ -8,7 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Ctx } from "@/lib/bot/core";
 import { btn, type Kb } from "@/lib/bot/tg";
 import { isoWeekday } from "@/lib/time";
-import { MISSING, addItem, listItems, loadSettings, moveItem, resolveVerify } from "@/lib/backlog/data";
+import { MISSING, addItem, closeStep, listItems, listSteps, loadSettings, moveItem, resolveVerify, type StepRow } from "@/lib/backlog/data";
 import { triageSnapshot, verifyDueItems, type Triage } from "@/lib/backlog/board";
 import { CAPTURE_HELP, backlogText, captureReply, ideasText, mondaySummaryText, triageText, verifyNudgeText, type Capture } from "@/lib/backlog/text";
 import { itemCode } from "@/lib/backlog/rules";
@@ -29,7 +29,25 @@ export async function backlogView(c: Ctx): Promise<Reply> {
   const settings = await loadSettings(c.admin, c.userId);
   const text = backlogText(items, settings, new Date());
   const due = verifyDueItems(items, new Date(), settings.verify_days).slice(0, 3);
-  return { text, kb: due.map((i) => verifyKb(i.number)[0]) };
+  const steps = await listSteps(c.admin, c.userId, { status: "pending", limit: 5 });
+  return {
+    text: steps.length ? `${text}\n\n🙋 Waiting on you:\n${steps.map(stepLine).join("\n")}` : text,
+    kb: [...due.map((i) => verifyKb(i.number)[0]), ...steps.map((st) => stepKb(st.id)[0])],
+  };
+}
+
+/** One line for a pending step (the Waiting-on-you queue). */
+export function stepLine(st: StepRow): string {
+  return `• ${st.title}${st.item ? ` (${itemCode(st.item.number)})` : ""}`;
+}
+
+/** ✅ Done · skip, for one step (callback data "bl:sd:<id>" / "bl:ss:<id>"). */
+export function stepKb(id: string): Kb {
+  return [[btn("✅ Done", `bl:sd:${id}`), btn("Skip", `bl:ss:${id}`)]];
+}
+
+export function stepText(st: StepRow): string {
+  return `🙋 Waiting on you: ${st.title}${st.item ? ` (${itemCode(st.item.number)})` : ""}${st.detail ? `\n${st.detail}` : ""}`;
 }
 
 export async function ideasView(c: Ctx): Promise<Reply> {
@@ -64,6 +82,11 @@ async function triageReply(c: Ctx, title: string): Promise<Reply | null> {
 
 /** A tapped "bl:<action>:<number>" button. */
 export async function backlogCallback(c: Ctx, action: string, arg: string): Promise<BlResult> {
+  if (action === "sd" || action === "ss") {
+    const r = await closeStep(c.admin, c.userId, arg, action === "sd" ? "done" : "skipped", "telegram");
+    if (!r.ok) return { toast: r.error ?? "Could not close it.", alert: true };
+    return action === "sd" ? { toast: "Done ✓", text: "✅ Marked done. Tell Claude and I'll check it.", kb: [] } : { toast: "Skipped", text: "👍 Skipped.", kb: [] };
+  }
   const number = Number(arg);
   if (action === "s") return { toast: "Skipped.", text: "👍 Skipped.", kb: [] };
   if (!Number.isInteger(number) || number < 1) return { toast: "This button has expired.", alert: true };
@@ -131,6 +154,27 @@ export async function runBacklogCron(
         sent++;
       }
     }
+  }
+  return sent;
+}
+
+/** Every cron run: a Telegram message (with Done / Skip) for each new pending step. notified_at makes it once only. */
+export async function runStepsCron(
+  admin: SupabaseClient,
+  s: { user_id: string; telegram_chat_id: number },
+  io: { deliver: (chatId: number, text: string, kb?: Kb) => Promise<void> }
+): Promise<number> {
+  const { data, error } = await admin.from("backlog_steps").select("id").eq("user_id", s.user_id).eq("status", "pending").is("notified_at", null).is("deleted_at", null).limit(5);
+  if (error || !data?.length) return 0;
+  let sent = 0;
+  for (const row of data) {
+    // claim first (only one runner wins), then send
+    const { data: won } = await admin.from("backlog_steps").update({ notified_at: new Date().toISOString() }).eq("id", row.id).eq("user_id", s.user_id).is("notified_at", null).select("id");
+    if (!won?.length) continue;
+    const [st] = (await listSteps(admin, s.user_id, { status: "pending", limit: 50 })).filter((x) => x.id === row.id);
+    if (!st) continue;
+    await io.deliver(s.telegram_chat_id, stepText(st), stepKb(st.id));
+    sent++;
   }
   return sent;
 }

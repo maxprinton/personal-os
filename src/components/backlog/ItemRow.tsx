@@ -61,6 +61,7 @@ export default function ItemRow({
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           {item.size && <span className={chip}>{item.size}</span>}
           {item.area && <span className={chip}>{item.area}</span>}
+          {item.spec_link?.startsWith("/") && <Link href={item.spec_link} className={`${chip} underline`}>spec</Link>}
           {item.reopened_count > 0 && <span className={chip}>reopened {item.reopened_count}×</span>}
           {(showScore || score !== null) && score !== null && <span className={chip}>value {item.value} / effort {item.effort}</span>}
           <span className="text-xs text-faint">

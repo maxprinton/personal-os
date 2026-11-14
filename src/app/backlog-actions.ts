@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import {
   addItem,
+  closeStep,
   listItems,
   loadSettings,
   moveItem,
@@ -183,6 +184,19 @@ export async function saveBacklogSettings(_prev: ActionState, form: FormData): P
     if (!r.ok) return { error: r.error };
     refresh();
     return { ok: true, at: Date.now() };
+  } catch (e) {
+    return { error: msg(e) };
+  }
+}
+
+/** Waiting-on-you queue: the user taps Done or Skip on a step. */
+export async function finishStep(id: string, how: "done" | "skipped"): Promise<BacklogActionResult> {
+  try {
+    const c = await bctx();
+    const r = await closeStep(c.supabase, c.userId, id, how);
+    if (!r.ok) return { error: r.error };
+    refresh();
+    return { ok: true };
   } catch (e) {
     return { error: msg(e) };
   }

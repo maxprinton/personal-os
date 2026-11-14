@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { currentUserId } from "@/lib/calendar/model";
-import { listEvents, listItems, loadSettings } from "@/lib/backlog/data";
+import { listActivity, listEvents, listItems, loadSettings } from "@/lib/backlog/data";
+import ActivityPanel from "@/components/backlog/ActivityPanel";
 import ItemEditor from "@/components/backlog/ItemEditor";
 
 export const dynamic = "force-dynamic";
@@ -18,9 +19,12 @@ export default async function BacklogItemPage({ params }: { params: Promise<{ nu
   const item = items.find((i) => i.number === n);
   if (!item) notFound();
   const events = await listEvents(sb, userId, item.id);
+  const activity = await listActivity(sb, userId, { limit: 30, itemId: item.id });
+  const nowIso = new Date().toISOString();
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 lg:py-8">
-      <ItemEditor item={item} items={items} settings={settings} events={events} nowIso={new Date().toISOString()} />
+      <ItemEditor item={item} items={items} settings={settings} events={events} nowIso={nowIso} />
+      <div className="mt-6"><ActivityPanel rows={activity.rows} working={activity.working} nowIso={nowIso} title="Claude's work on this item" /></div>
     </main>
   );
 }

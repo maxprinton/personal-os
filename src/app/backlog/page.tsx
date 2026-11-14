@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { currentUserId } from "@/lib/calendar/model";
-import { listItems, loadSettings, MISSING } from "@/lib/backlog/data";
+import { listActivity, listItems, listSteps, loadSettings, MISSING } from "@/lib/backlog/data";
+import ActivityPanel from "@/components/backlog/ActivityPanel";
+import StepsPanel from "@/components/backlog/StepsPanel";
 import BacklogApp from "@/components/backlog/BacklogApp";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +15,13 @@ export default async function BacklogPage() {
   const [{ items, missing, error }, settings] = await Promise.all([listItems(sb, userId), loadSettings(sb, userId)]);
   if (missing) return <Shell>{MISSING}</Shell>;
   if (error) return <Shell>{error}</Shell>;
+  const activity = await listActivity(sb, userId, { limit: 30 });
+  const [pendingSteps, doneSteps] = await Promise.all([listSteps(sb, userId, { status: "pending" }), listSteps(sb, userId, { status: "done", limit: 15 })]);
+  const nowIso = new Date().toISOString();
   return (
     <main className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:py-8">
+      <StepsPanel pending={pendingSteps} recent={doneSteps} nowIso={nowIso} />
+      <ActivityPanel rows={activity.rows} working={activity.working} nowIso={nowIso} />
       <BacklogApp items={items} settings={settings} nowIso={new Date().toISOString()} />
     </main>
   );
