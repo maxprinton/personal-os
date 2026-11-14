@@ -29,7 +29,7 @@ export type BacklogEvent = { id: string; from_status: string | null; to_status: 
 export async function loadSettings(sb: SupabaseClient, userId: string): Promise<BacklogSettings> {
   const { data } = await sb
     .from("backlog_settings")
-    .select("now_cap,next_cap,verifying_cap,verify_days,triage_prompt,monday_summary")
+    .select("now_cap,next_cap,verifying_cap,verify_days,triage_prompt,monday_summary,telegram_push")
     .eq("user_id", userId)
     .maybeSingle();
   return { ...DEFAULT_SETTINGS, ...((data ?? {}) as Partial<BacklogSettings>) };
@@ -210,6 +210,7 @@ export async function saveSettings(sb: SupabaseClient, userId: string, s: Partia
     verify_days: clamp(s.verify_days ?? cur.verify_days, 1, 60, cur.verify_days),
     triage_prompt: s.triage_prompt ?? cur.triage_prompt,
     monday_summary: s.monday_summary ?? cur.monday_summary,
+    telegram_push: s.telegram_push ?? cur.telegram_push,
   };
   const { error } = await sb.from("backlog_settings").upsert(row, { onConflict: "user_id" });
   return error ? { ok: false, error: friendly(error) } : { ok: true };

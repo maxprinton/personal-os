@@ -33,6 +33,8 @@ export type BacklogSettings = {
   verify_days: number;
   triage_prompt: boolean;
   monday_summary: boolean;
+  /** Master switch for every Backlog message Telegram PUSHES (did-it-work question, Monday summary, steps, test missions). Default off. */
+  telegram_push: boolean;
 };
 export const DEFAULT_SETTINGS: BacklogSettings = {
   now_cap: DEFAULT_CAPS.now,
@@ -41,6 +43,7 @@ export const DEFAULT_SETTINGS: BacklogSettings = {
   verify_days: 7,
   triage_prompt: true,
   monday_summary: true,
+  telegram_push: false,
 };
 
 export const capsFrom = (s: BacklogSettings): Caps => ({ now: s.now_cap, next: s.next_cap, verifying: s.verifying_cap });

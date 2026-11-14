@@ -141,9 +141,10 @@ export async function runBacklogCron(
   const verifyWindow = now.minutes >= VERIFY_AT && now.minutes < VERIFY_AT + WINDOW;
   const weeklyWindow = isoWeekday(now.date) === 1 && now.minutes >= WEEKLY_AT && now.minutes < WEEKLY_AT + WINDOW;
   if (!verifyWindow && !weeklyWindow) return 0;
+  const settings = await loadSettings(admin, s.user_id);
+  if (!settings.telegram_push) return 0; // BL-97: Telegram does not push Backlog messages unless the setting is on
   const { items, missing } = await listItems(admin, s.user_id);
   if (missing || !items.length) return 0;
-  const settings = await loadSettings(admin, s.user_id);
   let sent = 0;
 
   if (weeklyWindow && settings.monday_summary) {
@@ -171,6 +172,7 @@ export async function runStepsCron(
   s: { user_id: string; telegram_chat_id: number },
   io: { deliver: (chatId: number, text: string, kb?: Kb) => Promise<void> }
 ): Promise<number> {
+  if (!(await loadSettings(admin, s.user_id)).telegram_push) return 0; // BL-97: nothing is sent or marked as notified while it is off
   const { data, error } = await admin.from("backlog_steps").select("id").eq("user_id", s.user_id).eq("status", "pending").is("notified_at", null).is("deleted_at", null).limit(5);
   if (error || !data?.length) return 0;
   let sent = 0;
@@ -193,6 +195,7 @@ export async function runTestsCron(
   io: { deliver: (chatId: number, text: string, kb?: Kb) => Promise<void> }
 ): Promise<number> {
   await detectTests(admin, s.user_id);
+  if (!(await loadSettings(admin, s.user_id)).telegram_push) return 0; // BL-97: detection still runs, but nothing is sent or marked
   const { data, error } = await admin.from("backlog_tests").select("id,title").eq("user_id", s.user_id).eq("status", "detected").is("notified_at", null).is("deleted_at", null).limit(3);
   if (error || !data?.length) return 0;
   let sent = 0;

@@ -182,6 +182,7 @@ export async function saveBacklogSettings(_prev: ActionState, form: FormData): P
       verify_days: Number(form.get("verify_days")),
       triage_prompt: form.get("triage_prompt") === "on",
       monday_summary: form.get("monday_summary") === "on",
+      telegram_push: form.get("telegram_push") === "on",
     });
     if (!r.ok) return { error: r.error };
     refresh();

@@ -7,7 +7,7 @@ export const DEFAULTS: Record<string, Record<string, unknown>> = {
   alarm_events: {"id":"$uuid","created_at":"$now"},
   backlog_events: {"id":"$uuid","at":"$now","by":"user"},
   backlog_items: {"id":"$uuid","type":"feature","status":"inbox","position":0,"source":"web","reopened_count":0,"created_at":"$now","updated_at":"$now","status_changed_at":"$now"},
-  backlog_settings: {"now_cap":2,"next_cap":5,"verifying_cap":3,"verify_days":7,"triage_prompt":true,"monday_summary":true,"created_at":"$now","updated_at":"$now"},
+  backlog_settings: {"now_cap":2,"next_cap":5,"verifying_cap":3,"verify_days":7,"triage_prompt":true,"monday_summary":true,"telegram_push":false,"created_at":"$now","updated_at":"$now"},
   balance_snapshots: {"id":"$uuid","recorded_at":"$now","created_at":"$now","updated_at":"$now"},
   block_occurrences: {"id":"$uuid","status":"scheduled","is_override":false,"created_at":"$now","updated_at":"$now","done_manually":false},
   block_slots: {"id":"$uuid","valid_from":"$today","created_at":"$now","updated_at":"$now"},

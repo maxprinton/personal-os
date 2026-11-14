@@ -288,7 +288,7 @@ export const FEATURES: Feature[] = [
   { id: "before", group: "auto", title: "Heads-up before an event or block", summary: "A message X minutes before each event or block.", how: ["Set X in /settings."], examples: [] },
   { id: "night", group: "auto", title: "Night check (21:00)", summary: "Your day with ✓ / Skip buttons, and the mood / energy check-in.", how: [], examples: [] },
   { id: "weekly", group: "auto", title: "Monday insights and portfolio reminder", summary: "Insights on Mondays at 8:00, the portfolio reminder at 10:00.", how: [], examples: [] },
-  { id: "backlog-auto", group: "auto", title: "Backlog check (09:30) and Monday summary", summary: "Asks if a finished item worked in real use after a week; Mondays at 8:30 a short summary.", how: [], examples: [] },
+  { id: "backlog-auto", group: "auto", title: "Backlog check (09:30) and Monday summary", summary: "OFF by default. If you turn on \"Send Backlog messages to Telegram\" in the Backlog settings: asks if a finished item worked in real use after a week, Mondays at 8:30 a short summary, plus steps and test missions.", how: [], examples: [] },
 
   // ---- Setup -----------------------------------------------------------------------------
   { id: "help", group: "setup", locked: true, title: "Help and buttons", wordsKey: "help", canonical: "/help", summary: "Everything the bot understands, and the buttons under the keyboard.", how: ["Buttons: 📅 Today · ▶️ Now · 🌙 Tomorrow · 📋 Tasks · 💳 Payments · 💰 Balance · 🔎 Search · ⚙️ Settings · ❓ Help."], examples: [{ text: "/help" }] },

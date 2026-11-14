@@ -4,7 +4,7 @@ import { fakeDb, type Row } from "./fake-supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { capMeter, peek, countsFor, filterItems, groupByStatus, positionFor, sortByScore, staleNext, triageSnapshot, verifyDueItems, DEFAULT_SETTINGS, type BacklogItem } from "@/lib/backlog/board";
 import { isBacklogView, isCaptureHelp, isIdeasView, mondaySummaryText, parseBacklogCapture, triageText, verifyNudgeText } from "@/lib/backlog/text";
-import { backlogCallback, backlogView, handleBacklogCapture, ideasView, runBacklogCron } from "@/lib/bot/backlog";
+import { backlogCallback, backlogView, handleBacklogCapture, ideasView, runBacklogCron, runStepsCron } from "@/lib/bot/backlog";
 import { makeCtx } from "@/lib/bot/core";
 
 let pass = 0;
@@ -109,17 +109,30 @@ ok("views recognised", isBacklogView("/backlog") && isBacklogView("Backlog") && 
     claim: async (u: string, k: string, r: string) => (claimed.has(`${u}${k}${r}`) ? false : (claimed.add(`${u}${k}${r}`), true)),
     deliver: async (_c: number, t: string) => void sent.push(t),
   };
+  const ON = { backlog_settings: [{ user_id: U, telegram_push: true }] as Row[] };
   const s = { user_id: U, telegram_chat_id: 1 };
-  const early = await runBacklogCron(mk(), s, { date: "2026-11-13", minutes: 300 }, io, NOW);
+  const early = await runBacklogCron(mk(rows(), ON), s, { date: "2026-11-13", minutes: 300 }, io, NOW);
   ok("nothing outside the windows", early === 0);
-  const n1 = await runBacklogCron(mk(), s, { date: "2026-11-13", minutes: 9 * 60 + 35 }, io, NOW);
+  const n1 = await runBacklogCron(mk(rows(), ON), s, { date: "2026-11-13", minutes: 9 * 60 + 35 }, io, NOW);
   ok("09:30 asks about the item in real use", n1 === 1 && /BL-3/.test(sent[0] ?? ""), sent.join("|"));
-  const n2 = await runBacklogCron(mk(), s, { date: "2026-11-13", minutes: 9 * 60 + 40 }, io, NOW);
+  const n2 = await runBacklogCron(mk(rows(), ON), s, { date: "2026-11-13", minutes: 9 * 60 + 40 }, io, NOW);
   ok("only once per day", n2 === 0);
-  const mon = await runBacklogCron(mk(), s, { date: "2026-11-16", minutes: 8 * 60 + 40 }, io, NOW);
+  const mon = await runBacklogCron(mk(rows(), ON), s, { date: "2026-11-16", minutes: 8 * 60 + 40 }, io, NOW);
   ok("Monday sends the summary", mon >= 1, String(mon));
-  const empty = await runBacklogCron(mk([]), s, { date: "2026-11-23", minutes: 8 * 60 + 40 }, io, NOW);
+  const empty = await runBacklogCron(mk([], ON), s, { date: "2026-11-23", minutes: 8 * 60 + 40 }, io, NOW);
   ok("empty backlog stays quiet", empty === 0);
+
+  // BL-97: with the default settings (telegram_push off) Telegram pushes nothing about the Backlog
+  const before = sent.length;
+  const offVerify = await runBacklogCron(mk(), s, { date: "2026-11-20", minutes: 9 * 60 + 35 }, io, NOW);
+  const offMonday = await runBacklogCron(mk(), s, { date: "2026-11-23", minutes: 8 * 60 + 40 }, io, NOW);
+  ok("push off: no did-it-work question and no Monday summary", offVerify === 0 && offMonday === 0 && sent.length === before, `${offVerify}/${offMonday}`);
+  const offExplicit = await runBacklogCron(mk(rows(), { backlog_settings: [{ user_id: U, telegram_push: false, monday_summary: true }] }), s, { date: "2026-11-27", minutes: 9 * 60 + 35 }, io, NOW);
+  ok("push off in the settings row also stays quiet", offExplicit === 0);
+  const stepRow = { id: "st1", user_id: U, status: "pending", notified_at: null, deleted_at: null } as Row;
+  const stepsDb = mk(rows(), { backlog_steps: [stepRow] });
+  const offSteps = await runStepsCron(stepsDb, s, { deliver: io.deliver });
+  ok("push off: steps send nothing and are not marked as notified", offSteps === 0 && stepRow.notified_at === null, String(offSteps));
 }
 
 {

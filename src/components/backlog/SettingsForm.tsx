@@ -29,8 +29,12 @@ export default function SettingsForm({ settings: s }: { settings: BacklogSetting
           <input type="checkbox" name="triage_prompt" defaultChecked={s.triage_prompt} /> Show the 30-second prompt after something reaches Verifying or Done
         </label>
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" name="monday_summary" defaultChecked={s.monday_summary} /> Monday summary in Telegram
+          <input type="checkbox" name="telegram_push" defaultChecked={s.telegram_push} /> Send Backlog messages to Telegram (did-it-work questions, steps, test missions)
         </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="monday_summary" defaultChecked={s.monday_summary} /> Monday summary in Telegram (only when the box above is on)
+        </label>
+        <p className="text-xs text-muted">Off by default: the Backlog is managed here. Saving ideas with <code>idea:</code> or <code>bug:</code> in Telegram, and the /backlog and /ideas views, always work.</p>
         <p className="text-xs text-muted">Bugs never count toward the Now cap. Changing a cap never moves anything; it only applies to the next move.</p>
         <button disabled={pending} className={btnSecondary}>
           {pending ? "Saving…" : "Save settings"}
