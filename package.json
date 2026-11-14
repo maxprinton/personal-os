@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "next lint",
     "test:backlog": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-backlog.ts",
+    "test:backlog-app": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-backlog-app.ts",
     "test:series": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-series.ts",
     "test:telegram": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-telegram.ts",
     "test:bot": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-bot.ts",

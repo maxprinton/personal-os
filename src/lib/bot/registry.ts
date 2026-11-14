@@ -158,6 +158,12 @@ export const FEATURES: Feature[] = [
     examples: [{ text: "yt: why most to-do lists fail" }],
   },
   {
+    id: "backlog-idea", group: "save", title: "Save an idea or a bug for Personal OS",
+    summary: "One sentence goes to the Backlog Inbox. Nothing is built until you move it to Now.",
+    how: ["idea: your idea, or bug: what broke. /idea and /bug alone show the help."],
+    examples: [{ text: "idea: show the Backlog on Today" }, { text: "bug: the habit streak resets at midnight" }],
+  },
+  {
     id: "teaching-video", group: "save", title: "Mark a class video as posted",
     summary: "Teaching add-on: tells the log that you posted the video for a class.",
     how: ["video <class> <Drive link>."],
@@ -233,6 +239,8 @@ export const FEATURES: Feature[] = [
   { id: "ai-check", group: "see", title: "Is the AI connected?", wordsKey: "ai", summary: "A quick check of the AI key.", how: [], examples: [{ text: "/ai" }], ai: true },
   { id: "teaching", group: "see", title: "Teaching: classes, hours, pay", wordsKey: "work", canonical: "/teaching", summary: "Your classes, hours and pay this month, plus the videos you still owe.", how: ["Also /work."], examples: [{ text: "/teaching" }] },
   { id: "youtube", group: "see", title: "YouTube pipeline", words: ["/youtube", "youtube", "/yt", "yt"], canonical: "/youtube", summary: "Ideas in the bank, videos in progress, the latest published.", how: [], examples: [{ text: "/youtube" }] },
+  { id: "backlog", group: "see", title: "Backlog", words: ["/backlog", "backlog"], canonical: "/backlog", summary: "What is in Now, Verifying and Next, and how many ideas wait in the Inbox.", how: [], examples: [{ text: "/backlog" }] },
+  { id: "ideas", group: "see", title: "Backlog Inbox", words: ["/ideas", "ideas"], canonical: "/ideas", summary: "The ideas and bugs you have not sorted yet.", how: [], examples: [{ text: "/ideas" }] },
   { id: "portfolio", group: "see", title: "Portfolio status", words: ["/portfolio", "portfolio", "/portafolio", "portafolio"], canonical: "/portfolio", summary: "Each page of your public site: ✅ live · 🟠 changed since publishing · 📝 draft, and unread messages.", how: [], examples: [{ text: "/portfolio" }] },
   { id: "inbox", group: "see", title: "Contact-form inbox", words: ["/inbox", "inbox", "/bandeja", "bandeja"], canonical: "/inbox", summary: "The latest messages from your site's contact form (🔵 unread). It doesn't mark them read.", how: [], examples: [{ text: "/inbox" }] },
   { id: "checkin", group: "see", title: "Daily check-in", words: ["/checkin", "checkin", "/chequeo", "chequeo"], canonical: "/checkin", summary: "Your day at a glance, with buttons for mood, energy and sleep.", how: ["Also arrives by itself at 21:00."], examples: [{ text: "/checkin" }] },
@@ -280,6 +288,7 @@ export const FEATURES: Feature[] = [
   { id: "before", group: "auto", title: "Heads-up before an event or block", summary: "A message X minutes before each event or block.", how: ["Set X in /settings."], examples: [] },
   { id: "night", group: "auto", title: "Night check (21:00)", summary: "Your day with ✓ / Skip buttons, and the mood / energy check-in.", how: [], examples: [] },
   { id: "weekly", group: "auto", title: "Monday insights and portfolio reminder", summary: "Insights on Mondays at 8:00, the portfolio reminder at 10:00.", how: [], examples: [] },
+  { id: "backlog-auto", group: "auto", title: "Backlog check (09:30) and Monday summary", summary: "Asks if a finished item worked in real use after a week; Mondays at 8:30 a short summary.", how: [], examples: [] },
 
   // ---- Setup -----------------------------------------------------------------------------
   { id: "help", group: "setup", locked: true, title: "Help and buttons", wordsKey: "help", canonical: "/help", summary: "Everything the bot understands, and the buttons under the keyboard.", how: ["Buttons: 📅 Today · ▶️ Now · 🌙 Tomorrow · 📋 Tasks · 💳 Payments · 💰 Balance · 🔎 Search · ⚙️ Settings · ❓ Help."], examples: [{ text: "/help" }] },

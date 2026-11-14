@@ -43,6 +43,7 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
     label: "System",
     items: [
+      { href: "/backlog", label: "Backlog", icon: "list", key: "u" },
       { href: "/import", label: "Import", icon: "import" },
       { href: "/settings", label: "Settings", icon: "settings", key: "s" },
     ],

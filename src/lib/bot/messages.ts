@@ -25,6 +25,8 @@ import { categorizeView, proposalsView } from "@/lib/bot/categorize";
 import { markVideo, workView } from "@/lib/bot/work";
 import { parseVideoCmd } from "@/lib/work-log";
 import { inboxView, isInboxRequest, isPortfolioSummary, portfolioView } from "@/lib/bot/portfolio";
+import { backlogView, handleBacklogCapture, ideasView } from "@/lib/bot/backlog";
+import { isBacklogView, isCaptureHelp, isIdeasView, parseBacklogCapture } from "@/lib/backlog/text";
 import { handleYoutubeCapture, isYoutubeSummary, parseYoutubeCapture, youtubeView } from "@/lib/bot/youtube-capture";
 import { markUsageReported, refreshFromGroq, scopeUsageLine, startOfDay, usageReport, usageSummary, withAiUsage } from "@/lib/ai-usage";
 import { addDays } from "@/lib/time";
@@ -210,6 +212,24 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage, opts:
     return;
   }
 
+  // ---- Backlog: "idea: …" / "bug: …" / "/idea …" / "/bug …" → the Backlog Inbox ----------------------
+  const blCap = isCaptureHelp(text) ? "help" : parseBacklogCapture(text);
+  if (blCap !== null) {
+    why("idea: / bug: → one sentence for the Backlog Inbox");
+    if (await overLimit(c)) {
+      await sendMessage(chatId, `Daily limit of ${DAILY_LIMIT} messages reached. Try again tomorrow.`);
+      return;
+    }
+    try {
+      const r = await handleBacklogCapture(c, blCap);
+      await send(chatId, r.text, r.kb);
+    } catch (e) {
+      console.error("backlog capture", e);
+      await sendMessage(chatId, "Sorry, I couldn't save that. Try again.");
+    }
+    return;
+  }
+
   // ---- Undo -------------------------------------------------------------------------------
   if (isOneOf(text, W.undo)) {
     why("Undo → takes back the last thing the bot saved or changed");
@@ -319,6 +339,8 @@ async function views(c: Ctx, text: string): Promise<boolean> {
     if (isOneOf(text, W.habits)) return await hit(habitsView(c));
     if (isOneOf(text, W.work)) return await hit(workView(c));
     if (isYoutubeSummary(text)) return await hit(youtubeView(c));
+    if (isBacklogView(text)) return await hit(backlogView(c));
+    if (isIdeasView(text)) return await hit(ideasView(c));
     if (isPortfolioSummary(text)) return await hit(portfolioView(c));
     if (isInboxRequest(text)) return await hit(inboxView(c));
     if (isOneOf(text, W.insights)) return await hit(insightsView(c));

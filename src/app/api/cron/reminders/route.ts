@@ -41,6 +41,7 @@ import { workVideoReminders } from "@/lib/bot/work";
 import { runYoutubeCron } from "@/lib/youtube/server/cron";
 import { runSearchCron } from "@/lib/search/server";
 import { runPortfolioNudge } from "@/lib/bot/portfolio";
+import { runBacklogCron } from "@/lib/bot/backlog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -389,6 +390,15 @@ export async function POST(req: Request) {
       });
     } catch {
       // the portfolio add-on is optional; its errors are ignored
+    }
+    try {
+      // 🗂 Backlog: the "did it work in real use?" question (09:30) and the Monday summary (08:30)
+      sent += await runBacklogCron(admin, s, nowFor(s), {
+        claim: (userId, kind, ref) => claim(admin, userId, kind, ref),
+        deliver: (chatId, text, kb) => send(chatId, text, kb),
+      });
+    } catch {
+      // the Backlog is optional; its errors are ignored
     }
   }
   return NextResponse.json({ ok: true, sent: sent + youtube.sent, notesMade, youtube, search });

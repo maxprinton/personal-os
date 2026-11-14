@@ -63,6 +63,7 @@ export const HELP = [
   "/usage → how much of the free AI you used today and what's left",
   "/teaching (or /work) → your classes, hours and pay this month + the videos you still owe · video B2-5 <Drive link> marks one as posted",
   "/youtube → ideas in the bank, videos in progress, latest published · yt: <idea> saves a video idea (by voice too)",
+  "idea: <text> or bug: <text> (also /idea, /bug) saves one sentence to the Personal OS Backlog · /backlog shows Now, Verifying and Next · /ideas shows the Inbox",
   "/portfolio → each page of your public site and its status (live, changed, draft) · /inbox → the latest messages from the site's contact form",
   "",
   "ASK YOUR NOTES",

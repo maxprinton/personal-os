@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import Icon from "@/components/ui/Icon";
 import ThemeToggle from "@/components/ui/ThemeToggle";
+import IdeaQuickButton from "@/components/backlog/IdeaQuickButton";
 import { NAV_ITEMS, SignOut, isActive, navGroupsWith } from "@/components/Nav";
 import { OPEN_SEARCH } from "@/components/search/SearchPalette";
 
@@ -139,6 +140,7 @@ export default function TopBar({
           >
             <Icon name="search" size={18} />
           </button>
+          <IdeaQuickButton />
           <button
             type="button"
             onClick={onToggleCalendar}

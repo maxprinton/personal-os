@@ -22,6 +22,7 @@ import { cycleBefore, generateInsights, insightsView, noteView, setTime, setting
 import { undoById } from "@/lib/bot/undo";
 import { answerProposal } from "@/lib/bot/categorize";
 import { dayText } from "@/lib/bot-ahead";
+import { backlogCallback } from "@/lib/bot/backlog";
 import { checkinView, focusRow, setBed, setFocus, setScale, setWake, setWorthIt } from "@/lib/bot/day";
 
 export type CallbackQuery = { id: string; data?: string; message?: { message_id?: number; chat: { id: number }; reply_markup?: unknown } };
@@ -268,6 +269,16 @@ async function route(c: Ctx, cq: CallbackQuery, chatId: number, msgId: number | 
       await say(`Focus: ${label}`);
       const doneRow = kb.find((row) => row.some((x) => (x.callback_data ?? "").startsWith("bd:") && (x.callback_data ?? "").includes(b)));
       return swap(b, [...(doneRow ? [doneRow] : []), focusRow(b, Number(a))]);
+    }
+
+    // ---- Backlog: "did it work?", triage ------------------------------------------------------
+    case "bl": {
+      const r = await backlogCallback(c, a, b);
+      await say(r.toast, r.alert);
+      if (r.text && msgId) await edit(chatId, msgId, r.text, r.kb ?? []);
+      else if (r.text) await send(chatId, r.text, r.kb ?? []);
+      if (r.followUp) await send(chatId, r.followUp.text, r.followUp.kb);
+      return;
     }
 
     // ---- Was it worth it? ---------------------------------------------------------------------------
