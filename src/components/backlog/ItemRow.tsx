@@ -1,10 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import type { BacklogActionResult } from "@/app/backlog-actions";
-import MoveMenu from "@/components/backlog/MoveMenu";
-import { TYPE_EMOJI, TYPE_LABEL, daysSince, rankScore, type BacklogItem } from "@/lib/backlog/board";
-import type { Caps } from "@/lib/backlog/rules";
+import { useState } from "react";
+import { moveItemAction, type BacklogActionResult } from "@/app/backlog-actions";
+import MoveMenu, { MoveForm } from "@/components/backlog/MoveMenu";
+import { TYPE_EMOJI, TYPE_LABEL, countsFor, daysSince, rankScore, type BacklogItem } from "@/lib/backlog/board";
+import { moveOptions, type BacklogStatus, type Caps, type Missing } from "@/lib/backlog/rules";
+
+/** The one natural step for each status, in plain words (Verifying and Done are answered with "did it work?"). */
+const NEXT_STEP: Partial<Record<BacklogStatus, { to: BacklogStatus; label: string }>> = {
+  inbox: { to: "later", label: "Keep for later" },
+  later: { to: "next", label: "Plan it" },
+  next: { to: "now", label: "Start it" },
+  now: { to: "verifying", label: "Built it: test it" },
+};
 
 const chip = "rounded-full bg-subtle px-2 py-0.5 text-xs text-muted";
 
@@ -26,8 +35,22 @@ export default function ItemRow({
 }) {
   const days = daysSince(item.status_changed_at, new Date(nowIso));
   const score = rankScore(item);
+  const step = NEXT_STEP[item.status];
+  const [form, setForm] = useState<{ to: BacklogStatus; missing: Missing[] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function primary() {
+    if (!step) return;
+    const opt = moveOptions(item, countsFor(items, item.id), caps).find((o) => o.to === step.to);
+    if (!opt) return onResult({ error: `Cannot move from ${item.status} to ${step.to}.` });
+    if (!opt.ok) return onResult({ error: opt.message ?? "Not allowed right now." });
+    if (opt.missing.length) return setForm({ to: step.to, missing: opt.missing });
+    setBusy(true);
+    const r = await moveItemAction({ number: item.number, to: step.to });
+    setBusy(false);
+    onResult(r);
+  }
   return (
-    <li className="flex items-start gap-3 rounded-xl border border-line bg-surface p-3 transition-colors hover:border-edge">
+    <li className="flex flex-wrap items-start gap-3 rounded-xl border border-line bg-surface p-3 transition-colors hover:border-edge">
       <span className="text-lg leading-6" title={TYPE_LABEL[item.type]} aria-label={TYPE_LABEL[item.type]}>
         {TYPE_EMOJI[item.type]}
       </span>
@@ -46,7 +69,19 @@ export default function ItemRow({
         </div>
         {item.status === "parked" && item.parked_reason && <p className="mt-1 text-xs text-muted">Why: {item.parked_reason}</p>}
       </div>
-      <MoveMenu item={item} items={items} caps={caps} onResult={onResult} />
+      <div className="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center">
+        {step && (
+          <button type="button" disabled={busy} onClick={primary} className="compact rounded-md border border-edge bg-surface px-2.5 py-1 text-xs font-medium transition-colors hover:bg-accent-soft disabled:opacity-50">
+            {busy ? "…" : `${step.label} →`}
+          </button>
+        )}
+        <MoveMenu item={item} items={items} caps={caps} onResult={onResult} />
+      </div>
+      {form && (
+        <div className="w-full basis-full rounded-lg border border-line bg-subtle p-3">
+          <MoveForm item={item} to={form.to} missing={form.missing} onCancel={() => setForm(null)} onResult={(r) => { setForm(null); onResult(r); }} />
+        </div>
+      )}
     </li>
   );
 }

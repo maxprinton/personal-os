@@ -24,7 +24,7 @@ import {
   type BacklogSettings,
   type Triage,
 } from "@/lib/backlog/board";
-import { SIZES, TYPES, type BacklogSize, type BacklogType } from "@/lib/backlog/rules";
+import { SIZES, TYPES, type BacklogSize, type BacklogStatus, type BacklogType } from "@/lib/backlog/rules";
 import type { VerifyResult } from "@/lib/backlog/data";
 
 type View = "list" | "board";
@@ -38,6 +38,9 @@ export default function BacklogApp({ items, settings, nowIso }: { items: Backlog
   const [area, setArea] = useState("");
   const [size, setSize] = useState<BacklogSize | "">("");
   const [sort, setSort] = useState<"manual" | "score">("manual");
+  const [stage, setStage] = useState<BacklogStatus | "">("");
+  const [guide, setGuide] = useState(true);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [notice, setNotice] = useState<{ text: string; bad: boolean } | null>(null);
   const [triage, setTriage] = useState<{ data: Triage; title: string } | null>(null);
   const caps = capsFrom(settings);
@@ -47,6 +50,7 @@ export default function BacklogApp({ items, settings, nowIso }: { items: Backlog
     try {
       const v = localStorage.getItem("backlog-view");
       if (v === "board" || v === "list") setView(v);
+      if (localStorage.getItem("backlog-guide") === "hidden") setGuide(false);
     } catch {
       // storage is only a convenience
     }
@@ -61,6 +65,14 @@ export default function BacklogApp({ items, settings, nowIso }: { items: Backlog
     setView(v);
     try {
       localStorage.setItem("backlog-view", v);
+    } catch {
+      // ignore
+    }
+  }
+  function toggleGuide(show: boolean) {
+    setGuide(show);
+    try {
+      localStorage.setItem("backlog-guide", show ? "shown" : "hidden");
     } catch {
       // ignore
     }
@@ -99,6 +111,57 @@ export default function BacklogApp({ items, settings, nowIso }: { items: Backlog
       </header>
 
       <QuickAdd onResult={onResult} />
+
+      {guide ? (
+        <section className="space-y-2 rounded-2xl border border-line bg-surface p-4 text-sm">
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="font-semibold">How this works</h2>
+            <button type="button" onClick={() => toggleGuide(false)} className="text-muted underline">
+              Hide
+            </button>
+          </div>
+          <ol className="list-decimal space-y-1 pl-5 text-muted">
+            <li><b className="text-fg">Write the idea</b> in the box above (or send <code>idea: …</code> to Telegram). It lands in the <b className="text-fg">Inbox</b>. No other decisions needed.</li>
+            <li>Each row has a button with the <b className="text-fg">next step</b> (for example "Plan it →"). The menu next to it, <b className="text-fg">Move ▾</b>, shows every other place it can go. It asks for anything missing.</li>
+            <li><b className="text-fg">Later</b> = a good idea, not now. <b className="text-fg">Next</b> = chosen, max 5, needs a size. <b className="text-fg">Now</b> = being built, max 2, needs a spec link. <b className="text-fg">Verifying</b> = built, use it for about a week.</li>
+            <li>After a week, answer "Did it work?" and it becomes <b className="text-fg">Done</b>. If not, it goes back to Now. Ideas you decided against go to <b className="text-fg">Parked</b>, with a reason.</li>
+            <li>Click a title to edit it and see its <b className="text-fg">history</b>. Click a stage in the strip below to look at only that stage.</li>
+          </ol>
+        </section>
+      ) : (
+        <button type="button" onClick={() => toggleGuide(true)} className="text-sm text-muted underline">
+          How does this work?
+        </button>
+      )}
+
+      <nav aria-label="Stages" className="flex flex-wrap items-center gap-1.5 text-sm">
+        {([
+          ["inbox", "Inbox", counts.inbox.length],
+          ["later", "Later", counts.later.length],
+          ["next", "Next", `${counts.next.length}/${settings.next_cap}`],
+          ["now", "Now", `${nonBugNow}/${settings.now_cap}`],
+          ["verifying", "Verifying", `${counts.verifying.length}/${settings.verifying_cap}`],
+          ["done", "Done", counts.done.length],
+          ["parked", "Parked", counts.parked.length],
+        ] as [BacklogStatus, string, string | number][]).map(([st, label, n], i, all) => (
+          <span key={st} className="flex items-center gap-1.5">
+            <button
+              type="button"
+              aria-pressed={stage === st}
+              onClick={() => setStage(stage === st ? "" : st)}
+              className={`compact rounded-full border px-3 py-1 transition-colors ${stage === st ? "border-fg bg-fg text-app" : "border-edge hover:bg-subtle"}`}
+            >
+              {label} <span className={stage === st ? "" : "text-muted"}>{n}</span>
+            </button>
+            {i < all.length - 3 && <span className="text-faint" aria-hidden>→</span>}
+          </span>
+        ))}
+        {stage && (
+          <button type="button" onClick={() => setStage("")} className="ml-1 text-muted underline">
+            Show all
+          </button>
+        )}
+      </nav>
 
       {notice && (
         <p role="status" className={`rounded-lg border px-3 py-2 text-sm ${notice.bad ? "border-danger/40 bg-danger/10 text-danger" : "border-success/40 bg-success/10 text-success"}`}>
@@ -158,9 +221,12 @@ export default function BacklogApp({ items, settings, nowIso }: { items: Backlog
         <Board items={filtered} caps={caps} onResult={onResult} onNotice={(text, bad = false) => setNotice({ text, bad })} />
       ) : (
         <div className="space-y-5">
-          {STATUS_ORDER.map((st) => {
-            const list = sort === "score" ? sortByScore(groups[st]) : groups[st];
-            if (!list.length && (filtering || st === "parked" || st === "done")) return null;
+          {STATUS_ORDER.filter((st) => !stage || st === stage).map((st) => {
+            const full = sort === "score" ? sortByScore(groups[st]) : groups[st];
+            const LIMIT = 8;
+            const open = Boolean(expanded[st]) || Boolean(stage) || full.length <= LIMIT;
+            const list = open ? full : full.slice(0, LIMIT);
+            if (!full.length && !stage && (filtering || st === "parked" || st === "done")) return null;
             const body = (
               <>
                 {list.length ? (
@@ -172,10 +238,15 @@ export default function BacklogApp({ items, settings, nowIso }: { items: Backlog
                 ) : (
                   <p className="text-sm text-faint">{STATUS_HINT[st]}. Nothing here yet.</p>
                 )}
+                {!open && (
+                  <button type="button" onClick={() => setExpanded({ ...expanded, [st]: true })} className="mt-2 text-sm text-muted underline">
+                    Show all {full.length}
+                  </button>
+                )}
               </>
             );
-            const label = `${STATUS_LABEL[st]} (${list.length})`;
-            if (st === "done" || st === "parked") {
+            const label = `${STATUS_LABEL[st]} (${full.length})`;
+            if ((st === "done" || st === "parked") && !stage) {
               return (
                 <details key={st} className="group">
                   <summary className="section-title cursor-pointer select-none">{label}</summary>
