@@ -8,7 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Ctx } from "@/lib/bot/core";
 import { btn, type Kb } from "@/lib/bot/tg";
 import { isoWeekday } from "@/lib/time";
-import { MISSING, addItem, closeStep, listItems, listSteps, loadSettings, moveItem, resolveVerify, type StepRow } from "@/lib/backlog/data";
+import { MISSING, addItem, answerTest, closeStep, detectTests, listItems, listSteps, loadSettings, moveItem, resolveVerify, type StepRow } from "@/lib/backlog/data";
 import { triageSnapshot, verifyDueItems, type Triage } from "@/lib/backlog/board";
 import { CAPTURE_HELP, backlogText, captureReply, ideasText, mondaySummaryText, triageText, verifyNudgeText, type Capture } from "@/lib/backlog/text";
 import { itemCode } from "@/lib/backlog/rules";
@@ -86,6 +86,13 @@ export async function backlogCallback(c: Ctx, action: string, arg: string): Prom
     const r = await closeStep(c.admin, c.userId, arg, action === "sd" ? "done" : "skipped", "telegram");
     if (!r.ok) return { toast: r.error ?? "Could not close it.", alert: true };
     return action === "sd" ? { toast: "Done ✓", text: "✅ Marked done. Tell Claude and I'll check it.", kb: [] } : { toast: "Skipped", text: "👍 Skipped.", kb: [] };
+  }
+  if (action === "tw" || action === "tp") {
+    const r = await answerTest(c.admin, c.userId, arg, action === "tw" ? "worked" : "problem", action === "tp" ? "Reported from Telegram; tell Claude what happened." : "");
+    if (!r.ok) return { toast: r.error ?? "Could not save.", alert: true };
+    return action === "tw"
+      ? { toast: "Worked ✓", text: "✅ Great, it worked.", kb: [] }
+      : { toast: "Problem saved", text: `⚠ Saved${r.bug ? ` as BL-${r.bug}` : ""}. Tell Claude what went wrong.`, kb: [] };
   }
   const number = Number(arg);
   if (action === "s") return { toast: "Skipped.", text: "👍 Skipped.", kb: [] };
@@ -174,6 +181,25 @@ export async function runStepsCron(
     const [st] = (await listSteps(admin, s.user_id, { status: "pending", limit: 50 })).filter((x) => x.id === row.id);
     if (!st) continue;
     await io.deliver(s.telegram_chat_id, stepText(st), stepKb(st.id));
+    sent++;
+  }
+  return sent;
+}
+
+/** Every cron run: detect used missions, then one Telegram message (✅ Worked / ⚠ Problem) per newly detected mission. */
+export async function runTestsCron(
+  admin: SupabaseClient,
+  s: { user_id: string; telegram_chat_id: number },
+  io: { deliver: (chatId: number, text: string, kb?: Kb) => Promise<void> }
+): Promise<number> {
+  await detectTests(admin, s.user_id);
+  const { data, error } = await admin.from("backlog_tests").select("id,title").eq("user_id", s.user_id).eq("status", "detected").is("notified_at", null).is("deleted_at", null).limit(3);
+  if (error || !data?.length) return 0;
+  let sent = 0;
+  for (const t of data) {
+    const { data: won } = await admin.from("backlog_tests").update({ notified_at: new Date().toISOString() }).eq("id", t.id).eq("user_id", s.user_id).is("notified_at", null).select("id");
+    if (!won?.length) continue;
+    await io.deliver(s.telegram_chat_id, `🎯 Mission complete: ${t.title}\nI saw you use it. Did it work?`, [[btn("✅ Worked", `bl:tw:${t.id}`), btn("⚠ Problem", `bl:tp:${t.id}`)]]);
     sent++;
   }
   return sent;

@@ -6,7 +6,9 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import {
   addItem,
+  answerTest,
   closeStep,
+  markTestDone,
   listItems,
   loadSettings,
   moveItem,
@@ -197,6 +199,31 @@ export async function finishStep(id: string, how: "done" | "skipped"): Promise<B
     if (!r.ok) return { error: r.error };
     refresh();
     return { ok: true };
+  } catch (e) {
+    return { error: msg(e) };
+  }
+}
+
+/** Test missions: "I did it" (no automatic trace) and the "did it work?" answer. */
+export async function markMissionDone(id: string): Promise<BacklogActionResult> {
+  try {
+    const c = await bctx();
+    const r = await markTestDone(c.supabase, c.userId, id);
+    if (!r.ok) return { error: r.error };
+    refresh();
+    return { ok: true };
+  } catch (e) {
+    return { error: msg(e) };
+  }
+}
+
+export async function answerMission(id: string, result: "worked" | "problem" | "skipped", note?: string): Promise<BacklogActionResult> {
+  try {
+    const c = await bctx();
+    const r = await answerTest(c.supabase, c.userId, id, result, note ?? "");
+    if (!r.ok) return { error: r.error };
+    refresh();
+    return { ok: true, message: r.bug ? `BL-${r.bug} created.` : undefined };
   } catch (e) {
     return { error: msg(e) };
   }

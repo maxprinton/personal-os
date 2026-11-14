@@ -35,6 +35,7 @@ import { AiUsageLine } from "@/components/AiUsageSection";
 import TodayTile from "@/components/insights/TodayTile";
 import VerifyDueLine from "@/components/backlog/VerifyDueLine";
 import StepsLine from "@/components/backlog/StepsLine";
+import TestsToday from "@/components/backlog/TestsToday";
 
 export const dynamic = "force-dynamic";
 
@@ -158,6 +159,7 @@ export default async function CommandCenter() {
 
         <TodayTile supabase={supabase} today={now.date} />
         {userId && <StepsLine supabase={supabase} userId={userId} />}
+        {userId && <TestsToday supabase={supabase} userId={userId} />}
         {userId && <VerifyDueLine supabase={supabase} userId={userId} />}
 
         {/* Focus: what should I be doing right now? */}

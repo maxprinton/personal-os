@@ -41,7 +41,7 @@ import { workVideoReminders } from "@/lib/bot/work";
 import { runYoutubeCron } from "@/lib/youtube/server/cron";
 import { runSearchCron } from "@/lib/search/server";
 import { runPortfolioNudge } from "@/lib/bot/portfolio";
-import { runBacklogCron, runStepsCron } from "@/lib/bot/backlog";
+import { runBacklogCron, runStepsCron, runTestsCron } from "@/lib/bot/backlog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -403,6 +403,12 @@ export async function POST(req: Request) {
     try {
       // 🙋 Backlog: new "waiting on you" steps (migration, upload, keys) with a Done button
       sent += await runStepsCron(admin, s, { deliver: (chatId, text, kb) => send(chatId, text, kb) });
+    } catch {
+      // optional; errors are ignored
+    }
+    try {
+      // 🎯 Backlog: test missions the user just completed ("did it work?" with buttons)
+      sent += await runTestsCron(admin, s, { deliver: (chatId, text, kb) => send(chatId, text, kb) });
     } catch {
       // optional; errors are ignored
     }

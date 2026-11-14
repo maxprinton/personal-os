@@ -303,3 +303,85 @@ export async function closeStep(sb: SupabaseClient, userId: string, id: string, 
   if (!data?.length) return { ok: false, error: "That step is already closed." };
   return { ok: true };
 }
+
+// ---- Test missions (migration 0065): manual tests for the user, auto-detected when the feature is used ----
+export type TestRow = {
+  id: string;
+  title: string;
+  how_to: string;
+  probe: string | null;
+  status: "pending" | "detected" | "worked" | "problem" | "skipped";
+  detected_at: string | null;
+  answered_at: string | null;
+  problem_note: string | null;
+  bug_number: number | null;
+  item: { number: number; title: string } | null;
+};
+
+/** Runs the probe of every pending mission; a probe that returns true marks the mission "detected" (the pop-up asks "did it work?"). */
+export async function detectTests(sb: SupabaseClient, userId: string): Promise<number> {
+  const { data } = await sb.from("backlog_tests").select("id,probe,since").eq("user_id", userId).eq("status", "pending").is("deleted_at", null).not("probe", "is", null);
+  let n = 0;
+  for (const t of data ?? []) {
+    const { data: hit, error } = await sb.rpc("test_run_probe", { p_probe: t.probe, p_user: userId, p_since: t.since });
+    if (error || hit !== true) continue;
+    const { data: upd } = await sb.from("backlog_tests").update({ status: "detected", detected_at: new Date().toISOString() }).eq("id", t.id).eq("user_id", userId).eq("status", "pending").select("id");
+    if (upd?.length) n++;
+  }
+  return n;
+}
+
+export async function listTests(sb: SupabaseClient, userId: string, opts: { open?: boolean; limit?: number } = {}): Promise<TestRow[]> {
+  let q = sb.from("backlog_tests").select("id,title,how_to,probe,status,detected_at,answered_at,problem_note,bug_item_id,item_id").eq("user_id", userId).is("deleted_at", null).order("created_at", { ascending: true }).limit(opts.limit ?? 50);
+  if (opts.open) q = q.in("status", ["pending", "detected"]);
+  const { data, error } = await q;
+  if (error || !data) return [];
+  const ids = Array.from(new Set(data.flatMap((r) => [r.item_id, r.bug_item_id]).filter((x): x is string => !!x)));
+  const byId = new Map<string, { number: number; title: string }>();
+  if (ids.length) {
+    const { data: items } = await sb.from("backlog_items").select("id,number,title").eq("user_id", userId).in("id", ids);
+    for (const i of items ?? []) byId.set(i.id as string, { number: i.number as number, title: i.title as string });
+  }
+  return data.map((r) => ({
+    id: r.id as string,
+    title: r.title as string,
+    how_to: r.how_to as string,
+    probe: (r.probe as string | null) ?? null,
+    status: r.status as TestRow["status"],
+    detected_at: (r.detected_at as string | null) ?? null,
+    answered_at: (r.answered_at as string | null) ?? null,
+    problem_note: (r.problem_note as string | null) ?? null,
+    bug_number: r.bug_item_id ? byId.get(r.bug_item_id as string)?.number ?? null : null,
+    item: r.item_id ? byId.get(r.item_id as string) ?? null : null,
+  }));
+}
+
+/** The "did it work?" answer. A problem creates a Bug in the Inbox (one line from the user) and links it to the mission. */
+export async function answerTest(sb: SupabaseClient, userId: string, id: string, result: "worked" | "problem" | "skipped", note = ""): Promise<{ ok: boolean; error?: string; bug?: number }> {
+  const { data: t } = await sb.from("backlog_tests").select("id,title,item_id,status").eq("id", id).eq("user_id", userId).maybeSingle();
+  if (!t) return { ok: false, error: "That test is gone." };
+  if (t.status === "worked" || t.status === "problem" || t.status === "skipped") return { ok: false, error: "Already answered." };
+  let bugId: string | null = null;
+  let bug: number | undefined;
+  if (result === "problem") {
+    const r = await addItem(sb, userId, { title: `Problem found testing: ${t.title}`, type: "bug", source: "web" });
+    if (!r.ok) return { ok: false, error: r.error };
+    bugId = r.item.id;
+    bug = r.item.number;
+    const text = note.trim().slice(0, 500);
+    if (text) await sb.from("backlog_items").update({ notes: `Reported while testing "${t.title}": ${text}` }).eq("id", r.item.id).eq("user_id", userId);
+  }
+  const { error } = await sb
+    .from("backlog_tests")
+    .update({ status: result, answered_at: new Date().toISOString(), problem_note: result === "problem" ? note.trim().slice(0, 500) || null : null, bug_item_id: bugId })
+    .eq("id", id)
+    .eq("user_id", userId);
+  return error ? { ok: false, error: error.message } : { ok: true, bug };
+}
+
+/** The user says they did it (missions with no automatic trace): the same as "detected", then the question follows. */
+export async function markTestDone(sb: SupabaseClient, userId: string, id: string): Promise<{ ok: boolean; error?: string }> {
+  const { data, error } = await sb.from("backlog_tests").update({ status: "detected", detected_at: new Date().toISOString() }).eq("id", id).eq("user_id", userId).eq("status", "pending").select("id");
+  if (error) return { ok: false, error: error.message };
+  return data?.length ? { ok: true } : { ok: false, error: "Already marked." };
+}
