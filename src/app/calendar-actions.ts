@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { addDays, dateRange, daysBetween, formatDateLong, formatMinutes, isDate, isTime, isoWeekday, localNow, minutesToTime, timeToMinutes, zonedToUtc } from "@/lib/time";
 import { copyBlockNote, releaseBlockNote, renameBlockNote } from "@/lib/block-notes";
 import { cleanRules } from "@/lib/alarm-rules";
+import { replaceNags, type NagDraft } from "@/lib/nags/db";
 import { ensureOccurrences, getOccurrence, getOccurrences, getSlots } from "@/lib/calendar/model";
 import {
   afterOccurrencesChanged,
@@ -753,6 +754,8 @@ export type EventInput = {
   hasTime: boolean;
   start?: string;
   end?: string;
+  /** Nags of this event (BL-98): custom = it has its own list; otherwise it uses the default set. Left out = untouched. */
+  nags?: { custom: boolean; list: NagDraft[] };
 };
 
 async function findOrCreateEventType(c: Awaited<ReturnType<typeof ctx>>, rawName: string, color?: string) {
@@ -804,11 +807,23 @@ export async function saveEvent(input: EventInput): Promise<CalResult> {
     }
 
     const event_type_id = input.typeName ? await findOrCreateEventType(c, input.typeName, input.typeColor) : null;
-    const values = { title, event_type_id, event_date: input.date, end_date: endDate, start_time, end_time };
-    const { error } = input.id
-      ? await c.sb.from("events").update(values).eq("id", input.id).eq("user_id", c.userId)
-      : await c.sb.from("events").insert({ ...values, user_id: c.userId });
-    if (error) return { error: error.message };
+    const values = {
+      title, event_type_id, event_date: input.date, end_date: endDate, start_time, end_time,
+      ...(input.nags ? { nags_custom: input.nags.custom } : {}),
+    };
+    let eventId = input.id ?? null;
+    if (input.id) {
+      const { error } = await c.sb.from("events").update(values).eq("id", input.id).eq("user_id", c.userId);
+      if (error) return { error: error.message };
+    } else {
+      const { data, error } = await c.sb.from("events").insert({ ...values, user_id: c.userId }).select("id").single();
+      if (error) return { error: error.message };
+      eventId = (data?.id as string | undefined) ?? null;
+    }
+    // Own nags: kept only while the event is custom; switching back to the default set drops its own list
+    if (input.nags && eventId) {
+      await replaceNags(c.sb, c.userId, eventId, input.nags.custom ? input.nags.list : []);
+    }
     return done();
   } catch (e) {
     return fail(e);

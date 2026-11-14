@@ -9,6 +9,8 @@ import ReminderSettings from "@/components/ReminderSettings";
 import WritingSettings from "@/components/WritingSettings";
 import AiUsageSection from "@/components/AiUsageSection";
 import AlarmKeyCard from "@/components/AlarmKeyCard";
+import NagDefaults from "@/components/nags/NagDefaults";
+import { readNags } from "@/lib/nags/db";
 import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
@@ -53,6 +55,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   // When the phone last read its alarms (migration 0059)
   const syncRow = await supabase.from("user_settings").select("alarm_last_sync_at").maybeSingle();
   const alarmLastSync = (!syncRow.error && (syncRow.data?.alarm_last_sync_at as string | null)) || null;
+  // Event nags (migration 0067): the section only shows once the table exists
+  const nagDefaults = user ? await readNags(supabase, user.id, null).catch(() => null) : null;
+  const nagTime = nagDefaults ? await supabase.from("user_settings").select("nag_allday_time").maybeSingle() : null;
   const reqHeaders = await headers();
   const host = reqHeaders.get("x-forwarded-host") ?? reqHeaders.get("host") ?? "";
   const appUrl = host ? `${host.startsWith("localhost") ? "http" : "https"}://${host}` : "";
@@ -163,6 +168,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               blockEndOn,
             }}
           />
+        )}
+        {nagDefaults && (
+          <NagDefaults initial={nagDefaults} allDayTime={String(nagTime?.data?.nag_allday_time ?? "09:00").slice(0, 5)} />
         )}
         </div>
         <div hidden={tab !== "writing"} className="space-y-6">

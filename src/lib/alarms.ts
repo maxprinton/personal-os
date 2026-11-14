@@ -14,6 +14,7 @@ import { habitsForOccurrence } from "@/lib/calendar/habitview";
 import { getCalendarTasks } from "@/lib/calendar/tasks";
 import { tasksForOccurrence } from "@/lib/calendar/taskview";
 import type { BlockType, Occurrence } from "@/lib/calendar/types";
+import { loadEventAlarms } from "@/lib/nags/server";
 
 export const ALARM_DAYS = 7;
 
@@ -245,5 +246,8 @@ export async function loadAlarms(sb: SupabaseClient, userId: string, timezone: s
     taskItems.set(o.id, openTasks.map((t) => ({ id: t.id, title: t.title })));
   }
   const checkinDone = await checkinDays(sb, userId, today, to).catch(() => new Set<string>());
-  return buildAlarms({ occurrences, types, notes: noteText, habits, tasks, habitItems, taskItems, checkinDone, timezone, now });
+  const blockAlarms = buildAlarms({ occurrences, types, notes: noteText, habits, tasks, habitItems, taskItems, checkinDone, timezone, now });
+  // Event nags that ring on the phone (BL-98); never breaks the block alarms
+  const eventAlarms = await loadEventAlarms(sb, userId, timezone, now).catch(() => []);
+  return [...blockAlarms, ...eventAlarms].sort((x, y) => x.alarmAtMs - y.alarmAtMs);
 }

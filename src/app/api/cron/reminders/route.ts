@@ -42,6 +42,7 @@ import { runYoutubeCron } from "@/lib/youtube/server/cron";
 import { runSearchCron } from "@/lib/search/server";
 import { runPortfolioNudge } from "@/lib/bot/portfolio";
 import { runBacklogCron, runStepsCron, runTestsCron } from "@/lib/bot/backlog";
+import { sendDueNags } from "@/lib/nags/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,6 +105,7 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings & { blockEn
 
   if (s.reminder_before_minutes > 0) {
     for (const item of day.items) {
+      if (item.kind === "event") continue; // events use their own nags (BL-98)
       if (leftToPhone(item)) continue;
       const diff = item.start - now.minutes;
       if (diff > 0 && diff <= s.reminder_before_minutes) {
@@ -127,6 +129,15 @@ async function runForUser(admin: SupabaseClient, s: ReminderSettings & { blockEn
       }
     }
   }
+
+  // Event nags (BL-98): the Telegram ones that are due now
+  sent += await sendDueNags(
+    admin,
+    s,
+    now,
+    (text) => send(s.telegram_chat_id, text),
+    (kind, ref) => claim(admin, s.user_id, kind, ref)
+  );
 
   if (s.reminder_evening_enabled) {
     const at = timeToMinutes(s.reminder_evening_time);

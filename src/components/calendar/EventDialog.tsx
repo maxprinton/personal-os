@@ -1,6 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getEventNags } from "@/app/nags-actions";
+import NagEditor from "@/components/nags/NagEditor";
+import { humanOffset } from "@/lib/nags/rules";
+import type { NagDraft } from "@/lib/nags/db";
 import { removeEvent, saveEvent } from "@/app/calendar-actions";
 import { minutesToTime } from "@/lib/time";
 import type { CalendarData, CalEvent, CalResult, EventType, FinanceOptions } from "@/lib/calendar/types";
@@ -47,6 +51,22 @@ export default function EventDialog({
   );
   const [busy, setBusy] = useState(false);
   const [isPayment, setIsPayment] = useState(false);
+  // Nags (BL-98): null until loaded; stays null (section hidden) if they can't be read
+  const [nagInfo, setNagInfo] = useState<{ defaults: NagDraft[]; own: NagDraft[] } | null>(null);
+  const [nagCustom, setNagCustom] = useState(false);
+  const [nagList, setNagList] = useState<NagDraft[]>([]);
+  useEffect(() => {
+    let alive = true;
+    getEventNags(event?.id).then((r) => {
+      if (!alive || "error" in r) return;
+      setNagInfo({ defaults: r.defaults, own: r.own });
+      setNagCustom(r.custom);
+      setNagList(r.custom ? r.own : r.defaults);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [event?.id]);
 
   const match = eventTypes.find((t) => t.name.toLowerCase() === type.trim().toLowerCase());
 
@@ -64,6 +84,7 @@ export default function EventDialog({
         hasTime,
         start,
         end,
+        nags: nagInfo ? { custom: nagCustom, list: nagList } : undefined,
       })
     );
     setBusy(false);
@@ -206,6 +227,37 @@ export default function EventDialog({
           </div>
         ) : (
           <p className="text-xs text-muted">Without a time it shows on top of the day, like a note.</p>
+        )}
+        {nagInfo && (
+          <section className="space-y-2 rounded-lg border border-line p-3">
+            <h3 className="text-sm font-medium">Nags</h3>
+            <label className="flex items-center gap-2">
+              <input type="radio" name="nag-mode" checked={!nagCustom} onChange={() => setNagCustom(false)} />
+              Use my default nags
+            </label>
+            {!nagCustom && (
+              <p className="text-xs text-muted">
+                {nagInfo.defaults.length
+                  ? nagInfo.defaults
+                      .map((n) => (n.kind === "before" ? `${humanOffset(n.offsetMinutes)} before` : n.kind === "start" ? "at the start" : "halfway"))
+                      .join(" · ")
+                  : "No default nags: this event sends nothing. Add them in Settings, or choose Custom."}
+              </p>
+            )}
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="nag-mode"
+                checked={nagCustom}
+                onChange={() => {
+                  setNagCustom(true);
+                  setNagList(nagInfo.own.length ? nagInfo.own : nagInfo.defaults);
+                }}
+              />
+              Custom for this event
+            </label>
+            {nagCustom && <NagEditor key={`custom-${nagInfo.own.length}`} initial={nagList} onChange={setNagList} />}
+          </section>
         )}
         <div className="flex items-center justify-between gap-2">
           {event ? (

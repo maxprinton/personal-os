@@ -1,0 +1,7 @@
+Event nags: customisable Telegram and phone-alarm nags before, at the start and halfway through calendar events (BL-98)
+
+- New table event_nags (migration 0067): default set + per-event list; events.nags_custom; user_settings.nag_allday_time
+- Telegram cron sends due nags (src/lib/nags); the old "before" reminder no longer applies to events
+- Settings: Event nags section; event dialog: Nags section (default or custom)
+- Phone: events appear in /api/alarms as single rings (phone or both)
+- Tests: npm run test:nags (49)
