@@ -201,3 +201,14 @@ export function staleNext(items: BacklogItem[], now: Date, days = 30): BacklogIt
 export function doneSince(items: BacklogItem[], now: Date, days = 7): BacklogItem[] {
   return items.filter((i) => i.status === "done" && i.done_at && now.getTime() - new Date(i.done_at).getTime() <= days * 86_400_000);
 }
+
+/** Fill of a stage's cap meter on the dashboard: 0-100 and whether the stage is at its cap. No cap (null) means no meter. */
+export function capMeter(count: number, cap: number | null): { pct: number; full: boolean } | null {
+  if (cap === null || cap <= 0) return null;
+  return { pct: Math.min(100, Math.round((count / cap) * 100)), full: count >= cap };
+}
+
+/** The first `limit` items and how many are hidden (the dashboard panels and tabs show a few and offer the rest). */
+export function peek<T>(list: T[], limit: number): { shown: T[]; hidden: number } {
+  return { shown: list.slice(0, limit), hidden: Math.max(0, list.length - limit) };
+}

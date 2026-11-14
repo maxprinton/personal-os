@@ -7,7 +7,7 @@ import { answerMission, markMissionDone } from "@/app/backlog-actions";
 import type { TestRow } from "@/lib/backlog/data";
 
 /** Test missions: what to try (with steps), the automatic "you did it" detection and the "did it work?" pop-up. */
-export default function TestMissions({ tests, full = false }: { tests: TestRow[]; full?: boolean }) {
+export default function TestMissions({ tests, full = false, compact = false }: { tests: TestRow[]; full?: boolean; compact?: boolean }) {
   const router = useRouter();
   const [busy, start] = useTransition();
   const [error, setError] = useState("");
@@ -81,9 +81,9 @@ export default function TestMissions({ tests, full = false }: { tests: TestRow[]
         </div>
       )}
 
-      <section className="mb-5 rounded-2xl border border-line bg-surface p-4">
+      <section className={compact ? "card p-3" : "mb-5 rounded-2xl border border-line bg-surface p-4"}>
         <h2 className="text-sm font-semibold">Test missions{pending.length + detected.length ? ` (${pending.length + detected.length} open)` : ""}</h2>
-        <ul className="mt-2 space-y-2">
+        <ul className={`mt-2 space-y-1.5 ${compact ? "max-h-64 overflow-y-auto" : ""}`}>
           {detected.map((t) => (
             <li key={t.id} className="rounded-xl bg-accent-soft px-3 py-2 text-sm">
               <span className="font-medium">{t.title}</span> <span className="text-muted">· used, waiting for your answer</span>

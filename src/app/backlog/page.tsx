@@ -1,9 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { currentUserId } from "@/lib/calendar/model";
 import { detectTests, listActivity, listItems, listSteps, listTests, loadSettings, MISSING } from "@/lib/backlog/data";
-import ActivityPanel from "@/components/backlog/ActivityPanel";
-import StepsPanel from "@/components/backlog/StepsPanel";
-import TestMissions from "@/components/backlog/TestMissions";
 import BacklogApp from "@/components/backlog/BacklogApp";
 
 export const dynamic = "force-dynamic";
@@ -22,11 +19,8 @@ export default async function BacklogPage() {
   const tests = await listTests(sb, userId);
   const nowIso = new Date().toISOString();
   return (
-    <main className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:py-8">
-      <TestMissions tests={tests} full />
-      <StepsPanel pending={pendingSteps} recent={doneSteps} nowIso={nowIso} />
-      <ActivityPanel rows={activity.rows} working={activity.working} nowIso={nowIso} />
-      <BacklogApp items={items} settings={settings} nowIso={new Date().toISOString()} />
+    <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 lg:py-6">
+      <BacklogApp items={items} settings={settings} nowIso={nowIso} data={{ tests, pendingSteps, doneSteps, activity: activity.rows, working: activity.working }} />
     </main>
   );
 }

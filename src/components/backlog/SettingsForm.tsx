@@ -16,8 +16,8 @@ export default function SettingsForm({ settings: s }: { settings: BacklogSetting
     </label>
   );
   return (
-    <details className="rounded-2xl border border-line bg-surface p-4">
-      <summary className="cursor-pointer select-none font-medium">Backlog settings</summary>
+    <div>
+      <h2 className="font-semibold">Backlog settings</h2>
       <form action={action} className="mt-3 space-y-3">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {num("now_cap", "Max in Now", s.now_cap, 1, 10)}
@@ -38,6 +38,6 @@ export default function SettingsForm({ settings: s }: { settings: BacklogSetting
         {state.error && <p className="text-sm text-danger">{state.error}</p>}
         {state.ok && <p className="text-sm text-success">Saved.</p>}
       </form>
-    </details>
+    </div>
   );
 }

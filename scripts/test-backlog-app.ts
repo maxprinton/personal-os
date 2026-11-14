@@ -2,7 +2,7 @@
 // Run: npm run test:backlog-app
 import { fakeDb, type Row } from "./fake-supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { countsFor, filterItems, groupByStatus, positionFor, sortByScore, staleNext, triageSnapshot, verifyDueItems, DEFAULT_SETTINGS, type BacklogItem } from "@/lib/backlog/board";
+import { capMeter, peek, countsFor, filterItems, groupByStatus, positionFor, sortByScore, staleNext, triageSnapshot, verifyDueItems, DEFAULT_SETTINGS, type BacklogItem } from "@/lib/backlog/board";
 import { isBacklogView, isCaptureHelp, isIdeasView, mondaySummaryText, parseBacklogCapture, triageText, verifyNudgeText } from "@/lib/backlog/text";
 import { backlogCallback, backlogView, handleBacklogCapture, ideasView, runBacklogCron } from "@/lib/bot/backlog";
 import { makeCtx } from "@/lib/bot/core";
@@ -120,6 +120,21 @@ ok("views recognised", isBacklogView("/backlog") && isBacklogView("Backlog") && 
   ok("Monday sends the summary", mon >= 1, String(mon));
   const empty = await runBacklogCron(mk([]), s, { date: "2026-11-23", minutes: 8 * 60 + 40 }, io, NOW);
   ok("empty backlog stays quiet", empty === 0);
+}
+
+{
+  // Dashboard helpers (BL-95)
+  const m1 = capMeter(1, 2);
+  ok("cap meter half full", m1?.pct === 50 && m1.full === false, JSON.stringify(m1));
+  const m2 = capMeter(3, 3);
+  ok("cap meter at cap is full", m2?.pct === 100 && m2.full === true);
+  const m3 = capMeter(4, 3);
+  ok("cap meter never above 100", m3?.pct === 100 && m3.full === true);
+  ok("no cap means no meter", capMeter(5, null) === null && capMeter(1, 0) === null);
+  const pk = peek([1, 2, 3, 4, 5], 3);
+  ok("peek shows the first items and counts the rest", pk.shown.join() === "1,2,3" && pk.hidden === 2);
+  const pk2 = peek([1], 6);
+  ok("peek with room hides nothing", pk2.shown.length === 1 && pk2.hidden === 0);
 }
 
 console.log(`\nbacklog app: ${pass} passed, ${fail} failed`);

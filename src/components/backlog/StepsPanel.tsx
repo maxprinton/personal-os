@@ -18,12 +18,12 @@ function ago(iso: string, nowMs: number): string {
 }
 
 /** "Waiting on you": steps Claude asked for outside the app (run a migration, upload changes, add keys). One tap closes one. */
-export default function StepsPanel({ pending, recent, nowIso }: { pending: StepRow[]; recent: StepRow[]; nowIso: string }) {
+export default function StepsPanel({ pending, recent, nowIso, compact = false }: { pending: StepRow[]; recent: StepRow[]; nowIso: string; compact?: boolean }) {
   const nowMs = new Date(nowIso).getTime();
   const router = useRouter();
   const [busy, start] = useTransition();
   const [error, setError] = useState("");
-  if (!pending.length && !recent.length) return null;
+  if (!pending.length && !recent.length && !compact) return null;
 
   function act(id: string, how: "done" | "skipped") {
     setError("");
@@ -35,12 +35,12 @@ export default function StepsPanel({ pending, recent, nowIso }: { pending: StepR
   }
 
   return (
-    <section className="mb-5 rounded-2xl border border-line bg-surface p-4">
+    <section className={compact ? "card p-3" : "mb-5 rounded-2xl border border-line bg-surface p-4"}>
       <h2 className="text-sm font-semibold">Waiting on you{pending.length ? ` (${pending.length})` : ""}</h2>
       {pending.length === 0 ? (
         <p className="mt-1 text-sm text-muted">Nothing is waiting on you.</p>
       ) : (
-        <ul className="mt-2 space-y-2">
+        <ul className={`mt-2 ${compact ? "max-h-64 space-y-1.5 overflow-y-auto" : "space-y-2"}`}>
           {pending.map((s) => (
             <li key={s.id} className="rounded-xl bg-accent-soft px-3 py-2 text-sm">
               <div className="flex flex-wrap items-center gap-x-2">
@@ -68,7 +68,7 @@ export default function StepsPanel({ pending, recent, nowIso }: { pending: StepR
       )}
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
       {recent.length > 0 && (
-        <details className="mt-3">
+        <details className="mt-2">
           <summary className="cursor-pointer text-sm text-muted">Recent steps ({recent.length})</summary>
           <ul className="mt-2 space-y-1.5 text-sm">
             {recent.map((s) => (
