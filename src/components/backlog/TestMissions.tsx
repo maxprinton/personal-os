@@ -111,12 +111,10 @@ export default function TestMissions({ tests, full = false, compact = false }: {
                 <summary className="cursor-pointer text-muted">How to test</summary>
                 <p className="mt-1 whitespace-pre-line text-muted">{t.how_to}</p>
               </details>
-              {!t.probe && (
-                <button type="button" disabled={busy} onClick={() => did(t.id)} className="mt-2 rounded-lg border border-line px-3 py-1.5 text-sm disabled:opacity-50">
-                  I did it
-                </button>
-              )}
-              {t.probe && <p className="mt-1 text-xs text-muted">Marked automatically when you do it.</p>}
+              <button type="button" disabled={busy} onClick={() => did(t.id)} className="mt-2 rounded-lg border border-line px-3 py-1.5 text-sm disabled:opacity-50">
+                I did it
+              </button>
+              {t.probe && <p className="mt-1 text-xs text-muted">Also marked automatically when you do it.</p>}
             </li>
           ))}
         </ul>
