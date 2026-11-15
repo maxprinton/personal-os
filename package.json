@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test:clip": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-clip.ts",
     "test:backlog": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-backlog.ts",
     "test:backlog-app": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-backlog-app.ts",
     "test:nags": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-nags.ts",

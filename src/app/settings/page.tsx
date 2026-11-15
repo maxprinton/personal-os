@@ -9,6 +9,7 @@ import ReminderSettings from "@/components/ReminderSettings";
 import WritingSettings from "@/components/WritingSettings";
 import AiUsageSection from "@/components/AiUsageSection";
 import AlarmKeyCard from "@/components/AlarmKeyCard";
+import ClipKeyCard from "@/components/ClipKeyCard";
 import NagDefaults from "@/components/nags/NagDefaults";
 import { readNags } from "@/lib/nags/db";
 import { headers } from "next/headers";
@@ -52,6 +53,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const alarmRow = await supabase.from("user_settings").select("alarm_key_hash,alarm_key_created_at").maybeSingle();
   const alarmHasKey = !alarmRow.error && Boolean(alarmRow.data?.alarm_key_hash);
   const alarmCreated = (!alarmRow.error && (alarmRow.data?.alarm_key_created_at as string | null)) || null;
+  // Browser extension (Coursera clipper) key (migration 0070): "no key" until the columns exist
+  const clipRow = await supabase.from("user_settings").select("clip_key_hash,clip_key_created_at").maybeSingle();
+  const clipHasKey = !clipRow.error && Boolean(clipRow.data?.clip_key_hash);
+  const clipCreated = (!clipRow.error && (clipRow.data?.clip_key_created_at as string | null)) || null;
   // When the phone last read its alarms (migration 0059)
   const syncRow = await supabase.from("user_settings").select("alarm_last_sync_at").maybeSingle();
   const alarmLastSync = (!syncRow.error && (syncRow.data?.alarm_last_sync_at as string | null)) || null;
@@ -205,6 +210,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         </div>
         <div hidden={tab !== "alarms"} className="space-y-6">
           <AlarmKeyCard hasKey={alarmHasKey} createdAt={alarmCreated} lastSync={alarmLastSync} appUrl={appUrl} />
+          <ClipKeyCard hasKey={clipHasKey} createdAt={clipCreated} appUrl={appUrl} />
         </div>
         <div hidden={tab !== "data"} className="space-y-6">
         <section className="space-y-3 card p-5">

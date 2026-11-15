@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Personal OS Clipper</title>
+<style>
+  body{font:15px system-ui,sans-serif;max-width:760px;margin:24px auto;padding:0 16px;color:#111827}
+  h1{font-size:20px} h2{font-size:16px;margin:0 0 8px}
+  section{border:1px solid #d1d5db;border-radius:10px;padding:14px 16px;margin:16px 0}
+  label{display:block;font-size:13px;color:#4b5563;margin:10px 0 3px}
+  input[type=text],input[type=password],input[type=date],select{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;font:inherit}
+  select[multiple]{height:90px}
+  .inline{display:flex;gap:8px;align-items:center;margin-top:10px}
+  .inline input{width:auto} .inline label{margin:0;color:#111827;font-size:14px}
+  button{cursor:pointer;background:#2563eb;color:#fff;border:0;border-radius:8px;padding:8px 14px;font:inherit;font-weight:600;margin:12px 8px 0 0}
+  button.sec{background:#e5e7eb;color:#111827}
+  .hint{color:#6b7280;font-size:13px} .ok{color:#047857} .err{color:#b91c1c}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+</style>
+</head>
+<body>
+<h1>Personal OS Clipper</h1>
+<p class="hint">Every note you save from Coursera gets the tags and properties you pick here, plus the keyword you type in the panel (the tag that links the reading and its video). Shortcut: Alt+Shift+S (change it at chrome://extensions/shortcuts).</p>
+
+<section>
+  <h2>1. Connection</h2>
+  <p class="hint">In Personal OS: Settings → Phone alarms tab → "Coursera clipper" → Create my key.</p>
+  <label for="appUrl">App address</label><input type="text" id="appUrl" placeholder="https://your-app.vercel.app">
+  <label for="key">Key</label><input type="password" id="key" placeholder="posclip_…">
+  <button id="saveConn">Save connection</button><span id="connMsg" class="hint"></span>
+</section>
+
+<section id="tplReading"><h2>2. Template for the reading note</h2><div class="tpl"></div></section>
+<section id="tplTranscript"><h2>3. Template for the transcript note</h2><div class="tpl"></div>
+  <button class="sec" id="copyTpl">Copy the reading template here</button></section>
+
+<button id="saveTpl">Save templates</button><span id="tplMsg" class="hint"></span>
+<datalist id="tagList"></datalist>
+<script src="options.js"></script>
+</body>
+</html>

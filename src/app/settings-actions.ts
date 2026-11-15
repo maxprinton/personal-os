@@ -10,6 +10,7 @@ import { liveTagLinks } from "@/lib/tags";
 import { dayData, morningText } from "@/lib/reminders";
 import { localNow } from "@/lib/time";
 import { generateAlarmKey, hashAlarmKey } from "@/lib/alarms";
+import { generateClipKey, hashClipKey } from "@/lib/clip";
 
 /** New personal key for the Android alarms app. Only its hash is saved, so it is shown once. */
 export async function createAlarmKey(): Promise<{ key?: string; error?: string }> {
@@ -38,6 +39,36 @@ export async function revokeAlarmKey() {
   } = await supabase.auth.getUser();
   if (!user) return;
   await supabase.from("user_settings").update({ alarm_key_hash: null, alarm_key_created_at: null }).eq("user_id", user.id);
+  revalidatePath("/settings");
+}
+
+/** New personal key for the Coursera browser extension. Only its hash is saved, so it is shown once. */
+export async function createClipKey(): Promise<{ key?: string; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  const key = generateClipKey();
+  const { error } = await supabase
+    .from("user_settings")
+    .update({ clip_key_hash: hashClipKey(key), clip_key_created_at: new Date().toISOString() })
+    .eq("user_id", user.id);
+  if (error) {
+    return { error: /clip_key/.test(error.message) ? "Run migration 0070 (MIGRACION-0070-clip-key.sql) in Supabase first." : error.message };
+  }
+  revalidatePath("/settings");
+  return { key };
+}
+
+/** Turns the browser extension off: the old key stops working. */
+export async function revokeClipKey() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  await supabase.from("user_settings").update({ clip_key_hash: null, clip_key_created_at: null }).eq("user_id", user.id);
   revalidatePath("/settings");
 }
 

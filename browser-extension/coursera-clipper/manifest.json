@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Personal OS Clipper",
+  "version": "0.1.0",
+  "description": "Saves the Coursera lesson you have open (reading and video transcript) as notes in your Personal OS, with the tags and properties of your template.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://www.coursera.org/*"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    { "matches": ["https://www.coursera.org/learn/*"], "js": ["md.js", "content.js"], "run_at": "document_idle" }
+  ],
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "action": { "default_title": "Personal OS Clipper" },
+  "commands": {
+    "save-lesson": {
+      "suggested_key": { "default": "Alt+Shift+S" },
+      "description": "Save this Coursera lesson to Personal OS"
+    }
+  }
+}

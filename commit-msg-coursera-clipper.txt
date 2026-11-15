@@ -1,0 +1,1 @@
+Coursera clipper (BL-103): Chrome extension + /api/clip. Saves a lesson as two notes (reading, transcript) linked by a keyword tag; template of tags and properties; images copied to Storage. Migration 0070 (clip key, probes).
