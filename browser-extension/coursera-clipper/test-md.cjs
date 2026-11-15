@@ -44,6 +44,11 @@ t("transcript: joins cut lines and groups sentences", () => {
   assert.equal(transcriptToMd(lines), "As we mentioned in the last video, when you're managing a project. Why is it so important? It's because there are many parts. Trust matters.\n\nRoles help. Next sentence here.");
   assert.equal(transcriptToMd([]), "");
 });
+t("zero-width spaces are removed", () => {
+  assert.equal(transcriptToMd(["\u200bHi again. In the previous course,", "\u200byou learned.", "\u200b"]), "Hi again. In the previous course, you learned.");
+  const dom = el("div", el("p", "\u200bHello ", el("strong", "wor\u200bld")), el("p", "\u200b"));
+  assert.equal(htmlToMd(dom, base), "Hello **world**");
+});
 t("keyword guess: shared word, plural, fallback", () => {
   assert.equal(guessKeyword("Essential project roles", "Defining project roles", ""), "project".length > "roles".length ? "project" : "roles");
   assert.equal(guessKeyword("Defining role", "Essential project roles", "pm"), "role");

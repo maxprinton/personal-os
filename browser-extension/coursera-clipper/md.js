@@ -1,6 +1,9 @@
 // Personal OS Clipper: page → Markdown helpers. Uses only basic DOM members (nodeType, nodeName, childNodes,
 // nodeValue, getAttribute, hasAttribute) so it runs in the browser and in the Node tests with a fake DOM.
 (function (root) {
+  // Coursera captions are full of zero-width spaces (U+200B); they break search and tags, so drop them everywhere.
+  const INVISIBLE = /[\u200B-\u200D\u2060\uFEFF]/g;
+  const noInvisible = (t) => String(t || "").replace(INVISIBLE, "");
   const SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "BUTTON", "SVG", "NAV", "INPUT", "SELECT", "TEXTAREA", "IFRAME", "VIDEO", "AUDIO", "CANVAS", "TEMPLATE", "OBJECT", "LABEL"]);
   const INLINE = new Set(["A", "SPAN", "STRONG", "B", "EM", "I", "CODE", "IMG", "BR", "S", "DEL", "STRIKE", "SUP", "SUB", "U", "MARK", "SMALL", "ABBR", "FONT", "TIME", "CITE", "Q", "KBD", "VAR", "SAMP"]);
 
@@ -48,7 +51,7 @@
   }
 
   function inline(node, base) {
-    if (isText(node)) return (node.nodeValue || "").replace(/\s+/g, " ");
+    if (isText(node)) return noInvisible(node.nodeValue).replace(/\s+/g, " ");
     if (!isEl(node)) return "";
     const tag = name(node);
     if (SKIP.has(tag) || hidden(node)) return "";
@@ -144,7 +147,7 @@
     };
     for (const c of kids(node)) {
       if (isText(c)) {
-        run.push((c.nodeValue || "").replace(/\s+/g, " "));
+        run.push(noInvisible(c.nodeValue).replace(/\s+/g, " "));
         continue;
       }
       if (!isEl(c)) continue;
@@ -175,7 +178,7 @@
         blocks(c, base, inner);
         if (inner.length) out.push(inner.join("\n\n").split("\n").map((l) => "> " + l).join("\n"));
       } else if (tag === "PRE") {
-        const t = textOf(c).replace(/\n+$/, "");
+        const t = noInvisible(textOf(c)).replace(/\n+$/, "");
         if (t.trim()) out.push("```\n" + t + "\n```");
       } else if (tag === "TABLE") {
         const t = table(c, base);
@@ -212,7 +215,7 @@
 
   /** Caption lines (cut in the middle of sentences) → readable paragraphs of ~4 sentences. */
   function transcriptToMd(lines) {
-    const text = lines.join(" ").replace(/\s+/g, " ").trim();
+    const text = noInvisible(lines.join(" ")).replace(/\s+/g, " ").trim();
     if (!text) return "";
     const sentences = text.split(/(?<=[.!?])\s+/);
     const paras = [];
