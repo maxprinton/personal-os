@@ -33,6 +33,7 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/insights", label: "Insights", icon: "insights", key: "i" },
       { href: "/notes", label: "Notes", icon: "notes", key: "n" },
       { href: "/search", label: "Search", icon: "search", key: "r" },
+      { href: "/ask", label: "Ask", icon: "spark" },
       { href: "/finance", label: "Finance", icon: "finance", key: "f" },
     ],
   },

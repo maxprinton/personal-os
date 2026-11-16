@@ -23,6 +23,7 @@ import EmptyNoteTemplates from "@/components/notes-db/EmptyNoteTemplates";
 import NoteLinkButton from "@/components/notes-db/NoteLinkMenu";
 import PortfolioChip from "@/components/portfolio/PortfolioChip";
 import TurnIntoVideoIdea from "@/components/youtube/idea/TurnIntoVideoIdea";
+import AskPanelButton from "@/components/ask/AskPanelButton";
 
 export const dynamic = "force-dynamic";
 
@@ -113,7 +114,7 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
           <>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Link href="/notes?view=blocks" className="text-sm text-muted hover:text-fg">← Block notes</Link>
-              {exportMenu}
+              <div className="flex items-center gap-2">{exportMenu}<AskPanelButton variant="note" noteId={note.id} noteTitle={note.block_name} /></div>
             </div>
             <div>
               <NoteLinkButton noteId={note.id} kind="block" blockName={note.block_name} label="✏️ Block note ▾" className="text-xs font-semibold uppercase tracking-wider text-muted hover:text-fg" />
@@ -141,7 +142,7 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
               updatedAt={note.updated_at}
               pages={pages}
               backlinks={backlinks}
-              actions={<>{exportMenu}<TurnIntoVideoIdea noteId={note.id} /></>}
+              actions={<>{exportMenu}<TurnIntoVideoIdea noteId={note.id} /><AskPanelButton variant="note" noteId={note.id} noteTitle={note.title} /></>}
               belowTitle={db && dbNote ? <NoteProperties data={db} noteId={note.id} /> : dbError ? <p className="mt-2 text-xs text-warning">{dbError}</p> : null}
               banner={db && db.template ? <TemplateBar template={db.template} data={db} /> : db && dbNote?.templateId ? <SeriesNav noteId={note.id} data={db} /> : null}
               whenEmpty={db && !isTemplate && !db.templateNotes?.some((n) => n.id === note.id) && db.templates.length ? <EmptyNoteTemplates noteId={note.id} templates={db.templates} /> : null}

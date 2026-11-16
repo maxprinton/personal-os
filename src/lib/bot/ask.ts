@@ -15,7 +15,25 @@ import { noteMetaMap } from "@/lib/notes-db/meta";
 type Note = { id: string; title: string; content: string; block_name: string | null; updated_at: string; meta?: string[]; md?: string; is_template?: boolean };
 /** Earlier questions in this chat (last 45 minutes) or the answer you replied to. */
 export type AskTurn = { ids: string[]; q: string; a: string };
-export type AskResult = { text: string; kb: Kb; noteIds: string[] };
+export type AskResult = {
+  text: string;
+  kb: Kb;
+  noteIds: string[];
+  /** Web (BL-22): the answer alone, and the notes it came from. */
+  answer?: string;
+  sources?: { id: string; title: string }[];
+};
+/** Web (BL-22): how much to read and what to add. Telegram passes nothing and keeps its limits. */
+export type AskOptions = {
+  /** Most notes read per question (default 4). */
+  maxNotes?: number;
+  /** Characters of notes sent to the AI (default READ_LIMIT). */
+  readLimit?: number;
+  /** A note that is always read first (asking from inside a note). */
+  focusId?: string;
+  /** Extra data (Backlog, finance) handed to the AI as ready-made text. */
+  extra?: string;
+};
 
 /** The question, or null when the message isn't one. */
 export function askQuestion(text: string): string | null {
@@ -230,10 +248,10 @@ async function readAndAnswer(
   chosen: Note[],
   question: string,
   follow: AskTurn | undefined,
-  opts: { summary?: boolean; name?: (n: Note) => string; footnote?: string; today?: string; history?: AskTurn[] } = {},
+  opts: { summary?: boolean; name?: (n: Note) => string; footnote?: string; today?: string; history?: AskTurn[]; readLimit?: number; extra?: string } = {},
 ): Promise<AskResult> {
   const name = opts.name ?? label;
-  const per = Math.max(1_500, Math.floor(READ_LIMIT / Math.max(1, chosen.length)));
+  const per = Math.max(1_500, Math.floor((opts.readLimit ?? READ_LIMIT) / Math.max(1, chosen.length)));
   const words = keywords(`${question} ${follow?.q ?? ""}`);
   const material = chosen
     .map((n, i) => {
@@ -253,6 +271,7 @@ async function readAndAnswer(
     : [
         "You are the user's study and life assistant in Telegram. You answer from the user's own NOTES first (course notes, plans, diary…).",
         "1) Answer from the NOTES below and say which note each part comes from (by its title). Read them carefully: the answer may be in the middle of a note, worded differently from the question.",
+        opts.extra ? "The user's BACKLOG / FINANCE data may follow the notes as DATA. It is exact (calculated by the app): use it as is, never recalculate it, and say it comes from the Backlog or Finance." : "",
         "2) If the notes cover only part of the question, or none of it, complete it with your general knowledge, and start that part with \"(Not in your notes)\" so the user knows. Never say the notes say something they don't.",
         "Each NOTE may start with its PROPERTIES (Type, Status, Area, Tags, Review on, ID, linked tasks / events, Block, AI summary, dates…): they are part of the note.",
         "The question may come from voice and be long or messy: answer what the user means.",
@@ -268,6 +287,7 @@ async function readAndAnswer(
         ? [{ text: `RECENT CONVERSATION (for context; the new question may refer to it):\n${opts.history.map((h) => `Q: ${h.q.slice(0, 200)}\nA: ${h.a.slice(0, 400)}`).join("\n")}` }]
         : []),
       { text: `NOTES:\n${material || "(No note matched this question.)"}` },
+      ...(opts.extra ? [{ text: `DATA:\n${opts.extra}` }] : []),
       { text: opts.summary ? "Summarize the note(s) above." : `QUESTION: ${question.slice(0, 800)}` },
     ],
     { kind: "write", temperature: 0.3, maxTokens: 1500, timeoutMs: 40000 },
@@ -275,6 +295,8 @@ async function readAndAnswer(
   if (!("text" in out)) return { text: `✨ ${out.error}`, kb: [], noteIds: [] };
   const sources = chosen.map(name).join(" · ");
   return {
+    answer: forTelegram(out.text),
+    sources: chosen.map((n) => ({ id: n.id, title: name(n) })),
     text: `${forTelegram(out.text)}\n\n${sources ? `📄 From: ${sources}` : "📄 No note matched: general answer"}${opts.footnote ? `\n${opts.footnote}` : ""}\n↩ Reply to this message to ask more about ${sources ? "these notes" : "it"}.`,
     kb: chosen.map((n) => [btn(`📄 ${label(n).slice(0, 40)}`, `no:${pk(n.id)}`)]),
     noteIds: chosen.map((n) => n.id),
@@ -393,7 +415,8 @@ async function findByScan(c: Ctx, words: string[], earlier: Set<string>): Promis
   return { pool, matched, byEngine: false };
 }
 
-export async function askNotes(c: Ctx, question: string, follow?: AskTurn, history: AskTurn[] = []): Promise<AskResult> {
+export async function askNotes(c: Ctx, question: string, follow?: AskTurn, history: AskTurn[] = [], opts: AskOptions = {}): Promise<AskResult> {
+  const maxNotes = Math.max(1, Math.min(12, opts.maxNotes ?? 4));
   if (!question.trim()) return { text: "✨ Ask about your notes: “@os what did I write about the trip?”", kb: [], noteIds: [] };
   if (!hasAi()) return { text: "✨ The AI is not connected (GROQ_API_KEY in Vercel).", kb: [], noteIds: [] };
 
@@ -414,6 +437,8 @@ export async function askNotes(c: Ctx, question: string, follow?: AskTurn, histo
     return readAndAnswer(direct.notes, question, follow, {
       today: c.today,
       history,
+      readLimit: opts.readLimit,
+      extra: opts.extra,
       summary: direct.summary,
       name: (n) => `${tag(Number((n as SeqNote).seq))} ${label(n)}`,
       footnote: direct.missing.length ? `(${direct.missing.map(tag).join(", ")} not found)` : undefined,
@@ -443,7 +468,7 @@ export async function askNotes(c: Ctx, question: string, follow?: AskTurn, histo
     [
       "You help find notes in the user's personal notes app.",
       "Given a QUESTION and a numbered list of notes (title + preview + {its properties}), choose the notes most likely to contain the answer.",
-      'Return {"notes":[numbers]} with 1 to 4 numbers, best first. If the question asks about several topics or notes, include each one. If none fits, return {"notes":[]}.',
+      `Return {"notes":[numbers]} with 1 to ${maxNotes} numbers, best first. If the question asks about several topics or notes, include each one. If none fits, return {"notes":[]}.`,
       follow ? "This is a follow-up question; the previous notes are first in the list and usually still apply." : "",
     ].filter(Boolean).join("\n"),
     [{ text: `QUESTION: ${question.slice(0, 500)}${follow ? `\nPREVIOUS QUESTION: ${follow.q.slice(0, 300)}` : ""}\n\nNOTES:\n${list}` }],
@@ -454,7 +479,16 @@ export async function askNotes(c: Ctx, question: string, follow?: AskTurn, histo
   if (!nums) chosen = matched.slice(0, 3); // the AI didn't answer: the best word matches
   if (!chosen.length) chosen = matched.slice(0, 2); // it said "none" but words match: read them anyway
   if (!chosen.length && earlier.size) chosen = pool.filter((n) => earlier.has(n.id));
-  chosen = [...new Set(chosen)].slice(0, 4);
+  chosen = [...new Set(chosen)];
+  // Asking from inside a note: that note is always read first
+  if (opts.focusId) {
+    const focus = (await loadNotes(c, [opts.focusId]).catch(() => [] as Note[]))[0];
+    if (focus) {
+      const props = await propsFor(c, [focus.id]);
+      chosen = [{ ...focus, meta: props.get(focus.id) ?? [] }, ...chosen.filter((n) => n.id !== focus.id)];
+    }
+  }
+  chosen = chosen.slice(0, maxNotes);
 
   // ---- 2) Read (only the chosen notes are loaded in full) and answer
   if (found.byEngine && chosen.length) {
@@ -464,5 +498,5 @@ export async function askNotes(c: Ctx, question: string, follow?: AskTurn, histo
       return f ? { ...f, meta: n.meta } : n;
     });
   }
-  return readAndAnswer(chosen, question, follow, { today: c.today, history });
+  return readAndAnswer(chosen, question, follow, { today: c.today, history, readLimit: opts.readLimit, extra: opts.extra });
 }

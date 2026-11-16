@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import Icon from "@/components/ui/Icon";
 import ThemeToggle from "@/components/ui/ThemeToggle";
 import IdeaQuickButton from "@/components/backlog/IdeaQuickButton";
+import AskPanelButton from "@/components/ask/AskPanelButton";
 import { NAV_ITEMS, SignOut, isActive, navGroupsWith } from "@/components/Nav";
 import { OPEN_SEARCH } from "@/components/search/SearchPalette";
 
@@ -140,6 +141,7 @@ export default function TopBar({
           >
             <Icon name="search" size={18} />
           </button>
+          <AskPanelButton />
           <IdeaQuickButton />
           <button
             type="button"
