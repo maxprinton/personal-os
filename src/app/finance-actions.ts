@@ -6,12 +6,13 @@ import { getSettings } from "@/lib/agenda";
 import { localNow, utcToLocal, zonedToUtc } from "@/lib/time";
 import type { ActionState } from "@/app/actions";
 import { ADJUSTMENT_CATEGORY, setRealBalance } from "@/lib/balance-adjust";
+import { snapshotDeltas, type SnapshotPrompt } from "@/lib/finance-ledger";
 
 const ACCOUNT_KINDS = ["checking", "savings", "credit_card", "cash", "other"];
 
 function refresh() {
   revalidatePath("/");
-  revalidatePath("/finance");
+  revalidatePath("/finance", "layout");
 }
 
 function money(v: FormDataEntryValue | null) {
@@ -339,4 +340,66 @@ export async function deleteCategory(form: FormData) {
   await supabase.from("transactions").update({ category_id: null }).eq("category_id", id);
   await supabase.from("categories").update({ deleted_at: now }).eq("id", id);
   refresh();
+}
+
+/**
+ * BL-101: same as updateTransaction, plus: when the edited transaction is dated before an account's latest
+ * balance snapshot, returns what that snapshot would need to change by, so the page can ask
+ * "adjust the snapshot too, or leave the balance as it is?". Nothing is changed here besides the transaction.
+ */
+export async function updateTransactionForAccount(
+  _prev: ActionState & { prompts?: SnapshotPrompt[] },
+  form: FormData
+): Promise<ActionState & { prompts?: SnapshotPrompt[] }> {
+  const id = String(form.get("id") ?? "");
+  const supabase = await createClient();
+  const sel = "type,amount,account_id,occurred_at";
+  const { data: old } = id ? await supabase.from("transactions").select(sel).eq("id", id).is("deleted_at", null).maybeSingle() : { data: null };
+  const res = await updateTransaction(_prev, form);
+  if (!res.ok || !old) return res;
+  const { data: nw } = await supabase.from("transactions").select(sel).eq("id", id).is("deleted_at", null).maybeSingle();
+  if (!nw) return res;
+  const norm = (r: { type: unknown; amount: unknown; account_id: unknown; occurred_at: unknown }) => ({
+    type: (r.type === "income" ? "income" : "expense") as "income" | "expense",
+    amount: Number(r.amount),
+    account_id: (r.account_id as string | null) ?? null,
+    occurred_at: String(r.occurred_at),
+  });
+  const before = norm(old);
+  const after = norm(nw);
+  const ids = [...new Set([before.account_id, after.account_id].filter((x): x is string => Boolean(x)))];
+  if (ids.length === 0) return res;
+  const [{ data: snaps }, { data: accs }, settings] = await Promise.all([
+    supabase.from("balance_snapshots").select("id,account_id,recorded_at").in("account_id", ids).is("deleted_at", null),
+    supabase.from("accounts").select("id,name").in("id", ids),
+    getSettings(supabase),
+  ]);
+  const latest = new Map<string, { id: string; recorded_at: string }>();
+  for (const sn of (snaps ?? []) as { id: string; account_id: string; recorded_at: string }[]) {
+    const cur = latest.get(sn.account_id);
+    if (!cur || sn.recorded_at > cur.recorded_at) latest.set(sn.account_id, { id: sn.id, recorded_at: sn.recorded_at });
+  }
+  const cutoffs = new Map([...latest].map(([acc, v]) => [acc, v.recorded_at]));
+  const names = new Map(((accs ?? []) as { id: string; name: string }[]).map((a) => [a.id, a.name]));
+  const prompts: SnapshotPrompt[] = snapshotDeltas(before, after, cutoffs).map((d) => ({
+    accountId: d.accountId,
+    accountName: names.get(d.accountId) ?? "Account",
+    snapshotId: latest.get(d.accountId)!.id,
+    snapshotDate: utcToLocal(latest.get(d.accountId)!.recorded_at, settings.timezone).date,
+    delta: d.delta,
+  }));
+  return prompts.length ? { ...res, prompts } : res;
+}
+
+/** BL-101: moves a balance snapshot by the difference, so the current balance moves by the same amount. */
+export async function adjustSnapshot(snapshotId: string, delta: number): Promise<{ ok?: boolean; error?: string }> {
+  if (!snapshotId || !Number.isFinite(delta) || delta === 0) return { error: "Nothing to adjust." };
+  const supabase = await createClient();
+  const { data: snap } = await supabase.from("balance_snapshots").select("id,amount").eq("id", snapshotId).is("deleted_at", null).maybeSingle();
+  if (!snap) return { error: "That balance snapshot no longer exists." };
+  const amount = Math.round((Number(snap.amount) + delta) * 100) / 100;
+  const { error } = await supabase.from("balance_snapshots").update({ amount }).eq("id", snapshotId);
+  if (error) return { error: error.message };
+  refresh();
+  return { ok: true };
 }

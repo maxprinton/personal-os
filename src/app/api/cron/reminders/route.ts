@@ -42,6 +42,7 @@ import { runYoutubeCron } from "@/lib/youtube/server/cron";
 import { runSearchCron } from "@/lib/search/server";
 import { runPortfolioNudge } from "@/lib/bot/portfolio";
 import { runBacklogCron, runStepsCron, runTestsCron } from "@/lib/bot/backlog";
+import { runFinanceSummaryCron } from "@/lib/bot/finance-summary";
 import { sendDueNags } from "@/lib/nags/server";
 
 export const runtime = "nodejs";
@@ -410,6 +411,15 @@ export async function POST(req: Request) {
       });
     } catch {
       // the Backlog is optional; its errors are ignored
+    }
+    try {
+      // 📊 Finance: last month's summary on the 1st at 09:30 (once per month; quiet when nothing was logged)
+      sent += await runFinanceSummaryCron(admin, s, nowFor(s), {
+        claim: (userId, kind, ref) => claim(admin, userId, kind, ref),
+        deliver: (chatId, text) => send(chatId, text),
+      });
+    } catch {
+      // optional; errors are ignored
     }
     try {
       // 🙋 Backlog: new "waiting on you" steps (migration, upload, keys) with a Done button

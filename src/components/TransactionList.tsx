@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { deleteTransaction, splitAdjustment, updateTransaction } from "@/app/finance-actions";
+import type { SnapshotPrompt } from "@/lib/finance-ledger";
 import type { ActionState } from "@/app/actions";
 import Modal, { btnPrimary, btnSecondary, inputCls } from "@/components/calendar/Modal";
 
@@ -21,8 +22,9 @@ export type ListTxn = {
   /** null = not answered */
   worth_it?: boolean | null;
 };
-type Cat = { id: string; name: string; kind: Kind };
-type Acc = { id: string; name: string };
+export type Cat = { id: string; name: string; kind: Kind };
+export type Acc = { id: string; name: string };
+export type SaveState = ActionState & { prompts?: SnapshotPrompt[] };
 
 const PAGE = 40;
 const ADJ = "adjustment";
@@ -211,21 +213,26 @@ export default function TransactionList({
   );
 }
 
-function EditTransaction({
+export function EditTransaction({
   txn,
   categories,
   accounts,
   isAdjustment,
   onClose,
+  saveAction,
+  onSaved,
 }: {
   txn: ListTxn;
   categories: Cat[];
   accounts: Acc[];
   isAdjustment: boolean;
   onClose: () => void;
+  /** Another save action (the account page uses one that also reports snapshot differences). */
+  saveAction?: (prev: SaveState, form: FormData) => Promise<SaveState>;
+  onSaved?: (state: SaveState) => void;
 }) {
   const router = useRouter();
-  const [state, action, pending] = useActionState<ActionState, FormData>(updateTransaction, {});
+  const [state, action, pending] = useActionState<SaveState, FormData>(saveAction ?? updateTransaction, {});
   const [type, setType] = useState<Kind>(txn.type);
   const [category, setCategory] = useState(txn.category_id ?? "");
   const [deleting, setDeleting] = useState(false);
@@ -234,9 +241,10 @@ function EditTransaction({
   useEffect(() => {
     if (state.ok) {
       router.refresh();
+      onSaved?.(state);
       onClose();
     }
-  }, [state, router, onClose]);
+  }, [state, router, onClose, onSaved]);
 
   function pickType(t: Kind) {
     setType(t);

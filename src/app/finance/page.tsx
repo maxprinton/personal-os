@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getSettings } from "@/lib/agenda";
 import { getFinance } from "@/lib/finance";
@@ -29,6 +30,9 @@ import { describeRepeat } from "@/lib/calendar/recurrence";
 import { addDays } from "@/lib/time";
 import { isMobileRequest } from "@/lib/device";
 import { listProposals } from "@/lib/category-proposals";
+import { loadSummaryData } from "@/lib/finance-summary-data";
+import { monthOf, summarizeMonth } from "@/lib/finance-summary";
+import MonthlySummary from "@/components/MonthlySummary";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +95,9 @@ export default async function FinancePage() {
     categories: categories.map((c) => ({ id: c.id, name: c.name, kind: c.kind })),
   };
 
+  // BL-28: the monthly summary card (a failed read hides the card, never the page)
+  const monthSummary = userId ? await loadSummaryData(supabase, userId, timezone).then((d) => summarizeMonth(d, monthOf(today), today)).catch(() => null) : null;
+
   const month = monthRange(today);
   const monthTxns = txns.filter((t) => inRange(t, month));
   const sums = totals(monthTxns);
@@ -139,6 +146,12 @@ export default async function FinancePage() {
             </div>
           ))}
         </section>
+
+        {monthSummary && (
+          <section className="card p-4">
+            <MonthlySummary s={monthSummary} compact />
+          </section>
+        )}
 
         {spendBar.length > 0 && (
           <section aria-label={`${monthName} spending by category`}>
@@ -363,7 +376,7 @@ export default async function FinancePage() {
               {balances.map(({ account, balance, snapshotAt }) => (
                 <li key={account.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line p-3 bg-surface shadow-card">
                   <div>
-                    <p className="font-medium">{account.name}</p>
+                    <Link href={`/finance/accounts/${account.id}`} className="font-medium hover:text-accent hover:underline" title="Open this account">{account.name}</Link>
                     <p className="text-xs text-muted">
                       {KIND_LABEL[account.kind] ?? account.kind}
                       {snapshotAt ? ` · balance set ${formatDateLong(utcToLocal(snapshotAt, timezone).date)}` : " · no balance set"}

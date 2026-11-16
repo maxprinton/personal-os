@@ -26,6 +26,7 @@ import { markVideo, workView } from "@/lib/bot/work";
 import { parseVideoCmd } from "@/lib/work-log";
 import { inboxView, isInboxRequest, isPortfolioSummary, portfolioView } from "@/lib/bot/portfolio";
 import { backlogView, handleBacklogCapture, ideasView } from "@/lib/bot/backlog";
+import { isSummaryCommand, parseSummaryCommand, summaryView } from "@/lib/bot/finance-summary";
 import { isBacklogView, isCaptureHelp, isIdeasView, parseBacklogCapture } from "@/lib/backlog/text";
 import { handleYoutubeCapture, isYoutubeSummary, parseYoutubeCapture, youtubeView } from "@/lib/bot/youtube-capture";
 import { markUsageReported, refreshFromGroq, scopeUsageLine, startOfDay, usageReport, usageSummary, withAiUsage } from "@/lib/ai-usage";
@@ -339,6 +340,10 @@ async function views(c: Ctx, text: string): Promise<boolean> {
     if (isOneOf(text, W.habits)) return await hit(habitsView(c));
     if (isOneOf(text, W.work)) return await hit(workView(c));
     if (isYoutubeSummary(text)) return await hit(youtubeView(c));
+    if (isSummaryCommand(text)) {
+      const cmd = parseSummaryCommand(text, c.today);
+      return await hit(cmd ? summaryView(c, cmd.month) : Promise.resolve({ text: "Try: summary, summary last month, or summary 2026-10.", kb: [] }));
+    }
     if (isBacklogView(text)) return await hit(backlogView(c));
     if (isIdeasView(text)) return await hit(ideasView(c));
     if (isPortfolioSummary(text)) return await hit(portfolioView(c));

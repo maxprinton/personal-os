@@ -239,6 +239,7 @@ export const FEATURES: Feature[] = [
   { id: "ai-check", group: "see", title: "Is the AI connected?", wordsKey: "ai", summary: "A quick check of the AI key.", how: [], examples: [{ text: "/ai" }], ai: true },
   { id: "teaching", group: "see", title: "Teaching: classes, hours, pay", wordsKey: "work", canonical: "/teaching", summary: "Your classes, hours and pay this month, plus the videos you still owe.", how: ["Also /work."], examples: [{ text: "/teaching" }] },
   { id: "youtube", group: "see", title: "YouTube pipeline", words: ["/youtube", "youtube", "/yt", "yt"], canonical: "/youtube", summary: "Ideas in the bank, videos in progress, the latest published.", how: [], examples: [{ text: "/youtube" }] },
+  { id: "finance-summary", group: "see", title: "Monthly finance summary", words: ["/summary", "summary", "/resumen", "resumen"], canonical: "/summary", summary: "Income, expenses, top categories, balances and the comparison with last month. The month so far by default.", how: ["Add \"last month\" or a month like 2026-10."], examples: [{ text: "/summary" }, { text: "summary last month" }] },
   { id: "backlog", group: "see", title: "Backlog", words: ["/backlog", "backlog"], canonical: "/backlog", summary: "What is in Now, Verifying and Next, and how many ideas wait in the Inbox.", how: [], examples: [{ text: "/backlog" }] },
   { id: "ideas", group: "see", title: "Backlog Inbox", words: ["/ideas", "ideas"], canonical: "/ideas", summary: "The ideas and bugs you have not sorted yet.", how: [], examples: [{ text: "/ideas" }] },
   { id: "portfolio", group: "see", title: "Portfolio status", words: ["/portfolio", "portfolio", "/portafolio", "portafolio"], canonical: "/portfolio", summary: "Each page of your public site: ✅ live · 🟠 changed since publishing · 📝 draft, and unread messages.", how: [], examples: [{ text: "/portfolio" }] },
@@ -288,6 +289,7 @@ export const FEATURES: Feature[] = [
   { id: "before", group: "auto", title: "Heads-up before an event or block", summary: "A message X minutes before each event or block.", how: ["Set X in /settings."], examples: [] },
   { id: "night", group: "auto", title: "Night check (21:00)", summary: "Your day with ✓ / Skip buttons, and the mood / energy check-in.", how: [], examples: [] },
   { id: "weekly", group: "auto", title: "Monday insights and portfolio reminder", summary: "Insights on Mondays at 8:00, the portfolio reminder at 10:00.", how: [], examples: [] },
+  { id: "finance-summary-auto", group: "auto", title: "Monthly finance summary (1st, 09:30)", summary: "On the 1st of each month at 09:30 you get last month's summary. Nothing is sent if the month has no transactions.", how: [], examples: [] },
   { id: "backlog-auto", group: "auto", title: "Backlog check (09:30) and Monday summary", summary: "OFF by default. If you turn on \"Send Backlog messages to Telegram\" in the Backlog settings: asks if a finished item worked in real use after a week, Mondays at 8:30 a short summary, plus steps and test missions.", how: [], examples: [] },
 
   // ---- Setup -----------------------------------------------------------------------------
