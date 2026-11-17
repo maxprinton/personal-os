@@ -83,27 +83,32 @@ export default function Board({
                   {list.slice(0, st === "done" ? 12 : 100).map((it) => (
                     <li
                       key={it.id}
-                      draggable
-                      onDragStart={(e) => {
-                        setDragging(it.number);
-                        e.dataTransfer.setData("text/plain", String(it.number));
-                        e.dataTransfer.effectAllowed = "move";
-                      }}
-                      onDragEnd={() => {
-                        setDragging(null);
-                        setOver(null);
-                      }}
                       onDragOver={(e) => e.preventDefault()}
                       onDrop={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
                         void drop(st, it.number);
                       }}
-                      className={`cursor-grab rounded-xl border border-line bg-surface p-2 text-sm shadow-card active:cursor-grabbing ${dragging === it.number ? "opacity-50" : ""}`}
+                      className={`rounded-xl border border-line bg-surface p-2 text-sm shadow-card ${dragging === it.number ? "opacity-50" : ""}`}
                     >
-                      <Link href={`/backlog/${it.number}`} className="block hover:underline">
-                        {TYPE_EMOJI[it.type]} <span className="text-muted">BL-{it.number}</span> {it.title}
-                      </Link>
+                      {/* Only this part is draggable: an input inside a draggable ancestor cannot be typed in (Move menu reason/size/spec fields) */}
+                      <div
+                        draggable
+                        onDragStart={(e) => {
+                          setDragging(it.number);
+                          e.dataTransfer.setData("text/plain", String(it.number));
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                        onDragEnd={() => {
+                          setDragging(null);
+                          setOver(null);
+                        }}
+                        className="cursor-grab active:cursor-grabbing"
+                      >
+                        <Link href={`/backlog/${it.number}`} className="block hover:underline">
+                          {TYPE_EMOJI[it.type]} <span className="text-muted">BL-{it.number}</span> {it.title}
+                        </Link>
+                      </div>
                       <div className="mt-1 flex items-center justify-between gap-2">
                         <span className="text-xs text-faint">{[it.size, it.area].filter(Boolean).join(" · ")}</span>
                         <MoveMenu item={it} items={items} caps={caps} onResult={onResult} />

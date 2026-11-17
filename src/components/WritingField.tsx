@@ -71,7 +71,14 @@ function useWriting(ref: React.RefObject<El | null>, area: WritingArea, multilin
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const onInput = () => refresh();
+    // Do NOT set state synchronously from these native listeners: they run before React's own input handler,
+    // and the re-render puts the old value back in a controlled field, so React never sees the keystroke and
+    // onChange never fires (the field looks uneditable). Wait one tick, after React has handled the typing.
+    let later: ReturnType<typeof setTimeout> | undefined;
+    const onInput = () => {
+      if (later) clearTimeout(later);
+      later = setTimeout(refresh, 0);
+    };
     const onFocus = () => {
       setFocused(true);
       place();
@@ -90,6 +97,7 @@ function useWriting(ref: React.RefObject<El | null>, area: WritingArea, multilin
     el.addEventListener("blur", onBlur);
     el.addEventListener("click", onInput);
     return () => {
+      if (later) clearTimeout(later);
       el.removeEventListener("input", onInput);
       el.removeEventListener("focus", onFocus);
       el.removeEventListener("blur", onBlur);
