@@ -187,6 +187,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        Prefs.markAlive(this);
         Scheduler.armNextSync(this);
         RingLog.flagMissed(this);
         final boolean fromNotification = getIntent() != null && getIntent().getBooleanExtra("install_update", false);

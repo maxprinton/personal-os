@@ -21,7 +21,8 @@ const ANSWERS = new Set<string>([...START_ANSWERS, ...END_ANSWERS, ...QUIET_ANSW
 
 export type AlarmEvent = {
   clientId: string;
-  kind: "rang" | "answer" | "checkin" | "tick" | "sleep";
+  /** off (BL-110): the phone was switched off from alarmAt until at (when it came back on). */
+  kind: "rang" | "answer" | "checkin" | "tick" | "sleep" | "off";
   /** When it happened on the phone (epoch ms). */
   at: number;
   answer?: AlarmAnswer;
@@ -75,7 +76,7 @@ export function cleanAlarmEvent(raw: unknown, nowMs: number): AlarmEvent | null 
   const r = raw as Record<string, unknown>;
   const clientId = str(r.clientId, 80);
   const kind = r.kind;
-  if (!clientId || (kind !== "rang" && kind !== "answer" && kind !== "checkin" && kind !== "tick" && kind !== "sleep")) return null;
+  if (!clientId || (kind !== "rang" && kind !== "answer" && kind !== "checkin" && kind !== "tick" && kind !== "sleep" && kind !== "off")) return null;
   const at = int(r.at, 0, Number.MAX_SAFE_INTEGER);
   // A queue on the phone may send a few days late, never from the future
   if (at === undefined || at > nowMs + 10 * 60_000 || at < nowMs - 8 * DAY) return null;
@@ -97,6 +98,10 @@ export function cleanAlarmEvent(raw: unknown, nowMs: number): AlarmEvent | null 
   if (r.wake === true) ev.wake = true;
   if (r.bed === true) ev.bed = true;
 
+  if (kind === "off") {
+    // When it went off (alarmAt) must be before it came back on (at), and not absurdly long ago
+    if (ev.alarmAt === undefined || ev.alarmAt >= at || at - ev.alarmAt > 30 * DAY) return null;
+  }
   if (kind === "answer") {
     if (typeof r.answer !== "string" || !ANSWERS.has(r.answer)) return null;
     ev.answer = r.answer as AlarmAnswer;
@@ -351,7 +356,8 @@ export async function applyAlarmEvents(admin: SupabaseClient, userId: string, tz
       }
     }
     try {
-      const error = ev.kind === "rang" ? null : await applyOne(admin, userId, tz, ev, today);
+      // rang / off are only a record: nothing to change in the calendar
+      const error = ev.kind === "rang" || ev.kind === "off" ? null : await applyOne(admin, userId, tz, ev, today);
       results.push(error ? { clientId: ev.clientId, ok: true, message: error } : { clientId: ev.clientId, ok: true });
     } catch (e) {
       results.push({ clientId: ev.clientId, ok: false, message: e instanceof Error ? e.message : "failed" });

@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { buildAlarms } from "@/lib/alarms";
 import { summarizeDay, type ReportedEvent } from "@/lib/alarm-day";
+import { cleanAlarmEvent } from "@/lib/alarm-answers";
 
 let passed = 0;
 let failed = 0;
@@ -103,6 +104,24 @@ test("today: past rings first, upcoming after, sorted by time", () => {
   assert.equal(d[0].title, "Morning routine");
   assert.equal(d[1].title, "Gym");
   assert.equal(d[1].state, "upcoming");
+});
+
+test("phone switched off: grey 'phone was off', not red", () => {
+  const d = summarizeDay({ scheduled: sched(), events: [], nowMs: at("12:00"), trackingSinceMs: 1, offWindows: [[at("05:20"), at("10:04")]] });
+  assert.equal(d[0].state, "phone_off");
+  assert.ok(d[0].rings.every((r) => r.status === "phone_off"));
+});
+
+test("off window that doesn't cover the ring changes nothing", () => {
+  const d = summarizeDay({ scheduled: sched(), events: [], nowMs: at("12:00"), trackingSinceMs: 1, offWindows: [[at("01:00"), at("02:00")]] });
+  assert.equal(d[0].state, "didnt_ring");
+});
+
+test("cleanAlarmEvent accepts 'off' only with a start before the end", () => {
+  const now = at("10:05");
+  assert.ok(cleanAlarmEvent({ clientId: "x", kind: "off", at: at("10:04"), alarmAt: at("05:20") }, now));
+  assert.equal(cleanAlarmEvent({ clientId: "y", kind: "off", at: at("10:04") }, now), null);
+  assert.equal(cleanAlarmEvent({ clientId: "z", kind: "off", at: at("05:20"), alarmAt: at("10:04") }, now), null);
 });
 
 console.log(`${passed} passed, ${failed} failed`);

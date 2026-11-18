@@ -60,7 +60,7 @@ final class DayView {
         String style = "alarm";
         int minutesBefore;
         int every;
-        String state = "upcoming"; // upcoming | rang | didnt_ring | mixed | untracked
+        String state = "upcoming"; // upcoming | rang | didnt_ring | mixed | untracked | phone_off
         String answer = "";
         boolean unplanned;
         final List<long[]> rings = new ArrayList<>(); // {atMs, statusCode}
@@ -70,7 +70,7 @@ final class DayView {
     }
 
     // ring status codes
-    static final int UPCOMING = 0, RANG = 1, DIDNT = 2, STOPPED = 3, UNTRACKED = 4;
+    static final int UPCOMING = 0, RANG = 1, DIDNT = 2, STOPPED = 3, UNTRACKED = 4, PHONE_OFF = 5;
 
     DayView(Activity activity, LinearLayout card) {
         this.a = activity;
@@ -280,7 +280,7 @@ final class DayView {
                     JSONObject g = rings.getJSONObject(k);
                     String s = g.optString("status", "upcoming");
                     int code = "rang".equals(s) ? RANG : "didnt_ring".equals(s) ? DIDNT : "stopped".equals(s) ? STOPPED
-                            : "untracked".equals(s) ? UNTRACKED : UPCOMING;
+                            : "untracked".equals(s) ? UNTRACKED : "phone_off".equals(s) ? PHONE_OFF : UPCOMING;
                     r.rings.add(new long[]{g.optLong("at", 0), code});
                 }
             }
@@ -335,7 +335,7 @@ final class DayView {
         String badge = badge(r);
         if (!badge.isEmpty()) {
             int color = "didnt_ring".equals(r.state) ? Ui.BAD : "mixed".equals(r.state) ? Ui.WARN
-                    : "untracked".equals(r.state) ? Ui.MUTED : Ui.OK;
+                    : "untracked".equals(r.state) || "phone_off".equals(r.state) ? Ui.MUTED : Ui.OK;
             TextView b = Ui.text(a, badge, 12, color, true);
             b.setPadding(0, dp(2), 0, 0);
             col.addView(b);
@@ -347,7 +347,7 @@ final class DayView {
         if (r.rings.size() > 1 && expanded.contains(r.key)) {
             for (long[] g : r.rings) {
                 String s = g[1] == RANG ? "rang" : g[1] == DIDNT ? "didn't ring" : g[1] == STOPPED ? "not needed (answered)"
-                        : g[1] == UNTRACKED ? "not tracked" : "to come";
+                        : g[1] == UNTRACKED ? "not tracked" : g[1] == PHONE_OFF ? "phone was off" : "to come";
                 int c = g[1] == DIDNT ? Ui.BAD : g[1] == RANG ? Ui.OK : Ui.MUTED;
                 TextView t = Ui.text(a, hm.format(new Date(g[0])) + "   " + s, 13, c, false);
                 t.setPadding(dp(72), dp(3), 0, 0);
@@ -386,6 +386,8 @@ final class DayView {
                 return "✕ Didn't ring";
             case "untracked":
                 return "Not tracked (before the app reported rings)";
+            case "phone_off":
+                return "Phone was off";
             case "rang":
             case "mixed": {
                 String ans = answerLabel(r.answer);

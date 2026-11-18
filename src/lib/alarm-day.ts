@@ -29,8 +29,9 @@ export type DayRing = {
   at: number;
   /** upcoming = still to come; rang = the phone rang it; didnt_ring = time passed, never reported;
    * stopped = not needed because the chain was answered before it;
-   * untracked = before the phone app started reporting rings (nothing to compare with). */
-  status: "upcoming" | "rang" | "didnt_ring" | "stopped" | "untracked";
+   * untracked = before the phone app started reporting rings (nothing to compare with);
+   * phone_off = the phone was switched off at that time (it reported it when it came back on). */
+  status: "upcoming" | "rang" | "didnt_ring" | "stopped" | "untracked" | "phone_off";
 };
 
 export type DayChain = {
@@ -46,7 +47,7 @@ export type DayChain = {
   rings: DayRing[];
   /** upcoming (all rings to come), rang (at least one rang), didnt_ring (all past rings missing),
    * mixed (some rang, some due ones missing). */
-  state: "upcoming" | "rang" | "didnt_ring" | "mixed" | "untracked";
+  state: "upcoming" | "rang" | "didnt_ring" | "mixed" | "untracked" | "phone_off";
   /** The answer that ended the chain ("started", "done", "snooze"...), or null. */
   answer: string | null;
   answerAt: number | null;
@@ -66,9 +67,14 @@ export function summarizeDay(args: {
   titles?: Map<string, string>;
   /** First time the phone ever reported anything: rings before it can't be judged. */
   trackingSinceMs?: number | null;
+  /** When the phone was switched off: [from, to] in ms. */
+  offWindows?: [number, number][];
+  /** First ring of an event reminder the phone reported (it started reporting them in app v11). */
+  nagTrackingSinceMs?: number | null;
 }): DayChain[] {
   const { scheduled, events, nowMs } = args;
   const since = args.trackingSinceMs ?? null;
+  const wasOff = (t: number) => (args.offWindows ?? []).some(([f, to]) => t >= f && t <= to);
   const rangEvents = events.filter((e) => e.kind === "rang");
   const answers = events.filter((e) => e.kind === "answer" && e.answer).sort((a, b) => a.at - b.at);
   const usedRang = new Set<number>();
@@ -112,7 +118,10 @@ export function summarizeDay(args: {
       if (rangFlags[i]) return { at: a.alarmAtMs, status: "rang" };
       if (stop && a.alarmAtMs > stop.at) return { at: a.alarmAtMs, status: "stopped" };
       if (a.alarmAtMs > nowMs) return { at: a.alarmAtMs, status: "upcoming" };
+      if (wasOff(a.alarmAtMs)) return { at: a.alarmAtMs, status: "phone_off" };
+      const nagSince = args.nagTrackingSinceMs ?? null;
       if (since === null || a.alarmAtMs < since) return { at: a.alarmAtMs, status: "untracked" };
+      if (a.id.startsWith("nag:") && (nagSince === null || a.alarmAtMs < nagSince)) return { at: a.alarmAtMs, status: "untracked" };
       return { at: a.alarmAtMs, status: "didnt_ring" };
     });
     out.push({
@@ -170,6 +179,7 @@ function chainState(rings: DayRing[], answered: boolean): DayChain["state"] {
   const missing = rings.some((r) => r.status === "didnt_ring");
   if (rang || answered) return missing ? "mixed" : "rang";
   if (missing) return "didnt_ring";
+  if (rings.some((r) => r.status === "phone_off")) return "phone_off";
   if (rings.some((r) => r.status === "untracked")) return "untracked";
   return "upcoming";
 }
@@ -248,7 +258,29 @@ export async function loadAlarmDay(sb: SupabaseClient, userId: string, timezone:
     .limit(1)
     .maybeSingle();
   const trackingSinceMs = firstRow?.at ? Date.parse(firstRow.at as string) : null;
+  // Event reminders: reported only from app v11 on (rings without a block)
+  const { data: firstNag } = await sb
+    .from("alarm_events")
+    .select("at")
+    .eq("user_id", userId)
+    .eq("kind", "rang")
+    .is("occurrence_id", null)
+    .order("at")
+    .limit(1)
+    .maybeSingle();
+  const nagTrackingSinceMs = firstNag?.at ? Date.parse(firstNag.at as string) : null;
+  // When the phone was off during this day (reported when it came back on)
+  const { data: offRows } = await sb
+    .from("alarm_events")
+    .select("at,alarm_at")
+    .eq("user_id", userId)
+    .eq("kind", "off")
+    .gte("at", new Date(fromMs).toISOString())
+    .lt("alarm_at", new Date(toMs).toISOString());
+  const offWindows = ((offRows ?? []) as { at: string; alarm_at: string | null }[])
+    .filter((r) => r.alarm_at)
+    .map((r) => [Date.parse(r.alarm_at as string), Date.parse(r.at)] as [number, number]);
   const titles = new Map(types.map((t) => [t.id, t.name]));
-  const chains = summarizeDay({ scheduled: [...blockRings, ...eventRings], events, nowMs: now.getTime(), titles, trackingSinceMs });
+  const chains = summarizeDay({ scheduled: [...blockRings, ...eventRings], events, nowMs: now.getTime(), titles, trackingSinceMs, offWindows, nagTrackingSinceMs });
   return { date, today, fromMs, toMs, chains };
 }

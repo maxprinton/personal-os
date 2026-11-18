@@ -63,11 +63,26 @@ final class Answers {
 
     /** A ring went off. Test alarms (no block) are not sent. */
     static void rang(Context c, AlarmItem a) {
-        if (a == null || a.occurrenceId.isEmpty()) return;
+        if (a == null) return;
+        Prefs.markAlive(c);
+        // Event reminders (BL-98) have no block but are reported too; only the test alarm is not
+        if (a.occurrenceId.isEmpty() && !a.id.startsWith("nag:")) return;
         try {
             save(c, base("rang", a));
         } catch (Exception ignored) {
             // an answer that can't be written is simply not sent
+        }
+    }
+
+    /** BL-110: the phone was switched off from fromMs until toMs (when it came back on). */
+    static void off(Context c, long fromMs, long toMs) {
+        try {
+            JSONObject o = base("off", null);
+            o.put("at", toMs);
+            o.put("alarmAt", fromMs);
+            save(c, o);
+        } catch (Exception ignored) {
+            // not sent: the day view will just say "Didn't ring" for that time
         }
     }
 

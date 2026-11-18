@@ -41,6 +41,7 @@ final class Sync {
 
     static synchronized Result run(Context ctx) {
         Context c = ctx.getApplicationContext();
+        Prefs.markAlive(c);
         // Before the list is replaced: which alarms of the last day never reached the app?
         RingLog.flagMissed(c);
         String base = Prefs.baseUrl(c);

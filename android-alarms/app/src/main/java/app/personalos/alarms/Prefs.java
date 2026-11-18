@@ -223,6 +223,27 @@ final class Prefs {
         sp(c).edit().putLong("wokeAt", ms).apply();
     }
 
+    /**
+     * BL-110: the last moment the app knew the phone was on (sync, ring, app opened), and the moment
+     * Android said "shutting down" (0 = not seen). Used at boot to report when the phone was off.
+     */
+    static void markAlive(Context c) {
+        sp(c).edit().putLong("aliveAt", System.currentTimeMillis()).apply();
+    }
+
+    static long aliveAt(Context c) {
+        return sp(c).getLong("aliveAt", 0L);
+    }
+
+    static void setOffAt(Context c, long ms) {
+        // commit, not apply: the phone is about to switch off
+        sp(c).edit().putLong("offAt", ms).commit();
+    }
+
+    static long offAt(Context c) {
+        return sp(c).getLong("offAt", 0L);
+    }
+
     static List<AlarmItem> alarms(Context c) {
         List<AlarmItem> out = new ArrayList<>();
         try {
