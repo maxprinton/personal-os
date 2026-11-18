@@ -100,8 +100,13 @@ final class DayView {
         box.addView(list, Ui.wrap(a, 8));
     }
 
-    /** Redraw the day shown (after a sync, or when the app comes back). Today stays today. */
-    void refresh() {
+    /** Redraw the day shown with what is already known (no new request). */
+    void redraw() {
+        show(day);
+    }
+
+    /** After a sync: today's rings may have changed, read them again. */
+    void reload() {
         cache.remove(LocalDate.now().toString());
         show(day);
     }
@@ -391,7 +396,7 @@ final class DayView {
             case "rang":
             case "mixed": {
                 String ans = answerLabel(r.answer);
-                String s = ans.isEmpty() ? "Rang · no answer" : "✓ " + ans;
+                String s = ans.isEmpty() || "missed".equals(r.answer) ? "Rang · no answer" : "✓ " + ans;
                 if ("mixed".equals(r.state)) s += " · some rings didn't ring";
                 return s;
             }
