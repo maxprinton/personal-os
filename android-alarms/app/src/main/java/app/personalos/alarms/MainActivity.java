@@ -33,7 +33,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
-/** Home screen: connection, next alarms, sound, and the checklist that makes sure it rings. */
+/** Home screen: connection, alarms by day, sound, and the checklist that makes sure it rings. */
 public class MainActivity extends Activity {
     private static final int REQ_PICK_SOUND = 21;
 
@@ -42,7 +42,8 @@ public class MainActivity extends Activity {
     private View statusDot;
     private TextView statusTitle;
     private TextView statusDetail;
-    private LinearLayout alarmsBox;
+    /** The alarms of one day at a time (BL-110). */
+    private DayView dayView;
     private LinearLayout nowBox;
     private LinearLayout soundBox;
     private LinearLayout checksBox;
@@ -106,11 +107,9 @@ public class MainActivity extends Activity {
         updateCard.setVisibility(View.GONE);
         root.addView(updateCard, Ui.wrap(this, 12));
 
-        // ---- Next alarms
-        LinearLayout alarmsCard = Ui.card(this, "Next alarms");
-        alarmsBox = new LinearLayout(this);
-        alarmsBox.setOrientation(LinearLayout.VERTICAL);
-        alarmsCard.addView(alarmsBox);
+        // ---- Alarms, one day at a time: ‹ day ›, day chips, tap the date for a calendar (BL-110)
+        LinearLayout alarmsCard = Ui.card(this, "Alarms");
+        dayView = new DayView(this, alarmsCard);
         root.addView(alarmsCard, Ui.wrap(this, 12));
 
         // ---- Sound
@@ -201,6 +200,7 @@ public class MainActivity extends Activity {
                 final Updater.Info info = Updater.fetchLatest(app);
                 ui.post(() -> {
                     latest = info;
+                    dayView.reload();
                     refresh();
                     if (info != null && info.versionCode > Updater.installedCode(app) && (fromNotification || canInstall())) {
                         startUpdate(false);
@@ -339,7 +339,10 @@ public class MainActivity extends Activity {
         final android.content.Context app = getApplicationContext();
         new Thread(() -> {
             Sync.run(app);
-            ui.post(this::refresh);
+            ui.post(() -> {
+                dayView.reload();
+                refresh();
+            });
         }).start();
     }
 
@@ -395,50 +398,8 @@ public class MainActivity extends Activity {
         versionView.setText("Personal OS Alarms " + Updater.installedName(this)
                 + (latest != null && !newer ? " - up to date" : ""));
 
-        // Next alarms
-        alarmsBox.removeAllViews();
-        List<AlarmItem> upcoming = new ArrayList<>();
-        long now = System.currentTimeMillis();
-        List<AlarmItem> stored = Prefs.alarms(this);
-        for (AlarmItem a : stored) {
-            // a chain is listed once, by its first coming ring
-            if (a.alarmAtMs > now && !(a.seq > 0 && hasEarlier(stored, a, now))) upcoming.add(a);
-        }
-        Collections.sort(upcoming, new Comparator<AlarmItem>() {
-            @Override
-            public int compare(AlarmItem x, AlarmItem y) {
-                return Long.compare(x.alarmAtMs, y.alarmAtMs);
-            }
-        });
-        if (upcoming.isEmpty()) {
-            alarmsBox.addView(Ui.text(this, "None yet. In Personal OS, open a block and turn on \"Ring alarms on my phone\".",
-                    14, Ui.MUTED, false));
-        }
-        SimpleDateFormat day = new SimpleDateFormat("EEE d MMM", Locale.getDefault());
-        for (int i = 0; i < upcoming.size() && i < 8; i++) {
-            AlarmItem a = upcoming.get(i);
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(0, dp(7), 0, dp(7));
-            TextView time = Ui.text(this, hm.format(new Date(a.alarmAtMs)), 22, Ui.TEXT, true);
-            time.setMinWidth(dp(72));
-            row.addView(time);
-            LinearLayout col = new LinearLayout(this);
-            col.setOrientation(LinearLayout.VERTICAL);
-            col.addView(Ui.text(this, a.title.isEmpty() ? "Alarm" : a.title, 15, Ui.TEXT, true));
-            String sub = day.format(new Date(a.alarmAtMs));
-            if (a.total > 1) sub += "  -  " + a.total + " rings, every " + a.every + " min";
-            else if (a.isEnd()) sub += "  -  end of the block";
-            else if (a.minutesBefore > 0) sub += "  -  " + a.minutesBefore + " min before";
-            if (a.isNotify()) sub += "  -  quiet";
-            col.addView(Ui.text(this, sub, 12, Ui.MUTED, false));
-            row.addView(col);
-            alarmsBox.addView(row);
-        }
-        if (upcoming.size() > 8) {
-            alarmsBox.addView(Ui.text(this, "+ " + (upcoming.size() - 8) + " more", 12, Ui.MUTED, false));
-        }
+        // Alarms of the day shown (no new request here; a sync reloads today)
+        dayView.redraw();
 
         drawNow();
         drawSound();

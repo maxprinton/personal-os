@@ -42,7 +42,7 @@ final class Ringtones {
             new Sound("radar", "Radar", "A clear repeating ping", R.raw.radar),
             new Sound("digital", "Digital beeps", "The classic alarm clock", R.raw.digital),
             new Sound("alert", "Alert siren", "Loud and impossible to ignore", R.raw.alert),
-            new Sound("mine", "My sound", "Your own audio (24 s, loops)", R.raw.mine),
+            new Sound("mine", "Go to Bed Ringtone", "Your own audio (24 s, loops)", R.raw.mine),
     };
 
     /**

@@ -57,6 +57,18 @@ export async function sendDueNags(
 }
 
 /** Phone nags for the next `days` days, to join the block alarms in /api/alarms. */
+/** Day view (BL-110): the phone rings of event nags whose time falls in [fromMs, toMs), past included. */
+export async function loadEventAlarmsBetween(admin: SupabaseClient, userId: string, timezone: string, date: string, fromMs: number, toMs: number): Promise<PhoneAlarm[]> {
+  try {
+    const data = await loadNagData(admin, userId, timezone, date);
+    if (!data) return [];
+    const list = buildEventPhoneAlarms({ ...data, timezone, now: new Date(fromMs - 1), days: Math.ceil((toMs - fromMs) / 86_400_000) + 1 });
+    return list.filter((a) => a.alarmAtMs >= fromMs && a.alarmAtMs < toMs);
+  } catch {
+    return [];
+  }
+}
+
 export async function loadEventAlarms(admin: SupabaseClient, userId: string, timezone: string, now: Date, days = 7): Promise<PhoneAlarm[]> {
   try {
     const data = await loadNagData(admin, userId, timezone, localNow(timezone).date);

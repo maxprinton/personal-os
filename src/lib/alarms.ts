@@ -100,12 +100,14 @@ export function buildAlarms(args: {
   timezone: string;
   now: Date;
   days?: number;
+  /** Day view (BL-110): also blocks already marked done (on a past day they still rang). */
+  keepDone?: boolean;
 }): PhoneAlarm[] {
   const byId = new Map(args.types.map((t) => [t.id, t]));
   const limit = args.now.getTime() + (args.days ?? ALARM_DAYS) * 86_400_000;
   const out: PhoneAlarm[] = [];
   for (const o of args.occurrences) {
-    if (o.status === "cancelled" || o.status === "free_day" || o.status === "done") continue;
+    if (o.status === "cancelled" || o.status === "free_day" || (o.status === "done" && !args.keepDone)) continue;
     const t = byId.get(o.block_type_id);
     const rings = t ? effectiveRules(t) : [];
     if (!t || rings.length === 0) continue;

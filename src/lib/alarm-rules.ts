@@ -37,7 +37,7 @@ export const SOUNDS: { id: string; name: string }[] = [
   { id: "radar", name: "Radar" },
   { id: "digital", name: "Digital beeps" },
   { id: "alert", name: "Alert siren" },
-  { id: "mine", name: "My sound" },
+  { id: "mine", name: "Go to Bed Ringtone" }, // id stays "mine": blocks already using it keep it
 ];
 
 export const MAX_RINGS = 8;
