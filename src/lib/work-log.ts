@@ -19,6 +19,9 @@ export const SHEET_TYPE_LABEL: Record<SheetType, string> = {
   extra: "Hora Extra",
   collaboration: "Colaboración",
 };
+// Company Drive folder for class videos. Used whenever Settings has no folder of its own.
+export const DEFAULT_VIDEO_FOLDER = "https://drive.google.com/drive/folders/1JSV6H9fhDrZnkT6x9sZFJtRyh5Z_S0P7";
+
 export const DEFAULT_RATES: Record<WorkRole, number> = { substitute: 6, head: 4 };
 
 export type WorkClass = {

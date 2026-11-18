@@ -8,7 +8,7 @@ import { claim } from "@/lib/reminders";
 import { tg } from "@/lib/telegram";
 import { addDays, formatMinutes, timeToMinutes } from "@/lib/time";
 import {
-  byTime, classEnded, fmtHours, monthBounds, monthKey, monthLabelEn, needsEvidence, shortDay, summarize, toWorkClass, type WorkClass,
+  byTime, classEnded, DEFAULT_VIDEO_FOLDER, fmtHours, monthBounds, monthKey, monthLabelEn, needsEvidence, shortDay, summarize, toWorkClass, type WorkClass,
 } from "@/lib/work-log";
 
 type Reply = { text: string; kb: Kb };
@@ -103,7 +103,7 @@ export async function workVideoReminders(
     if (!(await claim(admin, s.user_id, "workvideo", c.id))) continue;
     if (folder === undefined) {
       const { data: set } = await admin.from("work_settings").select("video_folder_url").eq("user_id", s.user_id).maybeSingle();
-      folder = (set?.video_folder_url as string | null) ?? null;
+      folder = ((set?.video_folder_url as string | null)?.trim() || DEFAULT_VIDEO_FOLDER);
     }
     const lines = [
       `🎥 ${c.group_name} ended (${formatMinutes(start)} – ${formatMinutes(end % 1440)}) and its video isn't posted yet.`,

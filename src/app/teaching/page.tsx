@@ -10,7 +10,7 @@ import WorkImport from "@/components/WorkImport";
 import WorkTable from "@/components/WorkTable";
 import WorkGroups, { type GroupRow, type TeacherRow } from "@/components/WorkGroups";
 import {
-  byTime, classEnded, groupKey, isOrigin, scheduleMap, teacherMap, missingEvidence, DETAIL_HEADERS, detailRows, fmtHours, fmtMoney, isMonthKey, monthBounds, monthKey, monthLabelEn, monthLabelEs,
+  byTime, classEnded, DEFAULT_VIDEO_FOLDER, groupKey, isOrigin, scheduleMap, teacherMap, missingEvidence, DETAIL_HEADERS, detailRows, fmtHours, fmtMoney, isMonthKey, monthBounds, monthKey, monthLabelEn, monthLabelEs,
   shiftMonth, shortDay, SUMMARY_HEADERS, summarize, toWorkClass,
 } from "@/lib/work-log";
 
@@ -88,7 +88,7 @@ export default async function TeachingPage({ searchParams }: { searchParams: Pro
   const months = monthKeys.map((k) => ({ key: k, label: monthLabelEn(k) }));
 
   const sum = summarize(classes, now);
-  const folder = settings?.video_folder_url ?? "";
+  const folder = settings?.video_folder_url?.trim() || DEFAULT_VIDEO_FOLDER;
   const teacher = settings?.teacher_name ?? "";
   const subRate = Number(settings?.substitute_rate ?? 6);
   const headRate = Number(settings?.head_rate ?? 4);
@@ -113,6 +113,9 @@ export default async function TeachingPage({ searchParams }: { searchParams: Pro
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Teaching</h1>
             <p className="text-sm text-muted">Your classes, hours and pay, plus the videos you owe the company’s Drive.</p>
+            <a href={folder} target="_blank" rel="noreferrer" className="mt-1 inline-block text-sm font-medium text-accent underline">
+              Open the Drive folder ↗
+            </a>
           </div>
           <div className="flex items-center gap-1 text-sm">
             <Link href={`/teaching?month=${shiftMonth(month, -1)}`} className="rounded-md border border-line-strong px-2.5 py-1 hover:bg-subtle" aria-label="Previous month">
