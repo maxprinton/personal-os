@@ -115,11 +115,14 @@ export default function MoveMenu({
 
   return (
     <div className="relative">
-      <button type="button" onClick={() => { setOpen(!open); setPending(null); }} aria-expanded={open} disabled={busy} className="compact rounded-md border border-edge px-2 py-1 text-xs transition-colors hover:bg-subtle disabled:opacity-50">
+      <button type="button" onClick={() => { setOpen(!open); setPending(null); }} aria-expanded={open} disabled={busy} className="compact rounded-md border border-edge px-2 py-1 text-xs transition-colors hover:bg-subtle disabled:opacity-50 max-sm:min-h-10 max-sm:px-3">
         Move ▾
       </button>
       {open && (
-        <div className="absolute right-0 z-30 mt-1 w-72 max-w-[85vw] rounded-xl border border-line bg-surface p-2 shadow-pop">
+        <>
+        {/* Phone: a bottom sheet (not clipped by the Board's scroller, never off-screen); from sm up: the small popup under the button */}
+        <div className="fixed inset-0 z-40 bg-black/30 sm:hidden" onClick={() => setOpen(false)} aria-hidden />
+        <div className="fixed inset-x-3 bottom-3 z-50 max-h-[75dvh] overflow-y-auto rounded-xl border border-line bg-surface p-2 shadow-pop sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:z-30 sm:mt-1 sm:max-h-none sm:w-72 sm:max-w-[85vw] sm:overflow-visible">
           {pending ? (
             <MoveForm
               item={item}
@@ -140,7 +143,7 @@ export default function MoveMenu({
                     type="button"
                     disabled={!o.ok}
                     onClick={() => choose(o.to, o.missing)}
-                    className="flex w-full flex-col rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60"
+                    className="flex w-full flex-col rounded-lg px-2 py-2.5 text-left text-sm transition-colors hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-60 sm:py-1.5"
                   >
                     <span className="font-medium">
                       → {STATUS_LABEL[o.to]}
@@ -154,6 +157,7 @@ export default function MoveMenu({
             </ul>
           )}
         </div>
+        </>
       )}
     </div>
   );

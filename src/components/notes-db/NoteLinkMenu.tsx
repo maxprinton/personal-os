@@ -420,7 +420,7 @@ export default function NoteLinkButton({
       action: "Unlink",
       text: (
         <>
-          This note stops being the {c.lang.toUpperCase()} page of “<b>{c.label}</b>”. It stays in Notes, and the live page does not change.
+          This note stops being the {c.lang.toUpperCase()} page of “<b>{c.label}</b>”. It stays in Notes renamed “Former · …” (you can Restore it), and the live page does not change.
         </>
       ),
       run: async () => {

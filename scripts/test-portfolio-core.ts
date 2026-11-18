@@ -213,7 +213,25 @@ ok("only one note per language", !(await createLinkedNote(sb, U, { slotId: about
 }
 
 // unlink, archive, delete
-ok("unlink keeps the note", (await unlinkNote(sb, U, { slotId: aboutId, lang: "es" })).ok && tables.notes.filter((n) => n.portfolio_lang === "es").length === 0 && tables.notes.some((n) => n.title === "About"));
+// BL-105 (18 Nov 2026): unlink renames the note "Former · <title> · <lang> · <date>" and remembers its own title, so Restore can put it back
+{
+  type NoteRow = { id: string; title: string; deleted_at?: unknown; name_memory?: unknown; portfolio_slot_id?: unknown; portfolio_lang?: unknown };
+  const noteRow = (id: string) => tables.notes.find((n) => n.id === id) as unknown as NoteRow;
+  const esId = String((tables.notes.find((n) => n.portfolio_slot_id === aboutId && n.portfolio_lang === "es") as unknown as NoteRow).id);
+  const ownTitle = String(noteRow(esId).title);
+  const un = await unlinkNote(sb, U, { slotId: aboutId, lang: "es" });
+  const after = noteRow(esId);
+  const afterTitle = String(after.title);
+  ok("unlink keeps the note (not deleted, no longer linked)", un.ok && !!after && !after.deleted_at && tables.notes.filter((n) => n.portfolio_lang === "es").length === 0, JSON.stringify(after));
+  ok("unlink renames it Former · title · lang · date", /^Former · .+ · es · [A-Z][a-z]{2} \d{1,2}$/.test(afterTitle) && afterTitle.includes(ownTitle), afterTitle);
+  const mem = after.name_memory as { original?: string; former?: string; scope?: string; slotId?: string; lang?: string } | null;
+  ok("unlink remembers its own title and where it came from", mem?.original === ownTitle && mem?.former === afterTitle && mem?.scope === "portfolio" && mem?.slotId === aboutId && mem?.lang === "es", JSON.stringify(mem));
+  const back = await linkNote(sb, U, { slotId: aboutId, lang: "es", noteId: esId });
+  const restored = noteRow(esId);
+  ok("restore: linking it again brings its own title back", back.ok && restored.title === ownTitle && restored.portfolio_slot_id === aboutId, String(restored.title));
+  // leave things as before for the tests below: unlink again (title may stay Former; the old checks only need the link gone)
+  await unlinkNote(sb, U, { slotId: aboutId, lang: "es" });
+}
 ok("cannot delete a published slot", !(await deleteSlot(sb, U, aboutId)).ok);
 ok("can delete a never-published slot", (await deleteSlot(sb, U, projId)).ok && !tables.portfolio_slots.some((s) => s.id === projId));
 ok("archive", (await updateSlot(sb, U, aboutId, { archived: true })).ok && (await loadSlotViews(sb, U)).slots.every((s) => s.id !== aboutId) && (await loadSlotViews(sb, U, { includeArchived: true })).slots.some((s) => s.id === aboutId));

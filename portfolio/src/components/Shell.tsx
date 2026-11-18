@@ -5,6 +5,7 @@ import { getPage, getSite, listVideos, liveIndex } from "../lib/data";
 import { plain } from "../lib/html";
 import { DICT, LANG_NAME, OTHER, type Lang } from "../lib/i18n";
 import { buildNav, type NavKey } from "../lib/nav";
+import RuleSnap from "./RuleSnap";
 
 export default async function Shell({ lang, current, alt, children }: { lang: Lang; current: NavKey | null; alt?: Partial<Record<Lang, string>>; children: ReactNode }) {
   const [site, index, now, videos] = await Promise.all([getSite(), liveIndex(lang), getPage(lang, "now"), listVideos()]);
@@ -73,6 +74,7 @@ export default async function Shell({ lang, current, alt, children }: { lang: La
           )}
         </header>
         <main id="main" className="page">
+          <RuleSnap />
           {children}
           <p className="foot">
             © {new Date().getFullYear()} {site.name} · {t.footer}

@@ -228,15 +228,32 @@ export async function createLinkedNote(sb: SupabaseClient, userId: string, input
   return { ok: true, noteId: data.id as string };
 }
 
-/** Unlink: the note stays as a normal note (the live page does not change until the next publish/unpublish). */
-export async function unlinkNote(sb: SupabaseClient, userId: string, input: { slotId: string; lang: Lang }): Promise<Result> {
-  const { error } = await sb
+/**
+ * Unlink: the note stays as a normal note, renamed "Former · <title> · <lang> · <date>" (the same as a block note that is detached).
+ * Its own title and where it came from are remembered (notes.name_memory), so "Restore" can put it back.
+ * The live page does not change until the next publish/unpublish.
+ */
+export async function unlinkNote(sb: SupabaseClient, userId: string, input: { slotId: string; lang: Lang; nameChoice?: NameChoice }): Promise<Result<{ releasedTitle?: string }>> {
+  const { data, error: readErr } = await sb
     .from("notes")
-    .update({ portfolio_slot_id: null, portfolio_lang: null })
+    .select("id,title,name_memory")
     .eq("user_id", userId)
     .eq("portfolio_slot_id", input.slotId)
     .eq("portfolio_lang", input.lang);
-  return error ? fail(error.message) : { ok: true };
+  if (readErr) return fail(readErr.message);
+  const rows = (data ?? []) as { id: string; title: string; name_memory?: unknown }[];
+  let releasedTitle: string | undefined;
+  for (const n of rows) {
+    const rel = releaseNaming({ title: n.title, mem: parseMemory(n.name_memory), choice: input.nameChoice ?? "former", scope: "portfolio", ymd: todayYmd(), slotId: input.slotId, lang: input.lang });
+    const { error } = await sb
+      .from("notes")
+      .update({ portfolio_slot_id: null, portfolio_lang: null, title: rel.title, name_memory: rel.memory })
+      .eq("id", n.id)
+      .eq("user_id", userId);
+    if (error) return fail(error.message);
+    releasedTitle = rel.title;
+  }
+  return { ok: true, releasedTitle };
 }
 
 /** For a note: the slot + language it is the page of (null when it is a normal note). */

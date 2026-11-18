@@ -23,7 +23,7 @@ export default function ActivityPanel({ rows, working, nowIso, title = "Claude a
       {working.length > 0 ? (
         <ul className="mt-2 space-y-1">
           {working.map((w) => (
-            <li key={w.id} className={`rounded-xl bg-accent-soft px-3 py-2 text-sm ${compact ? "line-clamp-3" : ""}`}>
+            <li key={w.id} className={`break-words rounded-xl bg-accent-soft px-3 py-2 text-sm ${compact ? "line-clamp-3" : ""}`}>
               <span className="font-medium">Working now:</span> {w.text}
               {w.item && <> · <Link href={`/backlog/${w.item.number}`} className="underline">BL-{w.item.number}</Link></>}
               <span className="text-muted"> · started {ago(w.at, nowMs)}</span>
@@ -39,7 +39,7 @@ export default function ActivityPanel({ rows, working, nowIso, title = "Claude a
           {rows.map((r) => (
             <li key={r.id} className="flex gap-2">
               <span aria-hidden>{ICON[r.kind]}</span>
-              <span>
+              <span className="min-w-0 break-words">
                 <span className="text-muted">{LABEL[r.kind]} · {ago(r.at, nowMs)} · </span>
                 {r.text}
                 {r.item && <> · <Link href={`/backlog/${r.item.number}`} className="underline">BL-{r.item.number}</Link></>}

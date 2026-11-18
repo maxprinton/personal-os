@@ -66,11 +66,11 @@ export default function ItemEditor({
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0 flex-1">
           <Link href="/backlog" className="text-sm text-muted underline">
             ← Backlog
           </Link>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+          <h1 className="mt-1 break-words text-2xl font-semibold tracking-tight">
             {itemCode(item.number)} · {item.title}
           </h1>
           <p className="text-sm text-muted">
@@ -149,7 +149,7 @@ export default function ItemEditor({
         </div>
         <label className="block text-sm">
           Notes
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} maxLength={4000} className={`${inputCls} mt-1`} />
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={8} maxLength={4000} className={`${inputCls} mt-1`} />
         </label>
         <div className="flex flex-wrap items-center gap-2">
           <button disabled={busy || !title.trim()} className={btnPrimary}>
@@ -168,7 +168,7 @@ export default function ItemEditor({
         ) : (
           <ol className="space-y-1 text-sm">
             {events.map((e) => (
-              <li key={e.id} className="flex flex-wrap gap-x-2">
+              <li key={e.id} className="flex flex-wrap gap-x-2 break-words">
                 <span className="text-muted">{new Date(e.at).toLocaleString()}</span>
                 <span>
                   {e.from_status ? `${STATUS_LABEL[e.from_status as keyof typeof STATUS_LABEL] ?? e.from_status} → ` : "Created in "}

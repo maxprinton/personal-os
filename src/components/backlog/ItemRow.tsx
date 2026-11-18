@@ -55,7 +55,7 @@ export default function ItemRow({
         {TYPE_EMOJI[item.type]}
       </span>
       <div className="min-w-0 flex-1">
-        <Link href={`/backlog/${item.number}`} className="font-medium hover:underline">
+        <Link href={`/backlog/${item.number}`} className="break-words font-medium hover:underline">
           <span className="text-muted">BL-{item.number}</span> {item.title}
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -72,7 +72,7 @@ export default function ItemRow({
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center">
         {step && (
-          <button type="button" disabled={busy} onClick={primary} className="compact rounded-md border border-edge bg-surface px-2.5 py-1 text-xs font-medium transition-colors hover:bg-accent-soft disabled:opacity-50">
+          <button type="button" disabled={busy} onClick={primary} className="compact rounded-md border border-edge bg-surface px-2.5 py-1 text-xs font-medium transition-colors hover:bg-accent-soft disabled:opacity-50 max-sm:min-h-10 max-sm:px-3">
             {busy ? "…" : `${step.label} →`}
           </button>
         )}

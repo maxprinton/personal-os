@@ -52,7 +52,7 @@ export default function Board({
 
   return (
     <>
-      <div className="-mx-4 overflow-x-auto px-4 pb-3 sm:-mx-6 sm:px-6">
+      <div className="-mx-4 snap-x snap-proximity scroll-px-4 overflow-x-auto px-4 pb-3 sm:-mx-6 sm:px-6">
         <div className="flex min-w-max gap-3">
           {BOARD_ORDER.map((st) => {
             const list = groups[st];
@@ -70,7 +70,7 @@ export default function Board({
                   e.preventDefault();
                   void drop(st);
                 }}
-                className={`w-64 shrink-0 rounded-2xl border bg-subtle/60 p-2 transition-colors ${over === st ? "border-accent" : "border-line"}`}
+                className={`w-[80vw] max-w-72 shrink-0 snap-start rounded-2xl border bg-subtle/60 p-2 transition-colors sm:w-64 ${over === st ? "border-accent" : "border-line"}`}
               >
                 <header className="px-1 pb-2">
                   <h3 className="flex items-baseline justify-between text-sm font-semibold">

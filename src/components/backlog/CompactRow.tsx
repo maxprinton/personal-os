@@ -54,11 +54,11 @@ export default function CompactRow({
   }
   return (
     <li className="rounded-lg transition-colors hover:bg-subtle">
-      <div className="flex items-center gap-2 px-2 py-1.5 text-sm">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5 text-sm sm:flex-nowrap">
         <span className="w-5 shrink-0 text-center" title={TYPE_LABEL[item.type]} aria-label={TYPE_LABEL[item.type]}>
           {TYPE_EMOJI[item.type]}
         </span>
-        <Link href={`/backlog/${item.number}`} title={item.title} className="min-w-0 flex-1 truncate font-medium hover:underline">
+        <Link href={`/backlog/${item.number}`} title={item.title} className="min-w-0 basis-[calc(100%-2.25rem)] break-words font-medium hover:underline sm:flex-1 sm:basis-auto sm:truncate">
           <span className="tabular-nums font-normal text-muted">BL-{item.number}</span> {item.title}
         </Link>
         {item.reopened_count > 0 && <span className={chip} title={`Reopened ${item.reopened_count} time(s)`}>↺{item.reopened_count}</span>}
@@ -77,7 +77,7 @@ export default function CompactRow({
           {days === 0 ? "today" : `${days}d`}
         </span>
         {step && (
-          <button type="button" disabled={busy} onClick={primary} className="compact shrink-0 rounded-md border border-edge bg-surface px-2 py-0.5 text-xs font-medium transition-colors hover:bg-accent-soft disabled:opacity-50">
+          <button type="button" disabled={busy} onClick={primary} className="compact shrink-0 rounded-md border border-edge bg-surface px-2 py-0.5 text-xs font-medium transition-colors hover:bg-accent-soft disabled:opacity-50 max-sm:min-h-10 max-sm:px-3">
             {busy ? "…" : `${step.label} →`}
           </button>
         )}

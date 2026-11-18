@@ -215,7 +215,7 @@ export async function unlinkNoteFromPortfolio(slotId: string, lang: string): Pro
     const r = await unlinkNote(sb, userId, { slotId, lang });
     if (!r.ok) return { ok: false, error: r.error };
     refresh(slotId);
-    return { ok: true, notice: "Unlinked. The live page does not change." };
+    return { ok: true, notice: r.releasedTitle ? `Unlinked. The note is now “${r.releasedTitle}”. The live page does not change.` : "Unlinked. The live page does not change." };
   } catch (e) {
     return { ok: false, error: msg(e).error ?? "Something went wrong." };
   }

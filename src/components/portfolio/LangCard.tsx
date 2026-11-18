@@ -57,7 +57,7 @@ export default function LangCard({ slot, lang, choices }: { slot: SlotView; lang
         </button>
         {note && !note.deleted_at && !slot.pages[otherLang(lang)].note && <TranslateButton slotId={slot.id} from={lang} to={otherLang(lang)} />}
         {note && (
-          <ActForm action={unlinkNoteAction} saved="" confirm="Unlink this note? It stays in Notes as a normal note, and the live page does not change.">
+          <ActForm action={unlinkNoteAction} saved="" confirm="Unlink this note? It stays in Notes as a normal note renamed “Former · …” (you can Restore it), and the live page does not change.">
             {(pending) => (
               <>
                 <input type="hidden" name="slotId" value={slot.id} />

@@ -354,6 +354,10 @@ export async function moveVideo(id: string, to: string, reason?: string | null):
   if (e0 || !v) return { error: fail(e0, "Video not found.") };
   const from = v.stage as YtStage;
   if (from === to) return { ok: true };
+  // BL-5: a video only becomes Published through "Mark as published" (Publish page), which also sets the date and creates the check-ins.
+  if (to === "published") {
+    return { error: "A video becomes Published from its Publish page: open it and press “Mark as published”. That also creates the 48 h / 7 d / 30 d / 90 d check-ins." };
+  }
   const target = to as YtStage;
   const bankish = (s: string) => s === "bank" || s === "idea";
   if (bankish(from) && !bankish(target) && target !== "archived" && gateStatus(v.gates as Gates) !== "pass") {

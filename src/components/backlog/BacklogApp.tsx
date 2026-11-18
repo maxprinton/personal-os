@@ -96,7 +96,7 @@ export default function BacklogApp({ items, settings, nowIso, data }: { items: B
     next: filtered.filter((i) => i.status === "next"),
     inbox: filtered.filter((i) => i.status === "inbox"),
   };
-  const popover = "absolute right-0 top-full z-30 mt-2 rounded-2xl border border-line bg-surface p-3 shadow-xl";
+  const popover = "fixed inset-x-3 top-20 z-40 max-h-[75dvh] overflow-y-auto rounded-2xl border border-line bg-surface p-3 shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:z-30 sm:mt-2 sm:max-h-none sm:overflow-visible"; // phone: a panel across the screen, never off the edge
 
   return (
     <div className="space-y-4">
@@ -118,7 +118,7 @@ export default function BacklogApp({ items, settings, nowIso, data }: { items: B
               aria-pressed={stage === st}
               title={stage === st ? "Show all stages" : `Show only ${label}`}
               onClick={() => { setStage(stage === st ? "" : st); if (view === "dashboard") pickView("list"); }}
-              className={`compact rounded-full border px-2.5 py-0.5 tabular-nums transition-colors ${stage === st ? "border-fg bg-fg text-app" : "border-edge hover:bg-subtle"}`}
+              className={`compact rounded-full border px-2.5 py-0.5 tabular-nums transition-colors max-sm:min-h-9 max-sm:px-3 ${stage === st ? "border-fg bg-fg text-app" : "border-edge hover:bg-subtle"}`}
             >
               {label} <span className={stage === st ? "" : "text-muted"}>{n}</span>
             </button>
@@ -132,14 +132,14 @@ export default function BacklogApp({ items, settings, nowIso, data }: { items: B
         <div className="ml-auto flex items-center gap-2">
           <div className="flex rounded-lg border border-edge p-0.5 text-sm" role="tablist" aria-label="View">
             {(["dashboard", "list", "board"] as const).map((v) => (
-              <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => pickView(v)} className={`compact rounded-md px-3 py-1 capitalize ${view === v ? "bg-fg text-app" : "text-muted hover:text-fg"}`}>
+              <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => pickView(v)} className={`compact rounded-md px-3 py-1 capitalize max-sm:min-h-9 ${view === v ? "bg-fg text-app" : "text-muted hover:text-fg"}`}>
                 {v}
               </button>
             ))}
           </div>
           <details className="relative">
-            <summary className="compact cursor-pointer select-none rounded-lg border border-edge px-2.5 py-1 text-sm" title="How this works" aria-label="How this works">?</summary>
-            <div className={`${popover} w-[min(36rem,90vw)] space-y-1 text-sm`}>
+            <summary className="compact cursor-pointer select-none rounded-lg border border-edge px-2.5 py-1 text-sm max-sm:min-h-9 max-sm:leading-7" title="How this works" aria-label="How this works">?</summary>
+            <div className={`${popover} space-y-1 text-sm sm:w-[min(36rem,90vw)]`}>
               <h2 className="font-semibold">How this works</h2>
               <ol className="list-decimal space-y-1 pl-5 text-muted">
                 <li><b className="text-fg">Write the idea</b> in the box (or send <code>idea: …</code> to Telegram). It lands in the <b className="text-fg">Inbox</b>.</li>
@@ -151,8 +151,8 @@ export default function BacklogApp({ items, settings, nowIso, data }: { items: B
             </div>
           </details>
           <details className="relative">
-            <summary className="compact cursor-pointer select-none rounded-lg border border-edge px-2.5 py-1 text-sm" title="Backlog settings" aria-label="Backlog settings">⚙</summary>
-            <div className={`${popover} w-[min(40rem,92vw)]`}>
+            <summary className="compact cursor-pointer select-none rounded-lg border border-edge px-2.5 py-1 text-sm max-sm:min-h-9 max-sm:leading-7" title="Backlog settings" aria-label="Backlog settings">⚙</summary>
+            <div className={`${popover} sm:w-[min(40rem,92vw)]`}>
               <SettingsForm settings={settings} />
             </div>
           </details>
@@ -168,7 +168,7 @@ export default function BacklogApp({ items, settings, nowIso, data }: { items: B
           <summary className={`compact cursor-pointer select-none rounded-lg border px-3 py-2 text-sm ${filtering || sort === "score" ? "border-fg" : "border-edge"}`}>
             Filters{filtering || sort === "score" ? " •" : ""}
           </summary>
-          <div className={`${popover} flex w-64 flex-col gap-2`}>
+          <div className={`${popover} flex flex-col gap-2 sm:w-64`}>
             <select value={type} onChange={(e) => setType(e.target.value as BacklogType | "")} aria-label="Type" className={inputCls}>
               <option value="">All types</option>
               {TYPES.map((t) => (
@@ -313,7 +313,7 @@ function QuickAdd({ onResult }: { onResult: (r: BacklogActionResult) => void }) 
   }
   return (
     <form onSubmit={submit} className="flex gap-2">
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="New idea: one sentence, Enter saves it to the Inbox" aria-label="New idea" maxLength={200} className={`${inputCls} min-w-56 flex-1`} />
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="New idea: one sentence, Enter saves it to the Inbox" aria-label="New idea" maxLength={200} className={`${inputCls} min-w-0 flex-1`} />
       <select value={type} onChange={(e) => setType(e.target.value as BacklogType)} aria-label="Type of the new idea" className={`${inputCls} w-auto`}>
         {TYPES.map((t) => (
           <option key={t} value={t}>

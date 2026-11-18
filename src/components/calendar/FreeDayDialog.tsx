@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { createFreeDays, removeFreeDay, removeFreeDays } from "@/app/calendar-actions";
+import { createFreeDays, removeFreeDay, removeFreeDays, updateFreeDayNote } from "@/app/calendar-actions";
 import type { CalResult, FreeDayPolicy, FreeDayRange } from "@/lib/calendar/types";
 import Modal, { btnPrimary, btnSecondary, inputCls } from "@/components/calendar/Modal";
 import { dayLabel } from "@/components/calendar/util";
@@ -39,6 +39,9 @@ export default function FreeDayDialog({
   const [policy, setPolicy] = useState<FreeDayPolicy>("move_next");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  // Existing range: the reason is read-only until Edit is pressed
+  const [editing, setEditing] = useState(false);
+  const [noteDraft, setNoteDraft] = useState(existing?.note ?? "");
 
   async function go(fn: () => Promise<CalResult>) {
     setBusy(true);
@@ -56,8 +59,42 @@ export default function FreeDayDialog({
         <p className="text-sm">
           {dayLabel(existing.from_date)}
           {single ? "" : ` → ${dayLabel(existing.to_date)}`}
-          {existing.note ? ` · ${existing.note}` : ""}
+          {!editing && existing.note ? ` · ${existing.note}` : ""}
         </p>
+        {!editing && !readOnly && (
+          <div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setNoteDraft(existing.note ?? "");
+                setEditing(true);
+              }}
+              className={btnSecondary}
+            >
+              {existing.note ? "Edit reason" : "Add a reason"}
+            </button>
+          </div>
+        )}
+        {editing && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void go(() => updateFreeDayNote({ id: existing.id, note: noteDraft }));
+            }}
+            className="space-y-2"
+          >
+            <WritingInput area="calendar" value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} placeholder="Reason (optional): Trip to Cuenca" className={inputCls} />
+            <div className="flex justify-end gap-2">
+              <button type="button" disabled={busy} onClick={() => setEditing(false)} className={btnSecondary}>
+                Cancel
+              </button>
+              <button disabled={busy} className={btnPrimary}>
+                {busy ? "Saving…" : "Save reason"}
+              </button>
+            </div>
+          </form>
+        )}
         <p className="text-xs text-muted">{RULES}</p>
         {!readOnly && !allPast && (
           <div className="flex flex-col gap-2">

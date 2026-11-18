@@ -248,16 +248,24 @@ async function readAndAnswer(
   chosen: Note[],
   question: string,
   follow: AskTurn | undefined,
-  opts: { summary?: boolean; name?: (n: Note) => string; footnote?: string; today?: string; history?: AskTurn[]; readLimit?: number; extra?: string } = {},
+  opts: { summary?: boolean; name?: (n: Note) => string; footnote?: string; today?: string; history?: AskTurn[]; readLimit?: number; extra?: string; /** asking from inside this note (BL-109) */ focusId?: string } = {},
 ): Promise<AskResult> {
   const name = opts.name ?? label;
-  const per = Math.max(1_500, Math.floor((opts.readLimit ?? READ_LIMIT) / Math.max(1, chosen.length)));
+  const total = opts.readLimit ?? READ_LIMIT;
+  const focused = !!opts.focusId && chosen.some((n) => n.id === opts.focusId);
+  // The open note gets most of the reading budget; the others share the rest
+  const others = Math.max(1, chosen.length - (focused ? 1 : 0));
+  const perOther = Math.max(1_500, Math.floor((focused && chosen.length > 1 ? total * 0.4 : total) / others));
+  const perFocus = chosen.length > 1 ? Math.max(1_500, Math.floor(total * 0.6)) : total;
+  const perOf = (n: Note) => (focused && n.id === opts.focusId ? perFocus : perOther);
+  const heading = (n: Note) => (focused && n.id === opts.focusId ? `${name(n)} (THE OPEN NOTE)` : name(n));
   const words = keywords(`${question} ${follow?.q ?? ""}`);
   const material = chosen
     .map((n, i) => {
+      const per = perOf(n);
       const body = opts.summary ? (n.content.length > per ? `${n.content.slice(0, per)}\n…(rest of the note not shown)` : n.content) : excerpt(n, words, per);
       const props = n.meta?.length ? `PROPERTIES:\n${n.meta.map((l) => `- ${l}`).join("\n")}\nTEXT:\n` : "";
-      return `### NOTE ${i + 1}: ${name(n)} (edited ${n.updated_at.slice(0, 10)})\n${props}${body.trim() || "(empty note: only the title)"}`;
+      return `### NOTE ${i + 1}: ${heading(n)} (edited ${n.updated_at.slice(0, 10)})\n${props}${body.trim() || "(empty note: only the title)"}`;
     })
     .join("\n\n");
   const system = opts.summary
@@ -271,6 +279,7 @@ async function readAndAnswer(
     : [
         "You are the user's study and life assistant in Telegram. You answer from the user's own NOTES first (course notes, plans, diary…).",
         "1) Answer from the NOTES below and say which note each part comes from (by its title). Read them carefully: the answer may be in the middle of a note, worded differently from the question.",
+        focused ? "The user is asking from INSIDE one note, marked THE OPEN NOTE. Words like \"this note\", \"here\", \"this page\" or \"it\" mean THE OPEN NOTE. Answer from THE OPEN NOTE first. Use the other notes only if THE OPEN NOTE does not cover the question, and say which note each part comes from." : "",
         opts.extra ? "The user's BACKLOG / FINANCE data may follow the notes as DATA. It is exact (calculated by the app): use it as is, never recalculate it, and say it comes from the Backlog or Finance." : "",
         "2) If the notes cover only part of the question, or none of it, complete it with your general knowledge, and start that part with \"(Not in your notes)\" so the user knows. Never say the notes say something they don't.",
         "Each NOTE may start with its PROPERTIES (Type, Status, Area, Tags, Review on, ID, linked tasks / events, Block, AI summary, dates…): they are part of the note.",
@@ -481,12 +490,13 @@ export async function askNotes(c: Ctx, question: string, follow?: AskTurn, histo
   if (!chosen.length && earlier.size) chosen = pool.filter((n) => earlier.has(n.id));
   chosen = [...new Set(chosen)];
   // Asking from inside a note: that note is always read first
+  let focusLoaded = false;
   if (opts.focusId) {
     const focus = (await loadNotes(c, [opts.focusId]).catch(() => [] as Note[]))[0];
-    if (focus) {
-      const props = await propsFor(c, [focus.id]);
-      chosen = [{ ...focus, meta: props.get(focus.id) ?? [] }, ...chosen.filter((n) => n.id !== focus.id)];
-    }
+    if (!focus) return { text: "✨ I couldn't read the note you are in. Close the panel and try again.", kb: [], noteIds: [] };
+    const props = await propsFor(c, [focus.id]);
+    chosen = [{ ...focus, meta: props.get(focus.id) ?? [] }, ...chosen.filter((n) => n.id !== focus.id)];
+    focusLoaded = true;
   }
   chosen = chosen.slice(0, maxNotes);
 
@@ -498,5 +508,5 @@ export async function askNotes(c: Ctx, question: string, follow?: AskTurn, histo
       return f ? { ...f, meta: n.meta } : n;
     });
   }
-  return readAndAnswer(chosen, question, follow, { today: c.today, history, readLimit: opts.readLimit, extra: opts.extra });
+  return readAndAnswer(chosen, question, follow, { today: c.today, history, readLimit: opts.readLimit, extra: opts.extra, focusId: focusLoaded ? opts.focusId : undefined });
 }

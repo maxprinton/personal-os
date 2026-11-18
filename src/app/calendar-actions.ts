@@ -1369,6 +1369,29 @@ export async function removeFreeDays(input: { id: string }): Promise<CalResult> 
   }
 }
 
+/** Changes only the reason (note) of a free-day range. Dates and blocks are not touched. */
+export async function updateFreeDayNote(input: { id: string; note: string }): Promise<CalResult> {
+  try {
+    const c = await ctx();
+    const { data: f } = await c.sb
+      .from("free_days")
+      .select("id,to_date")
+      .eq("id", input.id)
+      .eq("user_id", c.userId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!f) return { error: "That free day was already removed." };
+    const locked = pastGuard(c, f.to_date as string);
+    if (locked) return locked;
+    const note = (input.note ?? "").trim().slice(0, 200) || null;
+    const { error } = await c.sb.from("free_days").update({ note }).eq("id", f.id).eq("user_id", c.userId);
+    if (error) return { error: error.message };
+    return done();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
 /** Frees just one day of a range (the range is cut in two if needed). Past days stay free. */
 export async function removeFreeDay(input: { id: string; date: string }): Promise<CalResult> {
   try {

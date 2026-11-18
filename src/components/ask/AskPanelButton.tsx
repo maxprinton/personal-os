@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import Icon from "@/components/ui/Icon";
 import AskChat from "@/components/ask/AskChat";
 
@@ -35,7 +36,8 @@ export default function AskPanelButton({ variant = "bar", noteId = null, noteTit
           ✨ Ask about this note
         </button>
       )}
-      {open && (
+      {/* In document.body: the top bar has backdrop-blur, which makes a "fixed" child position itself inside the 56px bar (BL-106) */}
+      {open && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-[55]" onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}>
           <div role="dialog" aria-label="Ask your notes" className="absolute inset-x-0 bottom-0 top-14 flex flex-col border-l border-line bg-surface p-4 shadow-pop sm:left-auto sm:w-[420px]">
             <div className="mb-3 flex items-center justify-between">
@@ -46,7 +48,8 @@ export default function AskPanelButton({ variant = "bar", noteId = null, noteTit
               <AskChat focusNoteId={variant === "note" ? noteId : null} focusTitle={noteTitle} />
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
