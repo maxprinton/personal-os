@@ -8,7 +8,7 @@ import android.media.Ringtone;
 import android.media.RingtoneManager;
 import android.net.Uri;
 
-/** The alarm sounds: eleven made for this app (inside it) plus anything the phone offers. */
+/** The alarm sounds: twelve made for this app (inside it) plus anything the phone offers. */
 final class Ringtones {
     private Ringtones() {}
 
@@ -42,6 +42,7 @@ final class Ringtones {
             new Sound("radar", "Radar", "A clear repeating ping", R.raw.radar),
             new Sound("digital", "Digital beeps", "The classic alarm clock", R.raw.digital),
             new Sound("alert", "Alert siren", "Loud and impossible to ignore", R.raw.alert),
+            new Sound("mine", "My sound", "Your own audio (24 s, loops)", R.raw.mine),
     };
 
     /**

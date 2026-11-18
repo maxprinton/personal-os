@@ -355,6 +355,19 @@ export async function saveWorkSettings(_prev: ActionState, form: FormData): Prom
   return { ok: true, at: Date.now() };
 }
 
+/** Saves only the Drive folder link (the quick edit on the Teaching page). Empty = back to the built-in default. */
+export async function saveVideoFolder(url: string): Promise<ActionState> {
+  const folder = String(url ?? "").trim();
+  if (folder && !isHttpUrl(folder)) return { error: "The link must start with https://" };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("work_settings")
+    .upsert({ video_folder_url: folder, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+  if (error) return { error: error.message };
+  refresh();
+  return { ok: true, at: Date.now() };
+}
+
 /** Adds screenshots (links already uploaded to the private bucket from the browser) to a class's attendance. */
 export async function addAttendance(id: string, urls: string[]): Promise<ActionState> {
   const clean = urls.filter((u) => typeof u === "string" && u.startsWith("/api/files/") && u.length < 600).slice(0, 20);

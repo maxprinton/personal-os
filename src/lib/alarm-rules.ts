@@ -37,6 +37,7 @@ export const SOUNDS: { id: string; name: string }[] = [
   { id: "radar", name: "Radar" },
   { id: "digital", name: "Digital beeps" },
   { id: "alert", name: "Alert siren" },
+  { id: "mine", name: "My sound" },
 ];
 
 export const MAX_RINGS = 8;

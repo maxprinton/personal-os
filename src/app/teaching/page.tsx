@@ -6,6 +6,7 @@ import { localNow } from "@/lib/time";
 import Section from "@/components/ui/Section";
 import { BulkClasses, PendingVideos } from "@/components/WorkBulk";
 import { ExportPanel, NewClassForm, SettingsForm } from "@/components/WorkForms";
+import DriveFolderLink from "@/components/DriveFolderLink";
 import WorkImport from "@/components/WorkImport";
 import WorkTable from "@/components/WorkTable";
 import WorkGroups, { type GroupRow, type TeacherRow } from "@/components/WorkGroups";
@@ -113,9 +114,7 @@ export default async function TeachingPage({ searchParams }: { searchParams: Pro
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Teaching</h1>
             <p className="text-sm text-muted">Your classes, hours and pay, plus the videos you owe the company’s Drive.</p>
-            <a href={folder} target="_blank" rel="noreferrer" className="mt-1 inline-block text-sm font-medium text-accent underline">
-              Open the Drive folder ↗
-            </a>
+            <DriveFolderLink folder={folder} fallback={DEFAULT_VIDEO_FOLDER} />
           </div>
           <div className="flex items-center gap-1 text-sm">
             <Link href={`/teaching?month=${shiftMonth(month, -1)}`} className="rounded-md border border-line-strong px-2.5 py-1 hover:bg-subtle" aria-label="Previous month">
