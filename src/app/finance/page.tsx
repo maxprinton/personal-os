@@ -33,6 +33,8 @@ import { listProposals } from "@/lib/category-proposals";
 import { loadSummaryData } from "@/lib/finance-summary-data";
 import { monthOf, summarizeMonth } from "@/lib/finance-summary";
 import MonthlySummary from "@/components/MonthlySummary";
+import PurchasesSection from "@/components/finance/PurchasesSection";
+import { listPurchases } from "@/lib/purchases/data";
 
 export const dynamic = "force-dynamic";
 
@@ -97,6 +99,11 @@ export default async function FinancePage() {
 
   // BL-28: the monthly summary card (a failed read hides the card, never the page)
   const monthSummary = userId ? await loadSummaryData(supabase, userId, timezone).then((d) => summarizeMonth(d, monthOf(today), today)).catch(() => null) : null;
+
+  // BL-116: Needs & Wants (a missing table shows a note in the section, never breaks the page)
+  const purchases = userId
+    ? await listPurchases(supabase, userId).catch(() => ({ items: [], missing: false, error: "Could not load the list." }))
+    : { items: [], missing: false, error: null };
 
   const month = monthRange(today);
   const monthTxns = txns.filter((t) => inRange(t, month));
@@ -400,6 +407,15 @@ export default async function FinancePage() {
             </ul>
             <AccountForm />
           </section>
+
+          <PurchasesSection
+            items={purchases.items}
+            missing={purchases.missing}
+            error={purchases.error}
+            categories={expenseCats.map((c) => ({ id: c.id, name: c.name }))}
+            accounts={accountOpts}
+            today={today}
+          />
 
           <section className="space-y-3">
             <h2 className="section-title">Budgets</h2>

@@ -12,6 +12,7 @@
     "test:clip": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-clip.ts",
     "test:backlog": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-backlog.ts",
     "test:ask-web": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-ask-web.ts",
+    "test:purchases": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-purchases.ts",
     "test:finance-bl": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-finance-bl.ts",
     "test:backlog-app": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-backlog-app.ts",
     "test:nags": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-nags.ts",

@@ -29,6 +29,8 @@ import { backlogView, handleBacklogCapture, ideasView } from "@/lib/bot/backlog"
 import { isSummaryCommand, parseSummaryCommand, summaryView } from "@/lib/bot/finance-summary";
 import { isBacklogView, isCaptureHelp, isIdeasView, parseBacklogCapture } from "@/lib/backlog/text";
 import { handleYoutubeCapture, isYoutubeSummary, parseYoutubeCapture, youtubeView } from "@/lib/bot/youtube-capture";
+import { handlePurchaseCapture } from "@/lib/bot/purchases";
+import { isCaptureHelp as isPurchaseHelp, parseCapture as parsePurchaseCapture } from "@/lib/purchases/rules";
 import { markUsageReported, refreshFromGroq, scopeUsageLine, startOfDay, usageReport, usageSummary, withAiUsage } from "@/lib/ai-usage";
 import { addDays } from "@/lib/time";
 import { parseDayCommand, runDayCommand, worthItRow } from "@/lib/bot/day";
@@ -226,6 +228,24 @@ export async function handleMessage(admin: SupabaseClient, msg: TgMessage, opts:
       await send(chatId, r.text, r.kb);
     } catch (e) {
       console.error("backlog capture", e);
+      await sendMessage(chatId, "Sorry, I couldn't save that. Try again.");
+    }
+    return;
+  }
+
+  // ---- Needs & Wants: "need: sandals 25" / "want: headphones 80" / "/need …" / "/want …" (BL-116) ---------
+  const nwCap = isPurchaseHelp(text) ? "help" : parsePurchaseCapture(text);
+  if (nwCap !== null) {
+    why("need: / want: → an item for the Needs & Wants list in Finance");
+    if (await overLimit(c)) {
+      await sendMessage(chatId, `Daily limit of ${DAILY_LIMIT} messages reached. Try again tomorrow.`);
+      return;
+    }
+    try {
+      const r = await handlePurchaseCapture(c, nwCap);
+      await send(chatId, r.text, r.kb);
+    } catch (e) {
+      console.error("needs & wants capture", e);
       await sendMessage(chatId, "Sorry, I couldn't save that. Try again.");
     }
     return;

@@ -40,6 +40,7 @@ export const DEFAULTS: Record<string, Record<string, unknown>> = {
   portfolio_site: {"id":"$uuid","tagline":{},"links":[],"nav":[],"langs":"{en,es}","default_lang":"en","contact_enabled":true,"analytics_enabled":true,"blocked_words":"{}","created_at":"$now","updated_at":"$now","nudge_weekly":true},
   portfolio_slots: {"id":"$uuid","previous_keys":"{}","position":0,"featured":false,"archived":false,"meta":{},"langs":{},"created_at":"$now","updated_at":"$now"},
   portfolio_videos: {"id":"$uuid","description":{},"featured":false,"position":0,"is_live":true,"updated_at":"$now"},
+  purchase_items: {"id":"$uuid","kind":"want","status":"open","position":0,"source":"web","created_at":"$now","updated_at":"$now"},
   reminder_log: {"id":"$uuid","sent_at":"$now"},
   search_ai_cache: {"created_at":"$now"},
   search_chunks: {"ord":0,"body":"","extra":""},

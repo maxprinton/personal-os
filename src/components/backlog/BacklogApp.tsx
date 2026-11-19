@@ -312,9 +312,9 @@ function QuickAdd({ onResult }: { onResult: (r: BacklogActionResult) => void }) 
     onResult(r);
   }
   return (
-    <form onSubmit={submit} className="flex gap-2">
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="New idea: one sentence, Enter saves it to the Inbox" aria-label="New idea" maxLength={200} className={`${inputCls} min-w-0 flex-1`} />
-      <select value={type} onChange={(e) => setType(e.target.value as BacklogType)} aria-label="Type of the new idea" className={`${inputCls} w-auto`}>
+    <form onSubmit={submit} className="flex flex-wrap gap-2">
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="New idea: one sentence, Enter saves it to the Inbox" aria-label="New idea" maxLength={200} className={`${inputCls} min-w-[12rem] flex-1`} />
+      <select value={type} onChange={(e) => setType(e.target.value as BacklogType)} aria-label="Type of the new idea" className={`${inputCls.replace("w-full", "w-auto")} shrink-0`}>
         {TYPES.map((t) => (
           <option key={t} value={t}>
             {TYPE_LABEL[t]}

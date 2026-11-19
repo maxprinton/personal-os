@@ -164,6 +164,12 @@ export const FEATURES: Feature[] = [
     examples: [{ text: "idea: show the Backlog on Today" }, { text: "bug: the habit streak resets at midnight" }],
   },
   {
+    id: "needs-wants", group: "save", title: "Add something you need or want to buy",
+    summary: "Goes to the Needs & Wants list in Finance. Needs first; mark it Bought there when you buy it.",
+    how: ["need: the item and the price at the end (optional), or want: for something that can wait.", "/need and /want alone show the help.", "The same name can't be on the list twice."],
+    examples: [{ text: "need: sandals 25" }, { text: "want: headphones 79.99" }],
+  },
+  {
     id: "teaching-video", group: "save", title: "Mark a class video as posted",
     summary: "Teaching add-on: tells the log that you posted the video for a class.",
     how: ["video <class> <Drive link>."],
