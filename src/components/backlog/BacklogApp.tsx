@@ -15,6 +15,8 @@ import { btnPrimary, inputCls } from "@/components/calendar/Modal";
 import {
   STATUS_HINT,
   STATUS_LABEL,
+  SCOPES,
+  SCOPE_LABEL,
   STATUS_ORDER,
   TYPE_LABEL,
   areasOf,
@@ -22,9 +24,11 @@ import {
   daysSince,
   filterItems,
   groupByStatus,
+  scopeCounts,
   sortByScore,
   verifyDueItems,
   type BacklogItem,
+  type BacklogScope,
   type BacklogSettings,
   type Triage,
 } from "@/lib/backlog/board";
@@ -44,6 +48,7 @@ export default function BacklogApp({ items, settings, nowIso, data }: { items: B
   const [type, setType] = useState<BacklogType | "">("");
   const [area, setArea] = useState("");
   const [size, setSize] = useState<BacklogSize | "">("");
+  const [scope, setScope] = useState<BacklogScope | "">("");
   const [sort, setSort] = useState<"manual" | "score">("manual");
   const [stage, setStage] = useState<BacklogStatus | "">("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -81,13 +86,14 @@ export default function BacklogApp({ items, settings, nowIso, data }: { items: B
     if (r.triage) setTriage({ data: r.triage, title: "30 seconds: what's next?" });
   }
 
-  const filtered = useMemo(() => filterItems(items, { q, type, area, size }), [items, q, type, area, size]);
+  const filtered = useMemo(() => filterItems(items, { q, type, area, size, scope }), [items, q, type, area, size, scope]);
   const groups = useMemo(() => groupByStatus(filtered), [filtered]);
   const counts = groupByStatus(items);
   const nonBugNow = counts.now.filter((i) => i.type !== "bug").length;
   const due = verifyDueItems(items, now, settings.verify_days);
   const areas = areasOf(items);
-  const filtering = Boolean(q || type || area || size);
+  const filtering = Boolean(q || type || area || size || scope);
+  const byScope = scopeCounts(items);
 
   const rowProps = { items, caps, nowIso, onResult };
   const dash = {
@@ -158,6 +164,9 @@ export default function BacklogApp({ items, settings, nowIso, data }: { items: B
           </details>
         </div>
       </header>
+      <p className="text-xs text-muted" aria-label="Core and add-on work">
+        Core: {byScope.core.waiting} waiting, {byScope.core.shipped} shipped · Add-on: {byScope.addon.waiting} waiting, {byScope.addon.shipped} shipped
+      </p>
 
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <div className="min-w-[18rem] flex-[2]">
@@ -174,6 +183,14 @@ export default function BacklogApp({ items, settings, nowIso, data }: { items: B
               {TYPES.map((t) => (
                 <option key={t} value={t}>
                   {TYPE_LABEL[t]}
+                </option>
+              ))}
+            </select>
+            <select value={scope} onChange={(e) => setScope(e.target.value as BacklogScope | "")} aria-label="Core or add-on" className={inputCls}>
+              <option value="">Core and add-on</option>
+              {SCOPES.map((s) => (
+                <option key={s} value={s}>
+                  {SCOPE_LABEL[s]}
                 </option>
               ))}
             </select>
@@ -200,7 +217,7 @@ export default function BacklogApp({ items, settings, nowIso, data }: { items: B
               <option value="score">Best value / effort first</option>
             </select>
             {filtering && (
-              <button type="button" onClick={() => { setQ(""); setType(""); setArea(""); setSize(""); }} className="text-left text-muted underline">
+              <button type="button" onClick={() => { setQ(""); setType(""); setArea(""); setSize(""); setScope(""); }} className="text-left text-muted underline">
                 Clear filters
               </button>
             )}

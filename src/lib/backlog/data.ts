@@ -11,6 +11,8 @@ import {
   groupByStatus,
   positionFor,
   type BacklogItem,
+  type BacklogScope,
+  SCOPES,
   type BacklogSettings,
 } from "@/lib/backlog/board";
 import { SIZES, TYPES, checkCreate, checkMove, cleanTitle, type BacklogSize, type BacklogStatus, type BacklogType } from "@/lib/backlog/rules";
@@ -39,12 +41,24 @@ export async function loadSettings(sb: SupabaseClient, userId: string): Promise<
 export async function listItems(sb: SupabaseClient, userId: string): Promise<{ items: BacklogItem[]; missing: boolean; error?: string }> {
   const { data, error } = await sb.from("backlog_items").select(ITEM_COLUMNS).eq("user_id", userId).is("deleted_at", null).order("position").order("number").limit(2000);
   if (error) return { items: [], missing: isMissing(error), error: friendly(error) };
-  return { items: (data ?? []) as unknown as BacklogItem[], missing: false };
+  const items = (data ?? []) as unknown as BacklogItem[];
+  await attachScope(sb, userId, items);
+  return { items, missing: false };
+}
+
+/** BL-100: the core/add-on tag is read on its own so a missing migration 0075 never breaks the board (everything is then core). */
+async function attachScope(sb: SupabaseClient, userId: string, items: BacklogItem[]): Promise<void> {
+  const { data, error } = await sb.from("backlog_items").select("number,scope").eq("user_id", userId).is("deleted_at", null).limit(2000);
+  if (error) return;
+  const byNumber = new Map(((data ?? []) as { number: number; scope: string }[]).map((r) => [Number(r.number), r.scope]));
+  for (const it of items) it.scope = byNumber.get(it.number) === "addon" ? "addon" : "core";
 }
 
 export async function getItem(sb: SupabaseClient, userId: string, number: number): Promise<BacklogItem | null> {
   const { data } = await sb.from("backlog_items").select(ITEM_COLUMNS).eq("user_id", userId).eq("number", number).is("deleted_at", null).maybeSingle();
-  return (data as unknown as BacklogItem | null) ?? null;
+  const item = (data as unknown as BacklogItem | null) ?? null;
+  if (item) await attachScope(sb, userId, [item]);
+  return item;
 }
 
 export async function listEvents(sb: SupabaseClient, userId: string, itemId: string): Promise<BacklogEvent[]> {
@@ -112,6 +126,7 @@ export type ItemPatch = {
   type?: BacklogType;
   size?: BacklogSize | null;
   area?: string | null;
+  scope?: BacklogScope;
   spec_link?: string | null;
   notes?: string | null;
   value?: number | null;
@@ -141,6 +156,10 @@ export async function updateItem(sb: SupabaseClient, userId: string, number: num
   if (p.size !== undefined) {
     if (p.size !== null && !SIZES.includes(p.size)) return { ok: false, error: "Size must be S, M or L." };
     patch.size = p.size;
+  }
+  if (p.scope !== undefined) {
+    if (!SCOPES.includes(p.scope)) return { ok: false, error: "Scope must be core or add-on." };
+    patch.scope = p.scope;
   }
   const area = text(p.area, 60);
   if (area !== undefined) patch.area = area;

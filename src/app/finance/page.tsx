@@ -35,6 +35,7 @@ import { monthOf, summarizeMonth } from "@/lib/finance-summary";
 import MonthlySummary from "@/components/MonthlySummary";
 import PurchasesSection from "@/components/finance/PurchasesSection";
 import { listPurchases } from "@/lib/purchases/data";
+import ExportForm from "@/components/finance/ExportForm";
 import BudgetSection from "@/components/finance/BudgetSection";
 import { loadBudget, type BudgetState } from "@/lib/budget/data";
 
@@ -258,6 +259,12 @@ export default async function FinancePage() {
               autoIds={autoIds}
               proposals={proposals}
             />
+          </section>
+
+          <section className="space-y-2">
+            <h2 className="section-title">Export</h2>
+            <p className="text-xs text-muted">Income, expenses and transfers between accounts as a CSV file, with the balance after each movement.</p>
+            <ExportForm accounts={accountOpts} categories={categories.map((c) => ({ id: c.id, name: c.name }))} defaultFrom={month.start} defaultTo={today} />
           </section>
 
           {accounts.length >= 2 && (

@@ -7,7 +7,7 @@ import { deleteItemAction, saveItem, type BacklogActionResult } from "@/app/back
 import MoveMenu from "@/components/backlog/MoveMenu";
 import TriagePrompt from "@/components/backlog/TriagePrompt";
 import { btnPrimary, btnSecondary, inputCls } from "@/components/calendar/Modal";
-import { STATUS_LABEL, TYPE_LABEL, capsFrom, daysSince, type BacklogItem, type BacklogSettings, type Triage } from "@/lib/backlog/board";
+import { SCOPES, SCOPE_LABEL, scopeOf, STATUS_LABEL, TYPE_LABEL, capsFrom, daysSince, type BacklogScope, type BacklogItem, type BacklogSettings, type Triage } from "@/lib/backlog/board";
 import { SIZES, TYPES, itemCode, type BacklogSize, type BacklogType } from "@/lib/backlog/rules";
 import type { BacklogEvent } from "@/lib/backlog/data";
 
@@ -32,6 +32,7 @@ export default function ItemEditor({
   const [type, setType] = useState<BacklogType>(item.type);
   const [size, setSize] = useState<BacklogSize | "">(item.size ?? "");
   const [area, setArea] = useState(item.area ?? "");
+  const [scope, setScope] = useState<BacklogScope>(scopeOf(item));
   const [spec, setSpec] = useState(item.spec_link ?? "");
   const [notes, setNotes] = useState(item.notes ?? "");
   const [value, setValue] = useState(item.value ? String(item.value) : "");
@@ -52,7 +53,7 @@ export default function ItemEditor({
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
-    const r = await saveItem({ number: item.number, title, type, size, area, spec_link: spec, notes, value, effort });
+    const r = await saveItem({ number: item.number, title, type, size, area, scope, spec_link: spec, notes, value, effort });
     setBusy(false);
     onResult(r);
   }
@@ -100,6 +101,16 @@ export default function ItemEditor({
               {TYPES.map((t) => (
                 <option key={t} value={t}>
                   {TYPE_LABEL[t]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm">
+            Core or add-on
+            <select value={scope} onChange={(e) => setScope(e.target.value as BacklogScope)} className={`${inputCls} mt-1`}>
+              {SCOPES.map((s) => (
+                <option key={s} value={s}>
+                  {SCOPE_LABEL[s]}
                 </option>
               ))}
             </select>

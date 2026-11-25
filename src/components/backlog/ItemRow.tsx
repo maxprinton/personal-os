@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { moveItemAction, type BacklogActionResult } from "@/app/backlog-actions";
 import MoveMenu, { MoveForm } from "@/components/backlog/MoveMenu";
-import { TYPE_EMOJI, TYPE_LABEL, countsFor, daysSince, rankScore, type BacklogItem } from "@/lib/backlog/board";
+import { SCOPE_LABEL, scopeOf, TYPE_EMOJI, TYPE_LABEL, countsFor, daysSince, rankScore, type BacklogItem } from "@/lib/backlog/board";
 import { moveOptions, type BacklogStatus, type Caps, type Missing } from "@/lib/backlog/rules";
 
 /** The one natural step for each status, in plain words (Verifying and Done are answered with "did it work?"). */
@@ -60,6 +60,7 @@ export default function ItemRow({
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           {item.size && <span className={chip}>{item.size}</span>}
+          <span className={scopeOf(item) === "addon" ? "rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent" : "rounded-full px-2 py-0.5 text-xs text-faint"}>{SCOPE_LABEL[scopeOf(item)]}</span>
           {item.area && <span className={chip}>{item.area}</span>}
           {item.spec_link?.startsWith("/") && <Link href={item.spec_link} className={`${chip} underline`}>spec</Link>}
           {item.reopened_count > 0 && <span className={chip}>reopened {item.reopened_count}×</span>}

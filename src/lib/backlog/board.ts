@@ -1,6 +1,22 @@
 // Backlog: item type and the pure helpers the screens, the bot and the tests share (no database here).
 import { DEFAULT_CAPS, STATUSES, type BacklogSize, type BacklogStatus, type BacklogType, type Caps, type Counts } from "@/lib/backlog/rules";
 
+export const SCOPES = ["core", "addon"] as const;
+export type BacklogScope = (typeof SCOPES)[number];
+export const SCOPE_LABEL: Record<BacklogScope, string> = { core: "Core", addon: "Add-on" };
+export const scopeOf = (it: { scope?: BacklogScope | null }): BacklogScope => (it.scope === "addon" ? "addon" : "core");
+
+/** Waiting = Inbox, Later, Next, Now. Shipped = Verifying, Done. (Parked counts as neither.) */
+export function scopeCounts(items: { status: string; scope?: BacklogScope | null }[]): Record<BacklogScope, { waiting: number; shipped: number }> {
+  const out = { core: { waiting: 0, shipped: 0 }, addon: { waiting: 0, shipped: 0 } };
+  for (const it of items) {
+    const k = scopeOf(it);
+    if (["inbox", "later", "next", "now"].includes(it.status)) out[k].waiting++;
+    else if (["verifying", "done"].includes(it.status)) out[k].shipped++;
+  }
+  return out;
+}
+
 export type BacklogItem = {
   id: string;
   number: number;
@@ -15,6 +31,8 @@ export type BacklogItem = {
   value: number | null;
   effort: number | null;
   position: number;
+  /** BL-100: "addon" = an amenity; anything else (or missing, before migration 0075) is core. */
+  scope?: BacklogScope;
   source: string;
   reopened_count: number;
   created_at: string;
@@ -103,13 +121,14 @@ export function daysSince(iso: string | null | undefined, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - t) / 86_400_000));
 }
 
-export type Filters = { q?: string; type?: BacklogType | ""; area?: string; size?: BacklogSize | "" };
+export type Filters = { q?: string; type?: BacklogType | ""; area?: string; size?: BacklogSize | ""; scope?: BacklogScope | "" };
 export function filterItems(items: BacklogItem[], f: Filters): BacklogItem[] {
   const q = (f.q ?? "").trim().toLowerCase();
   const code = q.replace(/^bl[-\s]?/, "");
   return items.filter((it) => {
     if (f.type && it.type !== f.type) return false;
     if (f.size && it.size !== f.size) return false;
+    if (f.scope && scopeOf(it) !== f.scope) return false;
     if (f.area && (it.area ?? "") !== f.area) return false;
     if (!q) return true;
     return (

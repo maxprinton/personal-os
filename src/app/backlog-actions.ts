@@ -118,6 +118,7 @@ export async function saveItem(input: {
   type?: BacklogType;
   size?: BacklogSize | "" | null;
   area?: string | null;
+  scope?: "core" | "addon";
   spec_link?: string | null;
   notes?: string | null;
   value?: number | string | null;
@@ -132,6 +133,7 @@ export async function saveItem(input: {
       type: input.type,
       size,
       area: input.area,
+      scope: input.scope,
       spec_link: input.spec_link,
       notes: input.notes,
       value: num(input.value),

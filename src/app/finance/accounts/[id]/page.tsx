@@ -6,6 +6,7 @@ import { getFinance } from "@/lib/finance";
 import { accountBalance } from "@/lib/money";
 import { buildLedger } from "@/lib/finance-ledger";
 import { formatDateLong, localNow, utcToLocal } from "@/lib/time";
+import ExportForm from "@/components/finance/ExportForm";
 import AccountLedger from "@/components/AccountLedger";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +48,10 @@ export default async function AccountPage({ params }: { params: Promise<{ id: st
         <h1 className="mt-2 font-display text-4xl font-bold leading-[1.05] tracking-tight sm:text-5xl">{account.name}</h1>
         <p className="mt-2 text-muted">{KIND_LABEL[account.kind] ?? account.kind}</p>
       </div>
+      <section className="space-y-1">
+        <p className="text-xs text-muted">Download this account&apos;s movements, transfers and balance changes as CSV. Leave the dates empty for the whole history.</p>
+        <ExportForm accountId={account.id} defaultFrom="" defaultTo="" />
+      </section>
       <AccountLedger
         accountId={account.id}
         rows={rows}

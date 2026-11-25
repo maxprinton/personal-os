@@ -14,6 +14,8 @@
     "test:ask-web": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-ask-web.ts",
     "test:budget": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-budget.ts",
     "test:icons": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-icons.ts",
+    "test:backlog-scope": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-backlog-scope.ts",
+    "test:finance-export": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-finance-export.ts",
     "test:note-toggles": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-note-toggles.ts",
     "test:purchases": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-purchases.ts",
     "test:finance-bl": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-finance-bl.ts",
