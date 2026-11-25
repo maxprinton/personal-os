@@ -29,6 +29,8 @@ public class AlarmService extends Service {
     static final String ACTION_RING = "app.personalos.alarms.RING";
     /** Silence this ring. If more rings of the chain are coming they still ring; if not, it snoozes (start rings only). */
     static final String ACTION_SNOOZE = "app.personalos.alarms.SNOOZE";
+    /** BL-113: a Done or Skip tapped within about 10 s: a real snooze of 10 minutes on any ring; the rest of the chain goes on. */
+    static final String ACTION_FAST_SNOOZE = "app.personalos.alarms.FAST_SNOOZE";
     /** Just stop the sound. */
     static final String ACTION_STOP = "app.personalos.alarms.STOP";
     /** An answer (extra "answer": Started, Skip today, Done...): stop the sound and cancel the rest of the chain. */
@@ -50,7 +52,7 @@ public class AlarmService extends Service {
     static final int NOTIF_CHECKIN = 4251;
     /** The rooster stops by itself if the check-in isn't saved within 30 minutes. */
     private static final long CHECKIN_MAX_MS = 30 * 60 * 1000L;
-    private static final int SNOOZE_MINUTES = 10;
+    static final int SNOOZE_MINUTES = 10;
     private static final long AUTO_STOP_MS = 5 * 60 * 1000L;
     /** A quiet heads-up never plays longer than this, even if its sound is long. */
     private static final long NOTIFY_MAX_MS = 20 * 1000L;
@@ -96,9 +98,22 @@ public class AlarmService extends Service {
             stopRinging(false);
             return START_NOT_STICKY;
         }
+        if (ACTION_FAST_SNOOZE.equals(action)) {
+            if (checkinItem != null) return START_NOT_STICKY;
+            AlarmItem item = AlarmItem.from(intent);
+            if (item == null) item = current;
+            if (item != null) {
+                Prefs.incFast(this, item.ringKey());
+                Scheduler.snooze(this, item, SNOOZE_MINUTES);
+                Answers.fastSnooze(this, item, intent.getStringExtra("tapped"));
+            }
+            stopRinging(false);
+            return START_NOT_STICKY;
+        }
         if (ACTION_ACK.equals(action)) {
             AlarmItem item = AlarmItem.from(intent);
             if (item == null) item = current;
+            if (item != null) Prefs.clearFast(this, item.ringKey()); // a real answer: the guard starts over
             String answer = intent.getStringExtra("answer");
             if (answer == null || answer.isEmpty()) answer = defaultAnswer(item);
             Answers.answer(this, item, answer);

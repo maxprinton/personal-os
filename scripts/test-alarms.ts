@@ -170,6 +170,18 @@ test("BL-112: cleanRules trims the message, cuts it at 200 characters and drops 
   assert.equal("message" in cleanRules([base])[0], false);
 });
 
+test("BL-113: only a snooze can be a fast one, and tapped must be done or skip", () => {
+  const T0 = Date.parse("2026-11-13T12:00:00Z");
+  const base = { clientId: "f1", kind: "answer", at: T0, occurrenceId: "11111111-1111-4111-8111-111111111111" };
+  const a = cleanAlarmEvent({ ...base, answer: "snooze", fast: true, tapped: "skip" }, T0);
+  assert.equal(a?.fast, true);
+  assert.equal(a?.tapped, "skip");
+  assert.equal(cleanAlarmEvent({ ...base, clientId: "f2", answer: "snooze", fast: true, tapped: "partial" }, T0)?.tapped, undefined);
+  assert.equal(cleanAlarmEvent({ ...base, clientId: "f3", answer: "snooze" }, T0)?.fast, undefined);
+  assert.equal(cleanAlarmEvent({ ...base, clientId: "f4", answer: "done", fast: true, tapped: "done" }, T0)?.fast, undefined);
+  assert.equal(cleanAlarmEvent({ ...base, clientId: "f5", answer: "snooze", fast: "yes" }, T0)?.fast, undefined);
+});
+
 test("BL-114: a still_up answer is quiet: it does not count as the ring that answered the chain", () => {
   const rows = [
     { chain: "c1", kind: "answer", answer: "started", seq: 1, block_type_id: "b1", at: "2026-11-17T11:31:00Z" },

@@ -35,6 +35,8 @@ import { monthOf, summarizeMonth } from "@/lib/finance-summary";
 import MonthlySummary from "@/components/MonthlySummary";
 import PurchasesSection from "@/components/finance/PurchasesSection";
 import { listPurchases } from "@/lib/purchases/data";
+import BudgetSection from "@/components/finance/BudgetSection";
+import { loadBudget, type BudgetState } from "@/lib/budget/data";
 
 export const dynamic = "force-dynamic";
 
@@ -104,6 +106,19 @@ export default async function FinancePage() {
   const purchases = userId
     ? await listPurchases(supabase, userId).catch(() => ({ items: [], missing: false, error: "Could not load the list." }))
     : { items: [], missing: false, error: null };
+
+  // BL-117: the budget with buckets (a missing table shows a note in the section, never breaks the page)
+  const budgetState: BudgetState = userId
+    ? await loadBudget(supabase, userId, timezone).catch((e): BudgetState => ({ kind: "error", message: e instanceof Error ? e.message : "Could not load the budget." }))
+    : { kind: "empty" };
+  const budgetCatName = Object.fromEntries(categories.map((c) => [c.id, c.name]));
+  const petsCategoryId = categories.find((c) => c.kind === "expense" && c.name.trim().toLowerCase() === "pets")?.id ?? null;
+  const incomeCategories = categories.filter((c) => c.kind === "income").map((c) => ({ id: c.id, name: c.name }));
+  const budgetTemplates = templates.filter((t) => t.type !== "income").map((t) => ({ name: t.name, expected: t.expected_amount ? Number(t.expected_amount) : null }));
+  const affordItems = purchases.items
+    .filter((i) => i.status === "open")
+    .sort((a, b) => (a.kind === b.kind ? a.position - b.position : a.kind === "need" ? -1 : 1))
+    .map((i) => ({ id: i.id, name: i.name, price: i.price, kind: i.kind }));
 
   const month = monthRange(today);
   const monthTxns = txns.filter((t) => inRange(t, month));
@@ -216,6 +231,7 @@ export default async function FinancePage() {
               </form>
             )}
             <TransactionForm
+              showSkip={budgetState.kind === "ready"}
               today={today}
               categories={categories.map((c) => ({ id: c.id, name: c.name, kind: c.kind }))}
               accounts={accounts.map((a) => ({ id: a.id, name: a.name }))}
@@ -407,6 +423,16 @@ export default async function FinancePage() {
             </ul>
             <AccountForm />
           </section>
+
+          <BudgetSection
+            state={budgetState}
+            today={today}
+            incomeCategories={incomeCategories}
+            catName={budgetCatName}
+            petsCategoryId={petsCategoryId}
+            templates={budgetTemplates}
+            purchases={affordItems}
+          />
 
           <PurchasesSection
             items={purchases.items}

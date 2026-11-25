@@ -223,6 +223,19 @@ final class Prefs {
         sp(c).edit().putLong("wokeAt", ms).apply();
     }
 
+    /** BL-113: how many times this ring was already snoozed by the fast-tap guard (0 = none). */
+    static int fastCount(Context c, String ringKey) {
+        return sp(c).getInt("fast:" + ringKey, 0);
+    }
+
+    static void incFast(Context c, String ringKey) {
+        sp(c).edit().putInt("fast:" + ringKey, fastCount(c, ringKey) + 1).apply();
+    }
+
+    static void clearFast(Context c, String ringKey) {
+        sp(c).edit().remove("fast:" + ringKey).apply();
+    }
+
     /** BL-114: the "Still up?" check that is waiting (when it is due, 0 = none, and the block it belongs to). */
     static long stillUpAt(Context c) {
         return sp(c).getLong("stillUpAt", 0L);

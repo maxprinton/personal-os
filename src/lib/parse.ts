@@ -32,6 +32,7 @@ const CATEGORY_WORDS: Record<string, string[]> = {
   Home: ["rent", "electricity", "water bill", "internet", "arriendo", "alquiler", "luz", "agua", "casa"],
   Health: ["pharmacy", "doctor", "medicine", "gym", "dentist", "farmacia", "medicina", "médico", "medico", "gimnasio"],
   Fun: ["movie", "cinema", "netflix", "spotify", "bar", "beer", "game", "cine", "cerveza", "fiesta"],
+  Gigs: ["gig", "gigs", "freelance", "freelancer"],
   Salary: ["salary", "paycheck", "payroll", "sueldo", "salario", "nómina", "nomina"],
 };
 

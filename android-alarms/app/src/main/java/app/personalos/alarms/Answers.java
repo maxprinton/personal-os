@@ -114,6 +114,20 @@ final class Answers {
         }
     }
 
+    /** BL-113: a Done or Skip tapped within about 10 s became a snooze. tapped = "done" or "skip". */
+    static void fastSnooze(Context c, AlarmItem a, String tapped) {
+        if (a == null || a.occurrenceId.isEmpty()) return;
+        try {
+            JSONObject o = base("answer", a);
+            o.put("answer", SNOOZE);
+            o.put("fast", true);
+            o.put("tapped", tapped);
+            save(c, o);
+        } catch (Exception ignored) {
+            // see rang()
+        }
+    }
+
     /** A habit or a task ticked (or unticked) on the alarm screen. */
     static void tick(Context c, AlarmItem a, AlarmItem.Tick t, boolean done) {
         if (a == null || t == null) return;

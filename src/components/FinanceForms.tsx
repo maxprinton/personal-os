@@ -28,7 +28,9 @@ export function TransactionForm({
   today,
   categories,
   accounts,
+  showSkip = false,
 }: {
+  showSkip?: boolean;
   today: string;
   categories: CatOpt[];
   accounts: Opt[];
@@ -70,6 +72,12 @@ export function TransactionForm({
         <button disabled={pending} className="rounded-md bg-accent font-medium shadow-sm transition-colors hover:bg-accent-hover px-3 py-2 text-sm text-accent-fg disabled:opacity-50">
           {pending ? "Saving..." : "Add"}
         </button>
+        {showSkip && type === "income" && (
+          <label className="col-span-2 flex items-center gap-2 text-xs text-muted sm:col-span-4">
+            <input type="checkbox" name="skip_saving" value="1" />
+            Don&apos;t set aside savings from this one (budget)
+          </label>
+        )}
       </div>
       <Feedback state={state} ok="Saved." />
     </form>

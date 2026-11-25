@@ -49,6 +49,9 @@ export type AlarmEvent = {
   energy?: number;
   sleepQuality?: number;
   highlight?: string;
+  /** snooze (BL-113): a Done or Skip tapped within about 10 s was turned into a snooze; tapped says which button. */
+  fast?: boolean;
+  tapped?: "done" | "skip";
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -106,6 +109,11 @@ export function cleanAlarmEvent(raw: unknown, nowMs: number): AlarmEvent | null 
   if (kind === "answer") {
     if (typeof r.answer !== "string" || !ANSWERS.has(r.answer)) return null;
     ev.answer = r.answer as AlarmAnswer;
+    // BL-113: only a snooze can be a "fast" one, and only Done or Skip can have been tapped
+    if (ev.answer === "snooze" && r.fast === true) {
+      ev.fast = true;
+      if (r.tapped === "done" || r.tapped === "skip") ev.tapped = r.tapped;
+    }
   }
   if (kind === "tick") {
     const habitId = uuid(r.habitId);
@@ -339,9 +347,11 @@ export async function applyAlarmEvents(admin: SupabaseClient, userId: string, tz
           ? { habitId: ev.habitId ?? null, taskId: ev.taskId ?? null, done: ev.done }
           : ev.kind === "checkin"
             ? { date: ev.date, mood: ev.mood ?? null, energy: ev.energy ?? null, sleepQuality: ev.sleepQuality ?? null, highlight: ev.highlight ?? null }
-            : ev.wake
-              ? { wake: true }
-              : null,
+            : ev.fast
+              ? { fast: true, tapped: ev.tapped ?? null }
+              : ev.wake
+                ? { wake: true }
+                : null,
     };
     const ins = await admin.from("alarm_events").insert(row);
     if (ins.error && ins.error.code === "23505") {

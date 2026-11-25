@@ -5,6 +5,9 @@ import android.content.Intent;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -18,6 +21,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -37,6 +41,39 @@ public class AlarmActivity extends Activity {
     private EditText highlightField;
     private String checkinDate = "";
     private boolean showingCheckin;
+
+    /** BL-113 fast-tap guard: a Done or Skip tapped before GUARD_MS is a snooze; after GUARD_MAX of them the tap counts for real. */
+    private static final long GUARD_MS = 10_000L;
+    private static final int GUARD_MAX = 2;
+    private long shownAtMs;
+    private final Handler guardHandler = new Handler(Looper.getMainLooper());
+    private final List<Guard> guards = new ArrayList<>();
+    private final Runnable guardTick = new Runnable() {
+        @Override
+        public void run() {
+            if (updateGuards()) guardHandler.postDelayed(this, 1000L);
+        }
+    };
+
+    /** A guarded button (Done or Skip), the line under it, and what a tap after the countdown does. */
+    private static final class Guard {
+        final Button button;
+        final TextView caption;
+        final String label;
+        final String outcome;
+        final AlarmItem item;
+
+        Guard(Button button, TextView caption, String label, String outcome, AlarmItem item) {
+            this.button = button;
+            this.caption = caption;
+            this.label = label;
+            this.outcome = outcome;
+            this.item = item;
+        }
+    }
+
+    private static final String OUTCOME_DONE = "Marks this block done and its habits done.";
+    private static final String OUTCOME_SKIP = "Skips it today: its habits are marked skipped, the block is not marked done.";
 
     /** When the alarm screen last opened (the service checks it a few seconds after the sound starts). */
     static volatile long lastShownMs = 0L;
@@ -67,6 +104,7 @@ public class AlarmActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        guardHandler.removeCallbacks(guardTick);
         if (instance == this) instance = null;
         super.onDestroy();
     }
@@ -103,6 +141,9 @@ public class AlarmActivity extends Activity {
 
     private void renderAlarm(final AlarmItem item) {
         showingCheckin = false;
+        guardHandler.removeCallbacks(guardTick);
+        guards.clear();
+        shownAtMs = SystemClock.elapsedRealtime();
         LinearLayout root = column();
         root.setPadding(dp(20), dp(40), dp(20), dp(20));
 
@@ -149,6 +190,10 @@ public class AlarmActivity extends Activity {
 
         addAnswers(root, item);
         setContentView(root);
+        if (!guards.isEmpty()) {
+            updateGuards();
+            guardHandler.postDelayed(guardTick, 1000L);
+        }
     }
 
     /** "06:00 to 07:00, starts in 5 min, ring 2 of 4". */
@@ -266,17 +311,36 @@ public class AlarmActivity extends Activity {
             hint.setPadding(0, dp(8), 0, 0);
             root.addView(hint, full());
         } else {
-            root.addView(bigButton(main, v -> sendAnswer(item, AlarmService.defaultAnswer(item), false)), fullHeight(64));
+            // BL-113: on the end rings the main button is Done, which is guarded
+            final boolean guardMain = item.isEnd() && !item.occurrenceId.isEmpty();
+            Button mainBtn = bigButton(main, v -> {
+                if (guardMain) guardedTap(item, AlarmService.defaultAnswer(item), "done");
+                else sendAnswer(item, AlarmService.defaultAnswer(item), false);
+            });
+            root.addView(mainBtn, fullHeight(64));
+            if (guardMain) {
+                TextView cap = caption();
+                root.addView(cap, full());
+                guards.add(new Guard(mainBtn, cap, main, OUTCOME_DONE, item));
+            }
             if (!item.occurrenceId.isEmpty()) {
                 if (item.isEnd()) {
                     root.addView(pair("Partial", v -> sendAnswer(item, Answers.PARTIAL, false),
                             "Didn't do it", v -> sendAnswer(item, Answers.NOT_DONE, false)), rowParams());
                 } else if (item.bed) {
-                    root.addView(pair("Going to sleep now", v -> sendAnswer(item, Answers.STARTED, true),
-                            "Skip tonight", v -> sendAnswer(item, Answers.SKIP, false)), rowParams());
+                    LinearLayout p = pair("Going to sleep now", v -> sendAnswer(item, Answers.STARTED, true),
+                            "Skip tonight", v -> guardedTap(item, Answers.SKIP, "skip"));
+                    root.addView(p, rowParams());
+                    TextView cap = caption();
+                    root.addView(captionRow(null, cap), full());
+                    guards.add(new Guard((Button) p.getChildAt(1), cap, "Skip tonight", OUTCOME_SKIP, item));
                 } else {
-                    root.addView(pair("Skip today", v -> sendAnswer(item, Answers.SKIP, false),
-                            "Already done", v -> sendAnswer(item, Answers.ALREADY_DONE, false)), rowParams());
+                    LinearLayout p = pair("Skip today", v -> guardedTap(item, Answers.SKIP, "skip"),
+                            "Already done", v -> sendAnswer(item, Answers.ALREADY_DONE, false));
+                    root.addView(p, rowParams());
+                    TextView cap = caption();
+                    root.addView(captionRow(cap, null), full());
+                    guards.add(new Guard((Button) p.getChildAt(0), cap, "Skip today", OUTCOME_SKIP, item));
                 }
             }
         }
@@ -293,6 +357,54 @@ public class AlarmActivity extends Activity {
             });
             root.addView(q, full());
         }
+    }
+
+    /** BL-113: a Done or Skip tap before the countdown ends is a real 10-minute snooze (at most GUARD_MAX per ring). */
+    private void guardedTap(AlarmItem item, String answer, String tapped) {
+        boolean counting = SystemClock.elapsedRealtime() - shownAtMs < GUARD_MS;
+        if (counting && Prefs.fastCount(this, item.ringKey()) < GUARD_MAX) {
+            Intent i = new Intent(this, AlarmService.class).setAction(AlarmService.ACTION_FAST_SNOOZE).putExtra("tapped", tapped);
+            item.putInto(i);
+            startService(i);
+            Toast.makeText(this, "Too quick: snoozed " + AlarmService.SNOOZE_MINUTES + " min. It rings again.", Toast.LENGTH_SHORT).show();
+        } else {
+            sendAnswer(item, answer, false);
+        }
+    }
+
+    /** Updates the countdown on every guarded button and the line under it. Returns true while it is still counting. */
+    private boolean updateGuards() {
+        long left = GUARD_MS - (SystemClock.elapsedRealtime() - shownAtMs);
+        boolean counting = left > 0;
+        int secs = (int) Math.ceil(left / 1000.0);
+        for (Guard g : guards) {
+            boolean active = counting && Prefs.fastCount(this, g.item.ringKey()) < GUARD_MAX;
+            g.button.setText(active ? g.label + " (" + secs + ")" : g.label);
+            g.caption.setText(active
+                    ? "In " + secs + " s: " + lower(g.outcome) + " Before that, a tap is a snooze: it rings again in "
+                            + AlarmService.SNOOZE_MINUTES + " min."
+                    : g.outcome);
+        }
+        return counting;
+    }
+
+    private TextView caption() {
+        TextView t = Ui.text(this, "", 13, Ui.MUTED, false);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(4), dp(6), dp(4), 0);
+        return t;
+    }
+
+    /** Lines under a pair of buttons: the left and the right one, either may be missing. */
+    private LinearLayout captionRow(TextView left, TextView right) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        rp.leftMargin = dp(10);
+        row.addView(left != null ? left : new TextView(this), lp);
+        row.addView(right != null ? right : new TextView(this), rp);
+        return row;
     }
 
     private void sendAnswer(AlarmItem item, String answer, boolean sleptNow) {

@@ -34,15 +34,23 @@ export async function addTransaction(_prev: ActionState, form: FormData): Promis
   // Today -> now; another day -> noon of that day (keeps it on the right local date)
   const occurred_at = date === today ? new Date().toISOString() : zonedToUtc(date, "12:00", timezone).toISOString();
 
-  const { error } = await supabase.from("transactions").insert({
-    type,
-    amount,
-    occurred_at,
-    category_id: String(form.get("category_id") ?? "") || null,
-    account_id: String(form.get("account_id") ?? "") || null,
-    description: String(form.get("description") ?? "").trim() || null,
-  });
+  const { data: created, error } = await supabase
+    .from("transactions")
+    .insert({
+      type,
+      amount,
+      occurred_at,
+      category_id: String(form.get("category_id") ?? "") || null,
+      account_id: String(form.get("account_id") ?? "") || null,
+      description: String(form.get("description") ?? "").trim() || null,
+    })
+    .select("id")
+    .single();
   if (error) return { error: error.message };
+  // BL-117: "don't set aside savings from this one". The payment is saved either way; a failed mark only means saving is taken.
+  if (type === "income" && form.get("skip_saving") && created?.id) {
+    await supabase.from("budget_saving_skips").upsert({ transaction_id: created.id }, { onConflict: "transaction_id" });
+  }
   refresh();
   return { ok: true, at: Date.now() };
 }

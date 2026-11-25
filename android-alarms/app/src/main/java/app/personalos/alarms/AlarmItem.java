@@ -311,6 +311,13 @@ final class AlarmItem {
         }
     }
 
+    /** BL-113: the same key for a ring and for its snoozed copies ("snooze-" is removed from the id). */
+    String ringKey() {
+        String k = id;
+        while (k.startsWith("snooze-")) k = k.substring("snooze-".length());
+        return k;
+    }
+
     boolean isNotify() {
         return "notify".equals(style);
     }
