@@ -145,6 +145,40 @@ test("without louder every ring has level 0; a repeat sound replaces the sound o
   assert.deepEqual(a.map((x) => x.sound), ["chime", "rooster", "rooster"]);
 });
 
+test("BL-112: a ring message replaces the block-note snippet on that ring only; empty falls back to the snippet", () => {
+  const notes = new Map([["test", "Block note"]]);
+  const a = buildAlarms({
+    occurrences: [occ("1", "t", "2026-11-13", "07:00", "08:00")],
+    types: withRules([ring({ anchor: "start", offset: 0, message: "Feet on the floor" }), ring({ anchor: "end", offset: 0 })]),
+    notes, timezone: TZ, now,
+  });
+  assert.deepEqual(a.map((x) => x.note), ["Feet on the floor", "Block note"]);
+  // a repeating ring shows its message on every ring of the chain
+  const c = buildAlarms({
+    occurrences: [occ("1", "t", "2026-11-13", "07:00", "08:00")],
+    types: withRules([ring({ anchor: "start", offset: 0, repeats: 2, message: "Water first" })]),
+    notes, timezone: TZ, now,
+  });
+  assert.deepEqual(c.map((x) => x.note), ["Water first", "Water first", "Water first"]);
+});
+
+test("BL-112: cleanRules trims the message, cuts it at 200 characters and drops it when empty", () => {
+  const base = { anchor: "start", offset: 0 };
+  assert.equal(cleanRules([{ ...base, message: "  Shoes on.  " }])[0].message, "Shoes on.");
+  assert.equal(cleanRules([{ ...base, message: "x".repeat(500) }])[0].message?.length, 200);
+  for (const bad of ["", "   ", 5, null, undefined, {}]) assert.equal("message" in cleanRules([{ ...base, message: bad }])[0], false, String(bad));
+  assert.equal("message" in cleanRules([base])[0], false);
+});
+
+test("BL-114: a still_up answer is quiet: it does not count as the ring that answered the chain", () => {
+  const rows = [
+    { chain: "c1", kind: "answer", answer: "started", seq: 1, block_type_id: "b1", at: "2026-11-17T11:31:00Z" },
+    { chain: "c1", kind: "answer", answer: "still_up", seq: 1, block_type_id: "b1", at: "2026-11-17T11:41:00Z" },
+  ];
+  assert.deepEqual(ringsToAnswer(rows.slice(0, 1)).get("b1"), { average: 2, chains: 1 });
+  assert.deepEqual(ringsToAnswer(rows).get("b1"), { average: 2, chains: 1 });
+});
+
 test("BL-115: repeatFrom changes the sound only from that ring on (2 = from ring 3); without it nothing changes", () => {
   const base = { sound: "rooster", repeatSound: "bell" };
   assert.deepEqual([0, 1, 2, 3].map((k) => soundOf(base, k)), ["rooster", "bell", "bell", "bell"]);

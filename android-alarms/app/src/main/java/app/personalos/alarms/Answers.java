@@ -97,6 +97,23 @@ final class Answers {
         }
     }
 
+    /**
+     * BL-114: the "Still up?" banner was tapped. It is sent without a chain and without the wake flag,
+     * so it never replaces the answer of the wake chain or sets the wake-up time again.
+     */
+    static void stillUp(Context c, String occurrenceId, String blockTypeId) {
+        if (occurrenceId == null || occurrenceId.isEmpty()) return;
+        try {
+            JSONObject o = base("answer", null);
+            o.put("answer", "still_up");
+            o.put("occurrenceId", occurrenceId);
+            o.put("blockTypeId", blockTypeId == null ? "" : blockTypeId);
+            save(c, o);
+        } catch (Exception ignored) {
+            // see rang()
+        }
+    }
+
     /** A habit or a task ticked (or unticked) on the alarm screen. */
     static void tick(Context c, AlarmItem a, AlarmItem.Tick t, boolean done) {
         if (a == null || t == null) return;

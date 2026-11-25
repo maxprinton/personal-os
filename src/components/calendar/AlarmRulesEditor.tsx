@@ -8,6 +8,7 @@ import {
   MAX_RINGS,
   PRESETS,
   SOUNDS,
+  MAX_MESSAGE,
   type AlarmRing,
 } from "@/lib/alarm-rules";
 import { btnPrimary, btnSecondary, inputCls } from "@/components/calendar/Modal";
@@ -54,10 +55,20 @@ export default function AlarmRulesEditor({
           next.repeatSound = null;
         }
         // BL-115: "change sound from ring N" only means something with a repeat sound and a ring N that exists
+        if (!(next.message ?? "").trim()) delete next.message;
         if (!next.repeatSound || (next.repeatFrom ?? 1) < 2 || (next.repeatFrom ?? 1) > next.repeats) delete next.repeatFrom;
         return next;
       })
     );
+
+  // BL-112: same message on every other ring of this block (asks first when it would replace a different message)
+  function copyMessage(from: number) {
+    const m = (rules[from].message ?? "").trim();
+    if (!m) return;
+    const replaced = rules.some((r, j) => j !== from && (r.message ?? "").trim() && (r.message ?? "").trim() !== m);
+    if (replaced && !window.confirm("Some other rings already have a different message. Replace them?")) return;
+    setRules((list) => list.map((r) => ({ ...r, message: m })));
+  }
 
   const add = (rings: AlarmRing[]) => setRules((list) => [...list, ...rings].slice(0, MAX_RINGS));
 
@@ -220,6 +231,24 @@ export default function AlarmRulesEditor({
                   )}
                 </div>
               )}
+
+              <div className="space-y-1">
+                <label className="block text-xs text-muted">
+                  Message on this ring (optional)
+                  <input
+                    value={r.message ?? ""}
+                    maxLength={MAX_MESSAGE}
+                    onChange={(e) => patch(i, { message: e.target.value })}
+                    placeholder="Empty = the note of the block, as before"
+                    className={inputCls}
+                  />
+                </label>
+                {rules.length > 1 && (r.message ?? "").trim() && (
+                  <button type="button" onClick={() => copyMessage(i)} className="text-xs text-accent hover:underline">
+                    Copy this message to the other rings of this block
+                  </button>
+                )}
+              </div>
 
               <p className="text-xs text-muted">{describeRing(r)}</p>
             </li>

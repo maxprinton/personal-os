@@ -124,5 +124,22 @@ test("cleanAlarmEvent accepts 'off' only with a start before the end", () => {
   assert.equal(cleanAlarmEvent({ clientId: "z", kind: "off", at: at("05:20"), alarmAt: at("10:04") }, now), null);
 });
 
+test("BL-114: still_up is accepted, never counts as the answer of the chain, and the wake answer stays 'started'", () => {
+  const now = at("10:05");
+  const e = cleanAlarmEvent({ clientId: "su", kind: "answer", answer: "still_up", at: at("06:41"), occurrenceId: "11111111-1111-4111-8111-111111111111" }, now);
+  assert.ok(e);
+  assert.equal(e.answer, "still_up");
+  const s = sched();
+  const chain = s[0].chain;
+  const events = [
+    ev("rang", at("06:30"), { chain, seq: 0 }),
+    ev("answer", at("06:30"), { chain, seq: 0, answer: "started", at: at("06:31") }),
+    ev("answer", at("06:41"), { chain: null, answer: "still_up", at: at("06:41") }),
+  ];
+  const d = summarizeDay({ scheduled: s, events, nowMs: at("12:00"), trackingSinceMs: 1 })[0];
+  assert.equal(d.answer, "started");
+  assert.equal(d.state, "rang");
+});
+
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

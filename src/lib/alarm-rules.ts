@@ -17,6 +17,8 @@ export type AlarmRing = {
   repeatSound: string | null;
   /** BL-115: 0-based index of the first ring that uses repeatSound (2 = from ring 3). Missing = 1 (from ring 2, the old behaviour). */
   repeatFrom?: number;
+  /** BL-112: short text shown on this ring instead of the block-note snippet. Missing/empty = the snippet. Max MAX_MESSAGE characters. */
+  message?: string;
   style: RingStyle;
   /** Extra rings after the first one (0 = rings once). 0..5. */
   repeats: number;
@@ -46,6 +48,7 @@ export const MAX_RINGS = 8;
 export const MAX_OFFSET = 180;
 export const MAX_REPEATS = 5;
 export const MAX_EVERY = 30;
+export const MAX_MESSAGE = 200;
 
 export type RingPreset = { id: string; name: string; hint: string; rings: AlarmRing[] };
 
@@ -123,6 +126,11 @@ export function cleanRing(raw: unknown): AlarmRing | null {
   if (repeatSound && typeof r.repeatFrom === "number" && Number.isFinite(r.repeatFrom)) {
     const from = Math.round(r.repeatFrom);
     if (from >= 2 && from <= repeats) out.repeatFrom = from;
+  }
+  // BL-112: trimmed, cut to the limit, dropped when empty
+  if (typeof r.message === "string") {
+    const m = r.message.trim().slice(0, MAX_MESSAGE).trim();
+    if (m) out.message = m;
   }
   return out;
 }

@@ -223,6 +223,24 @@ final class Prefs {
         sp(c).edit().putLong("wokeAt", ms).apply();
     }
 
+    /** BL-114: the "Still up?" check that is waiting (when it is due, 0 = none, and the block it belongs to). */
+    static long stillUpAt(Context c) {
+        return sp(c).getLong("stillUpAt", 0L);
+    }
+
+    static String stillUpOcc(Context c) {
+        return sp(c).getString("stillUpOcc", "");
+    }
+
+    static String stillUpBlock(Context c) {
+        return sp(c).getString("stillUpBlock", "");
+    }
+
+    static void setStillUp(Context c, long whenMs, String occurrenceId, String blockTypeId) {
+        sp(c).edit().putLong("stillUpAt", whenMs).putString("stillUpOcc", occurrenceId == null ? "" : occurrenceId)
+                .putString("stillUpBlock", blockTypeId == null ? "" : blockTypeId).apply();
+    }
+
     /**
      * BL-110: the last moment the app knew the phone was on (sync, ring, app opened), and the moment
      * Android said "shutting down" (0 = not seen). Used at boot to report when the phone was off.

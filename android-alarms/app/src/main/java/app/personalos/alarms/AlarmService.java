@@ -103,6 +103,11 @@ public class AlarmService extends Service {
             if (answer == null || answer.isEmpty()) answer = defaultAnswer(item);
             Answers.answer(this, item, answer);
             Scheduler.answerChain(this, item);
+            // BL-114: "I'm up" on the wake ring starts the one "Still up?" check; a later Started on the same block cancels it
+            if (item != null && Answers.STARTED.equals(answer)) {
+                if (item.wake) StillUp.arm(this, item);
+                else StillUp.cancelFor(this, item.occurrenceId);
+            }
             // The Sleep routine started: a quiet notification waits for "Going to sleep"
             if (item != null && item.bed && Answers.STARTED.equals(answer) && !intent.getBooleanExtra("sleptNow", false)) {
                 showSleepNotification();
@@ -132,6 +137,7 @@ public class AlarmService extends Service {
             if (item != null) {
                 checkinItem = item;
                 Answers.answer(this, item, Answers.STARTED); // the wake-up time
+                if (item.wake) StillUp.arm(this, item); // BL-114
                 Prefs.setWokeAt(this, System.currentTimeMillis());
                 Prefs.setCheckinPending(this, item.date);
                 Scheduler.answerChain(this, item); // no more rings: this one keeps sounding instead

@@ -15,7 +15,8 @@ export const START_ANSWERS = ["started", "skip", "already_done"] as const;
 /** Answers of a ring of the END of a block. */
 export const END_ANSWERS = ["done", "partial", "not_done"] as const;
 /** Answers that only silence the ring (the block is untouched). */
-export const QUIET_ANSWERS = ["silence", "snooze", "dismiss", "missed"] as const;
+/** still_up (BL-114): the "Still up?" banner was tapped. It says nothing about the block, so it never counts as the answer. */
+export const QUIET_ANSWERS = ["silence", "snooze", "dismiss", "missed", "still_up"] as const;
 export type AlarmAnswer = (typeof START_ANSWERS)[number] | (typeof END_ANSWERS)[number] | (typeof QUIET_ANSWERS)[number];
 const ANSWERS = new Set<string>([...START_ANSWERS, ...END_ANSWERS, ...QUIET_ANSWERS]);
 

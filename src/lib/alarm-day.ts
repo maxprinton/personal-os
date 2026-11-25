@@ -76,7 +76,8 @@ export function summarizeDay(args: {
   const since = args.trackingSinceMs ?? null;
   const wasOff = (t: number) => (args.offWindows ?? []).some(([f, to]) => t >= f && t <= to);
   const rangEvents = events.filter((e) => e.kind === "rang");
-  const answers = events.filter((e) => e.kind === "answer" && e.answer).sort((a, b) => a.at - b.at);
+  // still_up (BL-114) is a later check, not the answer of a chain
+  const answers = events.filter((e) => e.kind === "answer" && e.answer && e.answer !== "still_up").sort((a, b) => a.at - b.at);
   const usedRang = new Set<number>();
 
   // Scheduled chains (a ring without chain id, e.g. an event nag, is its own chain)

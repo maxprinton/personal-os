@@ -21,6 +21,7 @@ public class BootReceiver extends BroadcastReceiver {
         else if (action.endsWith("MY_PACKAGE_REPLACED")) RingLog.add(context, RingLog.INFO, "App updated: alarms set again.");
         else if (action.endsWith("TIMEZONE_CHANGED")) RingLog.add(context, RingLog.INFO, "Time zone changed: alarms set again.");
         Scheduler.rescheduleStored(context);
+        StillUp.rearm(context);
         Scheduler.armNextSync(context);
         SyncJobService.runNow(context);
     }

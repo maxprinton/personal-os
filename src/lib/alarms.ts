@@ -139,7 +139,7 @@ export function buildAlarms(args: {
           endsAtMs,
           alarmAtMs: at,
           minutesBefore: Math.max(0, Math.round((startsAtMs - at) / 60_000)),
-          note: args.notes.get(noteKey(t.name)) ?? "",
+          note: r.message || (args.notes.get(noteKey(t.name)) ?? ""),
           habits: args.habits?.get(o.id) ?? [],
           tasks: args.tasks?.get(o.id) ?? [],
           chain,
