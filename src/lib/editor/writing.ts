@@ -9,11 +9,14 @@ import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { aiCached, aiCheck, checkWriting, noteUnknown, onWritingChange, writingSettings, writingStatus, type AiOutcome } from "@/lib/writing/client";
 import { aiOn, spellOn, type WritingArea } from "@/lib/writing/settings";
+import { AI_OFF_MESSAGE } from "@/lib/writing/note-toggles";
 import type { Issue, Lang } from "@/lib/writing/types";
 
 export type WritingHit = { issue: Issue; from: number; to: number; ignoreKey: string };
 export type WritingStorage = {
   enabled: boolean;
+  /** BL-104: false = this note makes no AI correction calls. */
+  aiEnabled: boolean;
   /** Which area's settings apply (Settings → Writing). */
   area: WritingArea;
   /** "✨ Check this paragraph with AI" from the menu (set by the plugin). */
@@ -67,7 +70,7 @@ export const WritingCheck = Extension.create<object, WritingStorage>({
   name: "writing",
 
   addStorage() {
-    return { enabled: true, area: "notes", checkAi: null, ignoreNote: new Set<string>(), ignoreHere: new Set<string>(), onOpen: null };
+    return { enabled: true, aiEnabled: true, area: "notes", checkAi: null, ignoreNote: new Set<string>(), ignoreHere: new Set<string>(), onOpen: null };
   },
 
   addProseMirrorPlugins() {
@@ -163,7 +166,7 @@ export const WritingCheck = Extension.create<object, WritingStorage>({
                   const cached = (aiCached(text) ?? []).filter((a) => !storage.ignoreHere.has(hereKey(a.word, text)) && !local.some((l) => l.from < a.to && a.from < l.to));
                   decos = [...local, ...cached].map((i) => toDeco(i, at, text));
                   noteUnknown(local.filter((i) => i.kind === "spelling").map((i) => i.word));
-                  if (!cached.length && aiOn(writingSettings(), storage.area)) {
+                  if (!cached.length && storage.aiEnabled && aiOn(writingSettings(), storage.area)) {
                     const words = text.split(/\s+/).filter((w) => /\p{L}/u.test(w)).length;
                     const grave = local.some((i) => i.kind === "spelling" || i.kind === "punct") && words >= 6;
                     const native = res.lang === "en" && words >= 12;
@@ -211,7 +214,7 @@ export const WritingCheck = Extension.create<object, WritingStorage>({
             if (!entry) return scheduleAi(5000);
             const [pos, job] = entry;
             aiQueue.delete(pos);
-            if (view.state.doc.nodeAt(pos) !== job.node || !aiOn(writingSettings(), storage.area)) return scheduleAi(500);
+            if (view.state.doc.nodeAt(pos) !== job.node || !storage.aiEnabled || !aiOn(writingSettings(), storage.area)) return scheduleAi(500);
             lastAi = Date.now();
             const out = await aiCheck(job.text, job.lang, job.reason);
             if (gone) return;
@@ -220,6 +223,7 @@ export const WritingCheck = Extension.create<object, WritingStorage>({
             scheduleAi(500);
           };
           storage.checkAi = async (at: number) => {
+            if (!storage.aiEnabled) return { issues: [], error: AI_OFF_MESSAGE };
             const $at = view.state.doc.resolve(Math.min(at, view.state.doc.content.size));
             let depth = $at.depth;
             while (depth > 0 && !$at.node(depth).isTextblock) depth--;

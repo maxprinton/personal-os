@@ -80,6 +80,10 @@ export type RichEditorProps = {
   onSpellIgnore?: (words: string[]) => void;
   /** false = no writing check (the browser's own spell check stays). */
   writingCheck?: boolean;
+  /** BL-104: false = this note makes no AI correction calls (other editors keep the default, true). */
+  aiCorrect?: boolean;
+  /** BL-104: false = no spellcheck marks in this note (prediction is separate). */
+  spellcheck?: boolean;
   /** Which Settings → Writing area applies (default "notes"). */
   writingArea?: WritingArea;
   /**
@@ -122,6 +126,8 @@ export default function RichEditor({
   spellIgnore,
   onSpellIgnore,
   writingCheck = true,
+  aiCorrect = true,
+  spellcheck = true,
   writingArea = "notes",
   mode = "note",
   allowUploads = false,
@@ -307,13 +313,14 @@ export default function RichEditor({
   useEffect(() => {
     if (!editor) return;
     const w = editor.storage.writing;
-    w.enabled = writingCheck && editable;
+    w.enabled = writingCheck && editable && spellcheck;
+    w.aiEnabled = aiCorrect;
     w.area = writingArea;
     w.onOpen = (hit, rect) => setWc({ hit, rect: toRect(rect) });
     editor.storage.predict.enabled = writingCheck && editable;
     editor.storage.predict.area = writingArea;
     recheckAll(editor.view);
-  }, [editor, writingCheck, editable, writingArea]);
+  }, [editor, writingCheck, editable, writingArea, aiCorrect, spellcheck]);
   const ignoreKey = (spellIgnore ?? []).join("\n");
   useEffect(() => {
     if (!editor) return;

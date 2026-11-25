@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Editor } from "@tiptap/core";
+import { noteAiOn, noteSpellOn } from "@/lib/writing/note-toggles";
 import { appendToNote, autosaveNote, createSubpage, deletePage, duplicateNote, moveNote, savePageSettings, type PageSettings } from "@/app/note-actions";
 import { setLiveNote } from "@/lib/note-export/live";
 import { readClipboardImage, uploadNoteFile } from "@/lib/note-files";
@@ -486,6 +487,8 @@ export default function NoteEditor({
             moveBlockTo={onMove}
             navigate={onNavigate}
             onReady={onReady}
+            spellcheck={noteSpellOn(page)}
+            aiCorrect={noteAiOn(page)}
             spellIgnore={page.spellIgnore ?? undefined}
             onSpellIgnore={(words) => void savePageSettings(id, { spellIgnore: words.slice(0, 500) })}
             pageTitle={t || "Untitled"}
@@ -563,6 +566,8 @@ export default function NoteEditor({
             <Toggle label="Small text" on={!!page.small} onClick={() => void setting({ small: !page.small })} />
             <Toggle label="Full width" on={!!page.full} onClick={() => void setting({ full: !page.full })} />
             <Toggle label="Table of contents" on={page.toc !== false} onClick={() => void setting({ toc: page.toc === false })} />
+            <Toggle label="Spellcheck" on={noteSpellOn(page)} onClick={() => void setting({ spellcheck: !noteSpellOn(page) })} />
+            <Toggle label="AI correction (uses tokens)" on={noteAiOn(page)} onClick={() => void setting({ aiCorrect: !noteAiOn(page) })} />
             <Toggle label="Lock page" on={locked} onClick={() => void setting({ locked: !locked })} />
             {!locked && (
               <>

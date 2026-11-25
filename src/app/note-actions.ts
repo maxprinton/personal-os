@@ -77,9 +77,12 @@ export type PageSettings = {
   toc?: boolean;
   /** Spell check: words "Ignore in this note". */
   spellIgnore?: string[] | null;
+  /** BL-104: AI correction in this note (off until turned on) and the spellcheck (on until turned off). */
+  aiCorrect?: boolean | null;
+  spellcheck?: boolean | null;
 };
 
-const SETTING_KEYS: (keyof PageSettings)[] = ["icon", "cover", "coverY", "coverPrompt", "font", "small", "full", "locked", "toc", "spellIgnore"];
+const SETTING_KEYS: (keyof PageSettings)[] = ["icon", "cover", "coverY", "coverPrompt", "font", "small", "full", "locked", "toc", "spellIgnore", "aiCorrect", "spellcheck"];
 
 /** Changes the page's icon, cover, font, width… (only the keys sent). */
 export async function savePageSettings(id: string, patch: PageSettings): Promise<{ ok?: boolean; error?: string; page?: PageSettings }> {

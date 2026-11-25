@@ -13,6 +13,8 @@
     "test:backlog": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-backlog.ts",
     "test:ask-web": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-ask-web.ts",
     "test:budget": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-budget.ts",
+    "test:icons": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-icons.ts",
+    "test:note-toggles": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-note-toggles.ts",
     "test:purchases": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-purchases.ts",
     "test:finance-bl": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-finance-bl.ts",
     "test:backlog-app": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-backlog-app.ts",

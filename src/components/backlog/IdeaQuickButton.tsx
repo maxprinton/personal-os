@@ -51,7 +51,7 @@ export default function IdeaQuickButton() {
         aria-label="Save an idea to the Backlog"
         className="grid h-9 w-9 place-items-center rounded-full text-muted transition-colors hover:bg-subtle hover:text-fg"
       >
-        <Icon name="spark" size={18} />
+        <Icon name="bulb" size={18} />
       </button>
       {open && (
         <form onSubmit={submit} className="absolute right-0 top-full z-50 mt-2 w-72 space-y-2 rounded-2xl border border-line bg-surface p-3 shadow-pop">
