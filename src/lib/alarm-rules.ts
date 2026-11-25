@@ -15,6 +15,8 @@ export type AlarmRing = {
   sound: string;
   /** Sound of the repeat rings. null = the same as the first ring. */
   repeatSound: string | null;
+  /** BL-115: 0-based index of the first ring that uses repeatSound (2 = from ring 3). Missing = 1 (from ring 2, the old behaviour). */
+  repeatFrom?: number;
   style: RingStyle;
   /** Extra rings after the first one (0 = rings once). 0..5. */
   repeats: number;
@@ -106,16 +108,23 @@ export function cleanRing(raw: unknown): AlarmRing | null {
   const r = raw as Record<string, unknown>;
   if (r.anchor !== "start" && r.anchor !== "end") return null;
   const repeats = int(r.repeats, 0, MAX_REPEATS, 0);
-  return {
+  const repeatSound = repeats > 0 ? cleanSound(r.repeatSound, null) : null;
+  const out: AlarmRing = {
     anchor: r.anchor,
     offset: int(r.offset, -MAX_OFFSET, MAX_OFFSET, 0),
     sound: cleanSound(r.sound, "default") as string,
-    repeatSound: repeats > 0 ? cleanSound(r.repeatSound, null) : null,
+    repeatSound,
     style: r.style === "notify" ? "notify" : "alarm",
     repeats,
     every: int(r.every, 1, MAX_EVERY, 5),
     louder: repeats > 0 && r.louder === true,
   };
+  // BL-115: kept only when it changes something (a repeat sound exists and the start is after ring 2 and within the repeats)
+  if (repeatSound && typeof r.repeatFrom === "number" && Number.isFinite(r.repeatFrom)) {
+    const from = Math.round(r.repeatFrom);
+    if (from >= 2 && from <= repeats) out.repeatFrom = from;
+  }
+  return out;
 }
 
 /** A list of rings from the database or a form. Returns [] for nothing usable, never throws. */
@@ -150,8 +159,8 @@ export function levelOf(r: Pick<AlarmRing, "louder">, k: number) {
 }
 
 /** Sound of ring number k of a chain. */
-export function soundOf(r: Pick<AlarmRing, "sound" | "repeatSound">, k: number) {
-  return k > 0 && r.repeatSound ? r.repeatSound : r.sound;
+export function soundOf(r: Pick<AlarmRing, "sound" | "repeatSound" | "repeatFrom">, k: number) {
+  return r.repeatSound && k >= (r.repeatFrom ?? 1) ? r.repeatSound : r.sound;
 }
 
 function soundName(id: string) {
@@ -170,7 +179,8 @@ export function describeRing(r: AlarmRing) {
   const parts = [`${whenText(r)}: ${soundName(r.sound)}`];
   parts.push(r.style === "alarm" ? "full screen" : "banner only");
   if (r.repeats > 0) {
-    const rep = r.repeatSound && r.repeatSound !== r.sound ? `, then ${soundName(r.repeatSound)}` : "";
+    const from = r.repeatFrom ?? 1;
+    const rep = r.repeatSound && r.repeatSound !== r.sound ? `, then ${soundName(r.repeatSound)}${from > 1 ? ` from ring ${from + 1}` : ""}` : "";
     parts.push(
       `${r.repeats} more time${r.repeats === 1 ? "" : "s"} every ${r.every} min${rep}${r.louder ? ", louder each time" : ""} until you tap the button`
     );

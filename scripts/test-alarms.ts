@@ -2,7 +2,7 @@
 // Run: node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-alarms.ts
 import assert from "node:assert/strict";
 import { buildAlarms, generateAlarmKey, hashAlarmKey, noteSnippet } from "@/lib/alarms";
-import { cleanRules, describeRing, effectiveRules, PRESETS, type AlarmRing } from "@/lib/alarm-rules";
+import { cleanRules, describeRing, effectiveRules, PRESETS, soundOf, type AlarmRing } from "@/lib/alarm-rules";
 import { cleanAlarmEvent, habitMarkFor, ringsToAnswer } from "@/lib/alarm-answers";
 
 let passed = 0;
@@ -143,6 +143,27 @@ test("without louder every ring has level 0; a repeat sound replaces the sound o
   const a = build([ring({ anchor: "start", offset: 0, sound: "chime", repeatSound: "rooster", repeats: 2 })]);
   assert.deepEqual(a.map((x) => x.level), [0, 0, 0]);
   assert.deepEqual(a.map((x) => x.sound), ["chime", "rooster", "rooster"]);
+});
+
+test("BL-115: repeatFrom changes the sound only from that ring on (2 = from ring 3); without it nothing changes", () => {
+  const base = { sound: "rooster", repeatSound: "bell" };
+  assert.deepEqual([0, 1, 2, 3].map((k) => soundOf(base, k)), ["rooster", "bell", "bell", "bell"]);
+  assert.deepEqual([0, 1, 2, 3].map((k) => soundOf({ ...base, repeatFrom: 2 }, k)), ["rooster", "rooster", "bell", "bell"]);
+  assert.equal(soundOf({ sound: "rooster", repeatSound: null, repeatFrom: 2 }, 3), "rooster");
+  const a = build([ring({ anchor: "start", offset: 0, sound: "rooster", repeatSound: "bell", repeatFrom: 2, repeats: 3 })]);
+  assert.deepEqual(a.map((x) => x.sound), ["rooster", "rooster", "bell", "bell"]);
+});
+
+test("BL-115: cleanRules keeps repeatFrom only when it matters and describeRing says the ring number", () => {
+  const ok = { anchor: "start", offset: 0, sound: "rooster", repeatSound: "bell", repeats: 3 };
+  assert.equal(cleanRules([{ ...ok, repeatFrom: 2 }])[0].repeatFrom, 2);
+  assert.equal(cleanRules([{ ...ok, repeatFrom: 3 }])[0].repeatFrom, 3);
+  for (const bad of [1, 0, -1, 4, 99, "2", null, NaN]) assert.equal("repeatFrom" in cleanRules([{ ...ok, repeatFrom: bad }])[0], false, String(bad));
+  assert.equal("repeatFrom" in cleanRules([{ ...ok, repeatSound: null, repeatFrom: 2 }])[0], false);
+  assert.equal("repeatFrom" in cleanRules([{ ...ok, repeats: 0, repeatFrom: 2 }])[0], false);
+  assert.equal("repeatFrom" in cleanRules([{ ...ok, repeats: 1, repeatFrom: 2 }])[0], false);
+  assert.ok(describeRing(cleanRules([{ ...ok, repeatFrom: 2 }])[0]).includes("then bell from ring 3"));
+  assert.ok(!describeRing(cleanRules([ok])[0]).includes("from ring"));
 });
 
 test("rings of the end: before and after, even when the block ends the next day", () => {

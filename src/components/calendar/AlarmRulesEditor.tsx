@@ -53,6 +53,8 @@ export default function AlarmRulesEditor({
           next.louder = false;
           next.repeatSound = null;
         }
+        // BL-115: "change sound from ring N" only means something with a repeat sound and a ring N that exists
+        if (!next.repeatSound || (next.repeatFrom ?? 1) < 2 || (next.repeatFrom ?? 1) > next.repeats) delete next.repeatFrom;
         return next;
       })
     );
@@ -198,6 +200,24 @@ export default function AlarmRulesEditor({
                       ))}
                     </select>
                   </label>
+                  {r.repeatSound && r.repeats > 1 && (
+                    <label className="flex items-center gap-2 text-xs text-muted">
+                      from
+                      <select
+                        value={(r.repeatFrom ?? 1) + 1}
+                        onChange={(e) => patch(i, { repeatFrom: Number(e.target.value) - 1 })}
+                        className={`${inputCls} !w-auto`}
+                        aria-label="Change sound from ring"
+                      >
+                        {Array.from({ length: r.repeats }, (_, n) => n + 2).map((n) => (
+                          <option key={n} value={n}>
+                            ring {n}
+                            {n === 2 ? " (every repeat)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                 </div>
               )}
 
