@@ -14,8 +14,9 @@ const when = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month:
 /**
  * BL-22: ask your notes (@os) as a conversation. Used by the top-bar panel, the /ask page and the panel inside a note.
  * focusNoteId = the note that is always read first. wide = the /ask page (history on the side).
+ * initialConversationId = BL-120: the conversation to open on load (the panel's "Open the full page" link carries it).
  */
-export default function AskChat({ focusNoteId = null, focusTitle = null, wide = false }: { focusNoteId?: string | null; focusTitle?: string | null; wide?: boolean }) {
+export default function AskChat({ focusNoteId = null, focusTitle = null, wide = false, initialConversationId = null }: { focusNoteId?: string | null; focusTitle?: string | null; wide?: boolean; initialConversationId?: string | null }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -36,6 +37,11 @@ export default function AskChat({ focusNoteId = null, focusTitle = null, wide = 
   useEffect(() => {
     void refreshHistory();
   }, [refreshHistory]);
+  useEffect(() => {
+    if (initialConversationId) void open(initialConversationId);
+    // only once, when the page opens
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialConversationId]);
   useEffect(() => {
     end.current?.scrollIntoView({ block: "nearest" });
   }, [msgs, busy]);
@@ -207,7 +213,7 @@ export default function AskChat({ focusNoteId = null, focusTitle = null, wide = 
             <button disabled={busy || !q.trim()} className={`${btnPrimary} ml-auto`}>{busy ? "Asking…" : "Ask"}</button>
           </div>
         </form>
-        {!wide && <Link href="/ask" className={`${btnSecondary} text-center text-xs`}>Open the full page</Link>}
+        {!wide && <Link href={conversationId ? `/ask?c=${encodeURIComponent(conversationId)}` : "/ask"} className={`${btnSecondary} text-center text-xs`}>Open the full page</Link>}
       </div>
     </div>
   );

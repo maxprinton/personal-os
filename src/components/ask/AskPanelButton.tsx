@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { usePathname } from "next/navigation";
 import Icon from "@/components/ui/Icon";
 import AskChat from "@/components/ask/AskChat";
 
@@ -11,6 +12,11 @@ import AskChat from "@/components/ask/AskChat";
  */
 export default function AskPanelButton({ variant = "bar", noteId = null, noteTitle = null }: { variant?: "bar" | "note"; noteId?: string | null; noteTitle?: string | null }) {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  // BL-120: the panel lives in the top bar, so it stayed open on top of the page it linked to; close it on any page change
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
