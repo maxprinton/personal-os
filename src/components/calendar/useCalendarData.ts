@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CalendarData } from "@/lib/calendar/types";
 
-/** Loads /api/calendar for a range and reloads on focus, every minute and on "calendar-changed". */
+/** Loads /api/calendar for a range and reloads on focus, every 5 minutes (visible tab only) and on "calendar-changed". */
 export function useCalendarData(from: string, to: string, enabled = true) {
   const [data, setData] = useState<CalendarData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +50,10 @@ export function useCalendarData(from: string, to: string, enabled = true) {
     const onFocus = () => load();
     window.addEventListener("calendar-changed", onChange);
     window.addEventListener("focus", onFocus);
-    const timer = setInterval(load, 60_000);
+    // Every 5 minutes and only while the tab is visible; it also reloads on focus and on "calendar-changed"
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, 300_000);
     return () => {
       window.removeEventListener("calendar-changed", onChange);
       window.removeEventListener("focus", onFocus);
