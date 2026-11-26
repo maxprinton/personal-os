@@ -117,7 +117,21 @@ export async function processFiles(sb: SupabaseClient, opts: { budgetMs: number;
   return read;
 }
 
-/** Cron (every 5 min): every user's notes, then waiting files, inside the time budget. */
+/** Notes edited in the last 15 minutes count as "recent" for the quick pass of the search cron. */
+const RECENT_MS = 15 * 60_000;
+
+/** True once per user per UTC hour (reminder_log has a unique key per user + kind + ref); false on any error. */
+async function claimHourlyFull(admin: SupabaseClient, userId: string): Promise<boolean> {
+  const { error } = await admin.from("reminder_log").insert({ user_id: userId, kind: "searchfull", ref: new Date().toISOString().slice(0, 13) });
+  return !error;
+}
+
+/**
+ * Cron (every 5 min), then waiting files, inside the time budget. Loading every note (and the whole notes
+ * database for the property lines) is the expensive part, so per user:
+ *  · once an hour: the full pass (catches property/tag/relation changes and anything the quick pass missed);
+ *  · the other runs: only notes edited in the last 15 minutes, and nothing at all when there are none.
+ */
 export async function runSearchCron(admin: SupabaseClient, opts: { budgetMs: number }): Promise<{ notes: number; files: number }> {
   const t0 = Date.now();
   const { data: users } = await admin.from("user_settings").select("user_id");
@@ -126,7 +140,18 @@ export async function runSearchCron(admin: SupabaseClient, opts: { budgetMs: num
   for (const u of (users ?? []) as { user_id: string }[]) {
     if (Date.now() - t0 > opts.budgetMs * 0.6) break;
     try {
-      const n = await indexUser(admin, u.user_id, { budgetMs: opts.budgetMs * 0.6 });
+      let only: string[] | undefined;
+      if (!(await claimHourlyFull(admin, u.user_id))) {
+        const { data: recent } = await admin
+          .from("notes")
+          .select("id")
+          .eq("user_id", u.user_id)
+          .gt("updated_at", new Date(Date.now() - RECENT_MS).toISOString())
+          .limit(200);
+        only = ((recent ?? []) as { id: string }[]).map((r) => r.id);
+        if (!only.length) continue; // nothing edited lately: no need to download any notes
+      }
+      const n = await indexUser(admin, u.user_id, { budgetMs: opts.budgetMs * 0.6, only });
       if (n) touched.add(u.user_id);
       notes += n;
     } catch (e) {
