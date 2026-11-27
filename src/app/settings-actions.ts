@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { botToken, tg, webhookSecret } from "@/lib/telegram";
+import { BOT_COMMANDS } from "@/lib/bot/commands";
 import type { ActionState } from "@/app/actions";
 import { liveTagLinks } from "@/lib/tags";
 import { dayData, morningText } from "@/lib/reminders";
@@ -121,41 +122,21 @@ export async function connectBot(_prev: ActionState): Promise<ActionState> {
   });
   if (!res?.ok) return { error: `Telegram said: ${res?.description ?? "no answer"}` };
   // The menu Telegram shows when you type "/" (not essential: a failure here doesn't stop the connection)
-  await tg("setMyCommands", {
-    commands: [
-      { command: "today", description: "Today: block, tasks, habits, payments, notes" },
-      { command: "now", description: "The block of right now: tasks, habits, note" },
-      { command: "tomorrow", description: "Tomorrow: schedule, tasks, payments" },
-      { command: "week", description: "Rest of this week, day by day" },
-      { command: "nextweek", description: "Next week, day by day" },
-      { command: "day", description: "Any day: /day friday · /day 5 nov" },
-      { command: "tasks", description: "All open tasks, with buttons" },
-      { command: "payments", description: "What to pay now and next" },
-      { command: "balance", description: "Money in each account" },
-      { command: "teaching", description: "Teaching: classes, hours, pay, videos to post" },
-      { command: "youtube", description: "YouTube: idea bank, videos in progress" },
-      { command: "yt", description: "New YouTube idea: /yt your idea" },
-      { command: "budget", description: "Budgets: spent, left" },
-      { command: "movements", description: "Latest transactions (delete, account, receipt)" },
-      { command: "unassigned", description: "Transactions without an account" },
-      { command: "categorize", description: "AI categorizes your uncategorized transactions" },
-      { command: "proposals", description: "New categories the AI suggests (create or skip)" },
-      { command: "search", description: "Find tasks, notes, events, money: /search word" },
-      { command: "notes", description: "Latest notes" },
-      { command: "habits", description: "Streaks and today's habits" },
-      { command: "metrics", description: "Today's metrics" },
-      { command: "archived", description: "Archived tasks (restore)" },
-      { command: "insights", description: "Unread insights" },
-      { command: "settings", description: "Telegram reminders on/off and times" },
-      { command: "usage", description: "AI used today and what's left" },
-      { command: "undo", description: "Undo the last thing" },
-      { command: "menu", description: "Show the buttons under the keyboard" },
-      { command: "hidemenu", description: "Hide the buttons under the keyboard" },
-      { command: "os", description: "Ask about your notes: /os question (or @os question)" },
-      { command: "ai", description: "Check the AI connection" },
-      { command: "help", description: "Everything the bot understands" },
-    ],
-  }).catch(() => null);
+  await tg("setMyCommands", { commands: BOT_COMMANDS }).catch(() => null);
+  revalidatePath("/settings");
+  return { ok: true, at: Date.now() };
+}
+
+/** Sends the current "/" menu to Telegram again (no need to reconnect the bot; nothing else changes). */
+export async function refreshBotMenu(_prev: ActionState): Promise<ActionState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  if (!botToken()) return { error: "TELEGRAM_BOT_TOKEN is not set in Vercel yet." };
+  const res = await tg("setMyCommands", { commands: BOT_COMMANDS }).catch(() => null);
+  if (!res?.ok) return { error: `Telegram said: ${res?.description ?? "no answer"}` };
   revalidatePath("/settings");
   return { ok: true, at: Date.now() };
 }

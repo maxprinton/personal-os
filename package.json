@@ -14,6 +14,7 @@
     "test:ask-web": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-ask-web.ts",
     "test:budget": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-budget.ts",
     "test:icons": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-icons.ts",
+    "test:bot-commands": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-bot-commands.ts",
     "test:backlog-scope": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-backlog-scope.ts",
     "test:finance-export": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-finance-export.ts",
     "test:note-toggles": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-note-toggles.ts",
@@ -72,7 +73,8 @@
     "test:alarm-day": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-alarm-day.ts",
     "test:daily-facts": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-daily-facts.ts",
     "test:youtube-topics": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-topics.ts",
-    "test:youtube-lead": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-lead.ts"
+    "test:youtube-lead": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-lead.ts",
+    "test:finance-charts": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-finance-charts.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",

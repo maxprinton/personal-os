@@ -15,7 +15,10 @@ export default function MonthlySummary({ s, compact = false }: { s: MonthSummary
           {s.partial && <span className="ml-2 text-sm font-normal text-muted">so far · through {s.throughDate.slice(5)}</span>}
         </h2>
         {compact && (
-          <Link href={`/finance/summary?m=${s.month}`} className="text-sm text-accent hover:underline">Full summary →</Link>
+          <span className="flex gap-4">
+            <Link href="/finance/charts" className="text-sm text-accent hover:underline">Charts →</Link>
+            <Link href={`/finance/summary?m=${s.month}`} className="text-sm text-accent hover:underline">Full summary →</Link>
+          </span>
         )}
       </div>
 
