@@ -72,3 +72,23 @@ export async function getEvents(sb: SupabaseClient, userId: string, from: string
   return ((data ?? []) as EventDbRow[]).map((r) => toCalEvent(r, tz));
 }
 
+
+/** Payments whose day is over and that were never paid or skipped (any age). */
+export async function getOverduePayments(sb: SupabaseClient, userId: string, today: string, tz: string) {
+  const { data } = await sb
+    .from("events")
+    .select(EVENT_COLS)
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .eq("is_payment", true)
+    .is("payment_status", null)
+    .lt("end_date", today)
+    .order("event_date");
+  return ((data ?? []) as EventDbRow[]).map((r) => toCalEvent(r, tz));
+}
+
+/** Is there any event that ended before `date`? (decides whether "Load more" shows) */
+export async function hasEventsBefore(sb: SupabaseClient, userId: string, date: string) {
+  const { data } = await sb.from("events").select("id").eq("user_id", userId).is("deleted_at", null).lt("end_date", date).limit(1);
+  return (data ?? []).length > 0;
+}

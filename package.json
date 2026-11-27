@@ -74,7 +74,8 @@
     "test:daily-facts": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-daily-facts.ts",
     "test:youtube-topics": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-topics.ts",
     "test:youtube-lead": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-youtube-lead.ts",
-    "test:finance-charts": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-finance-charts.ts"
+    "test:finance-charts": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-finance-charts.ts",
+    "test:events-tabs": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-events-tabs.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",

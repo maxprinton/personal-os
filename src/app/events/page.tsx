@@ -1,7 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { currentUserId } from "@/lib/calendar/model";
 import { userTimezone } from "@/lib/calendar/load";
-import { getEvents, getEventTypes } from "@/lib/calendar/events";
+import { getEvents, getEventTypes, getOverduePayments, hasEventsBefore } from "@/lib/calendar/events";
+import { PAST_CHUNK_DAYS, UPCOMING_DAYS, uniqueEvents } from "@/lib/events-tabs";
 import { addDays, localNow } from "@/lib/time";
 import EventsPanel from "@/components/EventsPanel";
 import { isMobileRequest } from "@/lib/device";
@@ -15,13 +16,16 @@ export default async function EventsPage() {
   if (!userId) return null;
   const timezone = await userTimezone(supabase, userId);
   const today = localNow(timezone).date;
-  const [all, eventTypes, finance] = await Promise.all([
-    getEvents(supabase, userId, addDays(today, -60), addDays(today, 60), timezone),
+  const pastFrom = addDays(today, -PAST_CHUNK_DAYS);
+  const [window, overdueAll, morePast, eventTypes, finance] = await Promise.all([
+    getEvents(supabase, userId, pastFrom, addDays(today, UPCOMING_DAYS), timezone),
+    getOverduePayments(supabase, userId, today, timezone),
+    hasEventsBefore(supabase, userId, pastFrom),
     getEventTypes(supabase, userId),
     getFinanceOptions(supabase, userId),
   ]);
-  // Upcoming events, plus past payments still waiting to be marked paid (so you can still pay them here)
-  const events = all.filter((e) => e.end_date >= today || (e.is_payment && !e.payment_status));
+  // Upcoming + the last 90 days; overdue payments of any age are added so they can still be paid
+  const events = uniqueEvents([...window, ...overdueAll]);
 
   return (
     <>
@@ -30,10 +34,10 @@ export default async function EventsPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Events</h1>
           <p className="text-sm text-muted">
             Dated things, in their own layer over your blocks (they may overlap them). Without a time they are notes of the
-            day. Next 60 days.
+            day. Upcoming shows the next 60 days; Past keeps the history.
           </p>
         </div>
-        <EventsPanel events={events} eventTypes={eventTypes} today={today} finance={finance} readOnly={await isMobileRequest()} />
+        <EventsPanel events={events} pastFrom={pastFrom} morePast={morePast} eventTypes={eventTypes} today={today} finance={finance} readOnly={await isMobileRequest()} />
       </main>
     </>
   );
