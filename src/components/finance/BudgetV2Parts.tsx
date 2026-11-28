@@ -1,9 +1,11 @@
 "use client";
-// Budget v2 (BL-124) on the Finance page: the real-money check with its Fix button, and the debts you owe.
+// Budget v2 (BL-124) on the Finance page: the real-money check with its Fix button, the debts you owe, and money
+// taken out of the savings account ("used" or "borrowed", asked each time; not answered counts as used).
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { addBudgetCorrection, addDebt, payDebt, removeDebt, undoLastCorrection } from "@/app/budget-actions";
+import { addBudgetCorrection, addDebt, markSavingsWithdrawal, payDebt, removeDebt, undoLastCorrection } from "@/app/budget-actions";
 import type { Debt } from "@/lib/budget/data";
+import type { SavingsWithdrawal } from "@/lib/budget/calc";
 
 const usd = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 const input = "rounded-md border border-line-strong px-2.5 py-1.5 text-sm";
@@ -219,6 +221,65 @@ export function DebtsCard({
           + Add a debt
         </button>
       )}
+      {error && <p className="text-xs text-danger">{error}</p>}
+    </div>
+  );
+}
+
+/**
+ * Money taken out of the savings account since the start date. Each one asks: Used it (Savings goes down) or
+ * Borrowed (Savings stays, put it back: it is part of "to move"). Not answered = used. Can be changed any time.
+ */
+export function SavingsWithdrawals({
+  withdrawals,
+  accountName,
+  savingsName,
+  savingsAccountName,
+}: {
+  withdrawals: SavingsWithdrawal[];
+  accountName: Record<string, string>;
+  savingsName: string;
+  savingsAccountName: string;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  if (withdrawals.length === 0) return null;
+  const mark = (id: string, kind: "used" | "borrowed") =>
+    start(async () => {
+      setError(null);
+      const r = await markSavingsWithdrawal(id, kind).catch((e: unknown) => ({ error: e instanceof Error ? e.message : "Could not save it." }));
+      if (r.error) return setError(r.error);
+      router.refresh();
+    });
+  const open = withdrawals.filter((w) => w.kind === null);
+  return (
+    <div className="space-y-1.5 border-t border-line pt-2">
+      <p className="text-xs font-medium">Taken out of {savingsAccountName}</p>
+      {open.length > 0 && (
+        <p className="text-xs text-warning">
+          {open.length === 1 ? "One withdrawal is" : `${open.length} withdrawals are`} waiting for an answer. Until you answer, it counts as used (your {savingsName} goes down).
+        </p>
+      )}
+      <ul className="divide-y divide-line text-sm">
+        {withdrawals.map((w) => (
+          <li key={w.id} className="flex flex-wrap items-center gap-2 py-1.5">
+            <span className="w-12 shrink-0 text-xs text-muted">{w.localDate.slice(5)}</span>
+            <span className="min-w-0 flex-1 truncate">
+              {usd(w.amount)} <span className="text-xs text-muted">to {accountName[w.toAccountId] ?? "another account"}</span>
+            </span>
+            <span className={`text-xs ${w.kind === null ? "text-warning" : "text-muted"}`}>
+              {w.kind === "borrowed" ? "borrowed: put it back" : w.kind === "used" ? "used" : "used? borrowed?"}
+            </span>
+            <button type="button" disabled={pending} onClick={() => mark(w.id, "used")} className={`${btn} ${w.kind === "used" ? "border-accent bg-accent-soft" : ""}`} title={`Spent it: ${savingsName} goes down`}>
+              Used it
+            </button>
+            <button type="button" disabled={pending} onClick={() => mark(w.id, "borrowed")} className={`${btn} ${w.kind === "borrowed" ? "border-accent bg-accent-soft" : ""}`} title={`${savingsName} stays; it shows in "to move" until you put it back`}>
+              Borrowed
+            </button>
+          </li>
+        ))}
+      </ul>
       {error && <p className="text-xs text-danger">{error}</p>}
     </div>
   );

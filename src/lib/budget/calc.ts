@@ -33,6 +33,8 @@ export type BudgetTxn = {
 };
 
 export type Correction = { amount: number; target: "spending" | "savings" };
+/** A transfer out of the savings account since the start date, and what the user said it was (null = not answered: used). */
+export type SavingsWithdrawal = { id: string; amount: number; localDate: string; toAccountId: string; kind: "used" | "borrowed" | null };
 
 export type BudgetInput = {
   settings: BudgetSettings;
@@ -51,6 +53,8 @@ export type BudgetInput = {
   accountsTotal?: number | null;
   /** The savings account's real balance (null = no savings account chosen). */
   savingsAccountBalance?: number | null;
+  /** Transfers out of the savings account since the start date (BL-124 follow-up, migration 0080). */
+  savingsWithdrawals?: SavingsWithdrawal[];
   /** The low month the plan is sized on (0 = no plan). */
   planIncome?: number;
   /** The first savings goal (0 = none). */
@@ -100,6 +104,13 @@ export type BudgetResult = {
   /** Savings in the savings account, and what still has to be moved there (0 when it is all there). */
   inSavingsAccount: number | null;
   toMove: number;
+  /** Taken out of savings and spent ("used", or not answered yet): lowers Savings, back in Spending money. */
+  usedSavings: number;
+  /** Taken out of savings to put back ("borrowed"): Savings stays, it is part of "to move". */
+  borrowedSavings: number;
+  /** Put into the savings account beyond what was asked: extra savings, taken from Spending money. */
+  extraSaved: number;
+  withdrawals: SavingsWithdrawal[];
   /** Work pay logged this calendar month, and the "good month" suggestion (BL-124 decision 12). */
   monthWorkPay: number;
   goodMonth: { extra: number; suggest: number } | null;
@@ -183,16 +194,25 @@ export function computeBudget(input: BudgetInput): BudgetResult {
   const corrSpending = r2(corrections.filter((c) => c.target === "spending").reduce((n, c) => n + c.amount, 0));
   const corrSavings = r2(corrections.filter((c) => c.target === "savings").reduce((n, c) => n + c.amount, 0));
 
-  const spendingMoney = r2(s.opening_spending + income + otherIncome + adjIn - adjOut - saved - fixed - spent - customTotal + corrSpending);
-  const savingsTotal = r2(s.opening_savings + saved + corrSavings);
+  // Savings and the savings account (BL-124 follow-up): a "used" withdrawal lowers Savings and gives the money back to
+  // Spending money; a "borrowed" one keeps Savings (it shows up in "to move"). Deposits first cover what is to move;
+  // anything above that is extra savings, taken from Spending money. So Savings + Spending money stay the real money.
+  const withdrawals = (input.savingsWithdrawals ?? []).filter((w) => w.localDate >= s.start_date && w.localDate <= today);
+  const usedSavings = r2(withdrawals.filter((w) => w.kind !== "borrowed").reduce((n, w) => n + w.amount, 0));
+  const borrowedSavings = r2(withdrawals.filter((w) => w.kind === "borrowed").reduce((n, w) => n + w.amount, 0));
+  const savingsBase = r2(s.opening_savings + saved + corrSavings - usedSavings);
+  const inSavingsAccount = input.savingsAccountBalance ?? null;
+  const extraSaved = inSavingsAccount === null ? 0 : r2(Math.max(0, inSavingsAccount - savingsBase));
+  const toMove = inSavingsAccount === null ? 0 : r2(Math.max(0, savingsBase - inSavingsAccount));
+
+  const spendingMoney = r2(s.opening_spending + income + otherIncome + adjIn - adjOut - saved - fixed - spent - customTotal + corrSpending + usedSavings - extraSaved);
+  const savingsTotal = r2(savingsBase + extraSaved);
 
   const billsDue = r2(Math.max(0, input.billsDue ?? 0));
   const afterBills = r2(spendingMoney - billsDue);
   const budgetTotal = r2(spendingMoney + savingsTotal + envelopesHeld);
   const accountsTotal = input.accountsTotal ?? null;
   const gap = accountsTotal === null || accountsTotal === undefined ? null : r2(accountsTotal - budgetTotal);
-  const inSavingsAccount = input.savingsAccountBalance ?? null;
-  const toMove = inSavingsAccount === null ? 0 : r2(Math.max(0, savingsTotal - inSavingsAccount));
 
   const month = monthRange(today);
   const monthWorkPay = r2(incomeRows.filter((r) => r.txn.localDate >= month.start && r.txn.localDate < month.end).reduce((n, r) => n + r.txn.amount, 0));
@@ -217,7 +237,9 @@ export function computeBudget(input: BudgetInput): BudgetResult {
     ` − ${usd(spent)} spent` +
     (adjOut !== 0 ? ` − ${usd(adjOut)} lost (adjustments)` : "") +
     custom.map((c) => ` − ${usd(c.total)} ${c.name}`).join("") +
-    (corrSpending > 0 ? ` + ${usd(corrSpending)} fixes` : corrSpending < 0 ? ` − ${usd(-corrSpending)} fixes` : "");
+    (corrSpending > 0 ? ` + ${usd(corrSpending)} fixes` : corrSpending < 0 ? ` − ${usd(-corrSpending)} fixes` : "") +
+    (usedSavings !== 0 ? ` + ${usd(usedSavings)} taken from ${s.savings_name}` : "") +
+    (extraSaved !== 0 ? ` − ${usd(extraSaved)} extra to ${s.savings_name}` : "");
   sp.push(body, ` = ${usd(spendingMoney)}`);
 
   const savingsMath =
@@ -227,6 +249,8 @@ export function computeBudget(input: BudgetInput): BudgetResult {
     (skippedCount > 0 ? `, ${skippedCount} skipped` : "") +
     `)` +
     (corrSavings > 0 ? ` + ${usd(corrSavings)} fixes` : corrSavings < 0 ? ` − ${usd(-corrSavings)} fixes` : "") +
+    (usedSavings !== 0 ? ` − ${usd(usedSavings)} used` : "") +
+    (extraSaved !== 0 ? ` + ${usd(extraSaved)} extra put in` : "") +
     ` = ${usd(savingsTotal)}`;
 
   const fixedMath = `${s.fixed_name} = ${usd(fixedFromPayments)} from recurring payments + ${usd(fixedFromPets)} from Pets = ${usd(fixed)}`;
@@ -263,6 +287,10 @@ export function computeBudget(input: BudgetInput): BudgetResult {
     gap,
     inSavingsAccount,
     toMove,
+    usedSavings,
+    borrowedSavings,
+    extraSaved,
+    withdrawals,
     monthWorkPay,
     goodMonth,
     cushion,

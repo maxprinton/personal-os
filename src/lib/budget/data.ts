@@ -2,7 +2,7 @@
 // A missing table (migration 0074 not run yet) is reported, never thrown, so the page keeps working.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { utcToLocal } from "@/lib/time";
-import type { BudgetSettings, BudgetTxn, Correction } from "@/lib/budget/calc";
+import type { BudgetSettings, BudgetTxn, Correction, SavingsWithdrawal } from "@/lib/budget/calc";
 
 /** BL-124 (migration 0079): the settings beyond BL-117. All optional: without 0079 they read as "not set". */
 export type BudgetV2 = { savingsAccountId: string | null; planIncome: number; cushionTarget: number };
@@ -19,7 +19,7 @@ export type BudgetState =
   | { kind: "missing" }
   | { kind: "error"; message: string }
   | { kind: "empty" }
-  | { kind: "ready"; settings: BudgetSettings; txns: BudgetTxn[]; skipped: string[]; v2: BudgetV2; corrections: Correction[]; debts: Debt[] | null };
+  | { kind: "ready"; settings: BudgetSettings; txns: BudgetTxn[]; skipped: string[]; v2: BudgetV2; corrections: Correction[]; debts: Debt[] | null; withdrawals: SavingsWithdrawal[] };
 
 const num = (v: unknown) => Number(v ?? 0);
 
@@ -75,6 +75,28 @@ export async function loadBudget(sb: SupabaseClient, userId: string, tz: string)
     planIncome: num(row.plan_income),
     cushionTarget: num(row.cushion_target),
   };
+  // Transfers out of the savings account since the start, with the user's "used / borrowed" answer (0080)
+  let withdrawals: SavingsWithdrawal[] = [];
+  if (v2.savingsAccountId) {
+    const tr = await sb
+      .from("transfers")
+      .select("id,amount,occurred_at,to_account_id")
+      .eq("user_id", userId)
+      .eq("from_account_id", v2.savingsAccountId)
+      .is("deleted_at", null)
+      .gte("occurred_at", from)
+      .order("occurred_at", { ascending: false })
+      .limit(500);
+    const rows = (tr.error ? [] : tr.data ?? []) as { id: string; amount: number | string; occurred_at: string; to_account_id: string }[];
+    const marks = new Map<string, "used" | "borrowed">();
+    if (rows.length) {
+      const mk = await sb.from("budget_savings_withdrawals").select("transfer_id,kind").eq("user_id", userId).in("transfer_id", rows.map((r) => r.id));
+      for (const m of (mk.error ? [] : mk.data ?? []) as { transfer_id: string; kind: string }[]) marks.set(m.transfer_id, m.kind === "borrowed" ? "borrowed" : "used");
+    }
+    withdrawals = rows
+      .map((r) => ({ id: r.id, amount: num(r.amount), localDate: utcToLocal(r.occurred_at, tz).date, toAccountId: r.to_account_id, kind: marks.get(r.id) ?? null }))
+      .filter((w) => w.localDate >= settings.start_date);
+  }
   const err = k.error ?? t.error;
   if (err) return isMissingBudget(err) ? { kind: "missing" } : { kind: "error", message: err.message };
   const txns = ((t.data ?? []) as { id: string; type: "income" | "expense"; amount: number | string; category_id: string | null; description: string | null; occurred_at: string; payment_template_id: string | null }[])
@@ -88,5 +110,5 @@ export async function loadBudget(sb: SupabaseClient, userId: string, tz: string)
       payment_template_id: x.payment_template_id,
     }))
     .filter((x) => x.localDate >= settings.start_date);
-  return { kind: "ready", settings, txns, skipped: ((k.data ?? []) as { transaction_id: string }[]).map((x) => x.transaction_id), v2, corrections, debts };
+  return { kind: "ready", settings, txns, skipped: ((k.data ?? []) as { transaction_id: string }[]).map((x) => x.transaction_id), v2, corrections, debts, withdrawals };
 }

@@ -275,6 +275,51 @@ test("BL-124: savings vs the savings account: what still has to be moved", () =>
   assert.equal(v2([tx("income", 93, "2026-12-05", GIGS)]).toMove, 0);
 });
 
+test("BL-124: money taken out of savings: used lowers Savings, borrowed keeps it (to move), not answered = used", () => {
+  const pay = tx("income", 100, "2026-12-05", GIGS); // 20 saved
+  const w = (kind: "used" | "borrowed" | null) => [{ id: "w1", amount: 15, localDate: "2026-12-10", toAccountId: "acc-main", kind }];
+  // Ahorro got the $20, then $15 went out: it holds $5
+  const used = v2([pay], { savingsAccountBalance: 5, savingsWithdrawals: w("used") });
+  assert.equal(used.savingsTotal, 5);
+  assert.equal(used.toMove, 0);
+  assert.equal(used.spendingMoney, r2(100 - 20 + 15));
+  assert.equal(used.usedSavings, 15);
+  assert.match(used.math.savings, /− \$15 used/);
+  assert.match(used.math.spending, /\+ \$15 taken from Savings/);
+  const open = v2([pay], { savingsAccountBalance: 5, savingsWithdrawals: w(null) });
+  assert.equal(open.savingsTotal, 5);
+  assert.equal(open.usedSavings, 15);
+  const borrowed = v2([pay], { savingsAccountBalance: 5, savingsWithdrawals: w("borrowed") });
+  assert.equal(borrowed.savingsTotal, 20);
+  assert.equal(borrowed.toMove, 15);
+  assert.equal(borrowed.borrowedSavings, 15);
+  assert.equal(borrowed.spendingMoney, 80);
+  // Either way Savings + Spending money = the same real money (100)
+  assert.equal(r2(used.savingsTotal + used.spendingMoney), 100);
+  assert.equal(r2(borrowed.savingsTotal + borrowed.spendingMoney), 100);
+});
+
+test("BL-124: putting more into savings than asked counts as extra savings, taken from Spending money", () => {
+  const r = v2([tx("income", 100, "2026-12-05", GIGS)], { savingsAccountBalance: 60 });
+  assert.equal(r.extraSaved, 40);
+  assert.equal(r.savingsTotal, 60);
+  assert.equal(r.spendingMoney, 40);
+  assert.equal(r.toMove, 0);
+  assert.match(r.math.savings, /\+ \$40 extra put in/);
+  assert.ok(r.math.spending.endsWith(`= ${usd(r.spendingMoney)}`));
+  // A deposit first pays back what was borrowed: $15 borrowed, Ahorro back to $20 = nothing extra, nothing to move
+  const back = v2([tx("income", 100, "2026-12-05", GIGS)], { savingsAccountBalance: 20, savingsWithdrawals: [{ id: "w", amount: 15, localDate: "2026-12-10", toAccountId: "a", kind: "borrowed" }] });
+  assert.equal(back.extraSaved, 0);
+  assert.equal(back.toMove, 0);
+  assert.equal(back.savingsTotal, 20);
+});
+
+test("BL-124: withdrawals before the start date are ignored", () => {
+  const r = v2([], { savingsAccountBalance: 0, savingsWithdrawals: [{ id: "w", amount: 9, localDate: "2026-11-20", toAccountId: "a", kind: null }] });
+  assert.equal(r.usedSavings, 0);
+  assert.equal(r.withdrawals.length, 0);
+});
+
 test("BL-124: after bills, good month and cushion", () => {
   const r = v2([tx("income", 400, "2026-12-05", GIGS)], { billsDue: 54.98, planIncome: 320, cushionTarget: 250 });
   assert.equal(r.afterBills, r2(r.spendingMoney - 54.98));

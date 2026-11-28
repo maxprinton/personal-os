@@ -7,7 +7,7 @@ import { MISSING_BUDGET, type BudgetState } from "@/lib/budget/data";
 import { affordNext, computeBudget, usd, type AffordItem, type BudgetTxn, type EnvelopeInput } from "@/lib/budget/calc";
 import { categoriesOf, envelopeCharge, envelopeName, holdsMoney, type BudgetRow, type LimitChange } from "@/lib/budget-rollover";
 import BudgetSetup, { type SetupInitial } from "@/components/finance/BudgetSetup";
-import { DebtsCard, RealMoneyCheck } from "@/components/finance/BudgetV2Parts";
+import { DebtsCard, RealMoneyCheck, SavingsWithdrawals } from "@/components/finance/BudgetV2Parts";
 
 type Cat = { id: string; name: string };
 type Tpl = { name: string; expected: number | null };
@@ -117,7 +117,8 @@ export default function BudgetSection({
     );
   }
 
-  const { settings: s, txns, skipped, v2, corrections, debts } = state;
+  const { settings: s, txns, skipped, v2, corrections, debts, withdrawals } = state;
+  const accountName = Object.fromEntries(accounts.map((a) => [a.id, a.name]));
   const counted = txns.filter((t) => t.localDate >= s.start_date && t.localDate <= today);
   // Percentage envelopes take their share of the work pay (the income that gets the savings %)
   const ctx = { workPayIds: new Set(s.counted_category_ids), planIncome: v2.planIncome };
@@ -141,6 +142,7 @@ export default function BudgetSection({
     billsDue: billsDue.total,
     accountsTotal,
     savingsAccountBalance: savingsAccount ? savingsAccount.balance : null,
+    savingsWithdrawals: withdrawals,
     planIncome: v2.planIncome,
     cushionTarget: v2.cushionTarget,
   });
@@ -205,8 +207,14 @@ export default function BudgetSection({
 
       {savingsAccount && r.toMove > 0 && (
         <p className="rounded-lg border border-warning/40 bg-warning-soft p-3 text-sm text-warning">
-          Move {usd(r.toMove)} to {savingsAccount.name}: your {s.savings_name} is {usd(r.savingsTotal)} on paper, but only {usd(savingsAccount.balance)} is there. Log it as a transfer
-          and this line goes away.
+          Move {usd(r.toMove)} to {savingsAccount.name}: your {s.savings_name} is {usd(r.savingsTotal)} on paper, but only {usd(savingsAccount.balance)} is there
+          {r.borrowedSavings > 0 ? ` (this includes ${usd(r.borrowedSavings)} you borrowed from it)` : ""}. Log it as a transfer and this line goes away.
+        </p>
+      )}
+
+      {savingsAccount && r.withdrawals.some((w) => w.kind === null) && (
+        <p className="rounded-lg border border-warning/40 bg-warning-soft p-3 text-sm text-warning">
+          You took money out of {savingsAccount.name}. Was it used (spent) or borrowed (you&apos;ll put it back)? Answer under {s.savings_name} below.
         </p>
       )}
 
@@ -264,6 +272,14 @@ export default function BudgetSection({
           </div>
           <p className="text-xs text-muted">{s.savings_percent}% of each work payment (the income categories you picked). Other income is not split. You can skip it on one payment.</p>
           <p className="break-words text-xs tabular-nums">{r.math.savings}</p>
+          {savingsAccount && (
+            <p className="text-xs text-muted">
+              Money in {savingsAccount.name} beyond what is asked counts as extra savings. Taking money out asks you each time: used (it lowers {s.savings_name}) or borrowed (put it back).
+            </p>
+          )}
+          {savingsAccount && (
+            <SavingsWithdrawals withdrawals={r.withdrawals} accountName={accountName} savingsName={s.savings_name} savingsAccountName={savingsAccount.name} />
+          )}
           <details>
             <summary className="cursor-pointer text-xs text-accent">See each payment</summary>
             {r.incomeRows.length === 0 ? (

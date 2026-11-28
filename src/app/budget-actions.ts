@@ -243,3 +243,26 @@ export async function payDebt(input: { debtId: string; amount: string; accountId
     return fail(e);
   }
 }
+
+/**
+ * Money taken out of the savings account (BL-124 follow-up, migration 0080): "used" lowers Savings,
+ * "borrowed" keeps it and asks you to put it back. Only transfers out of your savings account can be marked.
+ */
+export async function markSavingsWithdrawal(transferId: string, kind: string): Promise<BudgetResult> {
+  try {
+    const k = kind === "borrowed" ? "borrowed" : "used";
+    const c = await ctx();
+    const { data: st } = await c.sb.from("budget_settings").select("savings_account_id").eq("user_id", c.userId).maybeSingle();
+    const sid = (st as { savings_account_id?: string | null } | null)?.savings_account_id ?? null;
+    if (!sid) return { error: "Pick your savings account in Budget settings first." };
+    const { data: tr } = await c.sb.from("transfers").select("id,from_account_id").eq("id", transferId).eq("user_id", c.userId).is("deleted_at", null).maybeSingle();
+    if (!tr) return { error: "That transfer is gone. Reload the page." };
+    if (tr.from_account_id !== sid) return { error: "Only money taken out of your savings account can be marked." };
+    const { error } = await c.sb.from("budget_savings_withdrawals").upsert({ transfer_id: transferId, user_id: c.userId, kind: k }, { onConflict: "transfer_id" });
+    if (error) return { error: /budget_savings_withdrawals/.test(error.message) ? "This needs migration 0080 (MIGRACION-0080-savings-withdrawals.sql)." : error.message };
+    revalidatePath("/finance");
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
