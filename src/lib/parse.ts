@@ -25,13 +25,18 @@ export type Parsed =
 // One amount: 12 · 12.50 · 12,5 · 1.500 (thousands) · 1.234,56 — see AMOUNT in lib/bot/text.ts
 const NUM = String.raw`\$?\s*${AMOUNT}\s*(?:usd|dollars?|dólares?|dolares?|\$)?`;
 
+// Order matters: the first category whose word appears wins. Travel comes first so "taxi travel" is a trip (BL-124);
+// a plain "taxi" stays Transport. Only categories the user really has are used.
 const CATEGORY_WORDS: Record<string, string[]> = {
+  Travel: ["travel", "trip", "viaje", "viajes"],
   Food: ["lunch", "dinner", "breakfast", "coffee", "groceries", "grocery", "restaurant", "food", "pizza", "snack",
     "almuerzo", "comida", "cena", "desayuno", "café", "cafe", "supermercado", "mercado"],
   Transport: ["uber", "taxi", "bus", "gas", "fuel", "parking", "metro", "gasolina", "pasaje", "transporte", "peaje"],
   Home: ["rent", "electricity", "water bill", "internet", "arriendo", "alquiler", "luz", "agua", "casa"],
   Health: ["pharmacy", "doctor", "medicine", "gym", "dentist", "farmacia", "medicina", "médico", "medico", "gimnasio"],
   Fun: ["movie", "cinema", "netflix", "spotify", "bar", "beer", "game", "cine", "cerveza", "fiesta"],
+  "lv.parts": ["lv.parts", "lvparts", "lv parts", "gig", "gigs", "freelance", "freelancer"],
+  Teaching: ["teaching", "instituto"],
   Gigs: ["gig", "gigs", "freelance", "freelancer"],
   Salary: ["salary", "paycheck", "payroll", "sueldo", "salario", "nómina", "nomina"],
 };

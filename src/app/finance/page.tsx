@@ -36,7 +36,8 @@ import PurchasesSection from "@/components/finance/PurchasesSection";
 import { listPurchases } from "@/lib/purchases/data";
 import ExportForm from "@/components/finance/ExportForm";
 import CategoryBudgets, { type CategoryBudgetView, type EnvelopeCategory } from "@/components/finance/CategoryBudgets";
-import { budgetHistory, budgetStatus, categoriesOf, envelopeName } from "@/lib/budget-rollover";
+import { budgetHistory, budgetStatus, categoriesOf, envelopeName, goalProgress, holdsMoney, type EnvelopeCtx } from "@/lib/budget-rollover";
+import { billsDueThisMonth } from "@/lib/budget/calc";
 import BudgetSection from "@/components/finance/BudgetSection";
 import { loadBudget, type BudgetState } from "@/lib/budget/data";
 
@@ -114,20 +115,31 @@ export default async function FinancePage() {
     ? await loadBudget(supabase, userId, timezone).catch((e): BudgetState => ({ kind: "error", message: e instanceof Error ? e.message : "Could not load the budget." }))
     : { kind: "empty" };
   const budgetCatName = Object.fromEntries(categories.map((c) => [c.id, c.name]));
+  // BL-124: percentage envelopes take their share of the work pay (the income that gets the savings %)
+  const envCtx: EnvelopeCtx | undefined =
+    budgetState.kind === "ready" ? { workPayIds: new Set(budgetState.settings.counted_category_ids), planIncome: budgetState.v2.planIncome } : undefined;
   // Envelopes: what is available now (with rollover when it is on) and the last 6 months
-  const categoryBudgets: CategoryBudgetView[] = budgets.map((b) => ({
-    id: b.id,
-    name: envelopeName(b, (id) => budgetCatName[id]),
-    typedName: b.name ?? "",
-    period: b.period,
-    limit: b.limit_amount,
-    rollover: !!b.rollover,
-    mode: b.mode === "watch" ? "watch" : "set_aside",
-    categoryIds: categoriesOf(b),
-    categoryNames: categoriesOf(b).map((id) => budgetCatName[id] ?? "Category"),
-    status: budgetStatus(b, txns, today, budgetChanges),
-    history: budgetHistory(b, txns, today, budgetChanges),
-  }));
+  const categoryBudgets: CategoryBudgetView[] = budgets.map((b) => {
+    const status = budgetStatus(b, txns, today, budgetChanges, envCtx);
+    return {
+      id: b.id,
+      name: envelopeName(b, (id) => budgetCatName[id]),
+      typedName: b.name ?? "",
+      period: b.period,
+      limit: b.limit_amount,
+      typedLimit: b.limit_amount,
+      rollover: !!b.rollover || (b.percent != null && !!envCtx),
+      mode: b.mode === "watch" ? "watch" : "set_aside",
+      categoryIds: categoriesOf(b),
+      categoryNames: categoriesOf(b).map((id) => budgetCatName[id] ?? "Category"),
+      status,
+      history: budgetHistory(b, txns, today, budgetChanges, 6, envCtx),
+      percent: b.percent ?? null,
+      targetAmount: b.target_amount ?? null,
+      targetDate: b.target_date ?? null,
+      goal: goalProgress(b, status, today),
+    };
+  });
   const envelopeOf = new Map(budgets.flatMap((b) => categoriesOf(b).map((c) => [c, b.id] as const)));
   const envelopeCats: EnvelopeCategory[] = categories
     .filter((c) => c.kind === "expense")
@@ -147,6 +159,31 @@ export default async function FinancePage() {
   const expenseCats = categories.filter((c) => c.kind === "expense");
   const balances = accounts.map((a) => ({ account: a, ...accountBalance(a.id, snapshots, txns, transfers) }));
   const netWorth = balances.reduce((s, b) => s + b.balance, 0);
+  // BL-124: the bills still due this month (not held by a set-aside envelope), the savings account, stale balances
+  const heldCats = new Set(budgets.filter(holdsMoney).flatMap((b) => categoriesOf(b)));
+  const templateById = new Map(templates.map((t) => [t.id, t]));
+  const billsDue = billsDueThisMonth(
+    payEvents.map((e) => {
+      const t = e.payment_template_id ? templateById.get(e.payment_template_id) : undefined;
+      return {
+        event_date: e.event_date,
+        payment_status: e.payment_status,
+        payment_expected_amount: e.payment_expected_amount,
+        template: t ? { type: t.type, expected_amount: t.expected_amount === null ? null : Number(t.expected_amount), category_id: t.category_id } : null,
+      };
+    }),
+    today,
+    heldCats
+  );
+  const savingsAccountId = budgetState.kind === "ready" ? budgetState.v2.savingsAccountId : null;
+  const savingsBal = savingsAccountId ? balances.find((b) => b.account.id === savingsAccountId) : undefined;
+  const savingsAccount = savingsBal ? { id: savingsBal.account.id, name: savingsBal.account.name, balance: savingsBal.balance } : null;
+  const staleAccounts = balances
+    .filter((b) => !b.snapshotAt || utcToLocal(b.snapshotAt, timezone).date < addDays(today, -3))
+    .map((b) => b.account.name);
+  const adjustmentIds = categories.filter((c) => c.name.trim().toLowerCase() === "adjustment").map((c) => c.id);
+  const debtCat = categories.find((c) => c.kind === "expense" && c.name.trim().toLowerCase() === "debt payback");
+  const debtEnvelope = debtCat ? categoryBudgets.find((b) => b.mode === "set_aside" && b.categoryIds.includes(debtCat.id)) : undefined;
   const accountNameById = new Map(accounts.map((a) => [a.id, a.name]));
   const accountOpts = accounts.map((a) => ({ id: a.id, name: a.name }));
   const unassigned = accounts.length > 0 ? txns.filter((t) => !t.account_id) : [];
@@ -460,6 +497,14 @@ export default async function FinancePage() {
             purchases={affordItems}
             envelopes={budgets}
             envelopeChanges={budgetChanges}
+            adjustmentIds={adjustmentIds}
+            accountsTotal={netWorth}
+            savingsAccount={savingsAccount}
+            billsDue={billsDue}
+            staleAccounts={staleAccounts}
+            accounts={accountOpts}
+            debtEnvelopeLeft={debtEnvelope ? debtEnvelope.status.left : null}
+            debtCategoryExists={!!debtCat}
           />
 
           <section className="space-y-3" id="envelopes">

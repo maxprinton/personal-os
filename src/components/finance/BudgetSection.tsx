@@ -1,10 +1,13 @@
 // Budget with buckets on the Finance page (BL-117): settings button and summary on top, the buckets each with their math (envelopes as one line),
 // and what the Needs & Wants list can afford next. One screen, top to bottom. Every number has a way to see where it comes from.
+// Budget v2 (BL-124): all income counts, savings vs the savings account ("to move"), Spending money after bills,
+// the real-money check with Fix, the good-month suggestion, the cushion goal and the debts you owe.
 import { setSavingSkip } from "@/app/budget-actions";
 import { MISSING_BUDGET, type BudgetState } from "@/lib/budget/data";
 import { affordNext, computeBudget, usd, type AffordItem, type BudgetTxn, type EnvelopeInput } from "@/lib/budget/calc";
 import { categoriesOf, envelopeCharge, envelopeName, holdsMoney, type BudgetRow, type LimitChange } from "@/lib/budget-rollover";
 import BudgetSetup, { type SetupInitial } from "@/components/finance/BudgetSetup";
+import { DebtsCard, RealMoneyCheck } from "@/components/finance/BudgetV2Parts";
 
 type Cat = { id: string; name: string };
 type Tpl = { name: string; expected: number | null };
@@ -37,6 +40,14 @@ export default function BudgetSection({
   purchases,
   envelopes,
   envelopeChanges,
+  adjustmentIds = [],
+  accountsTotal = null,
+  savingsAccount = null,
+  billsDue = { total: 0, count: 0 },
+  staleAccounts = [],
+  accounts = [],
+  debtEnvelopeLeft = null,
+  debtCategoryExists = false,
 }: {
   state: BudgetState;
   today: string;
@@ -48,6 +59,15 @@ export default function BudgetSection({
   /** The Envelopes list (migration 0077): what each one takes out of Spending money is worked out here. */
   envelopes: BudgetRow[];
   envelopeChanges: LimitChange[];
+  /** BL-124 */
+  adjustmentIds?: string[];
+  accountsTotal?: number | null;
+  savingsAccount?: { id: string; name: string; balance: number } | null;
+  billsDue?: { total: number; count: number };
+  staleAccounts?: string[];
+  accounts?: { id: string; name: string }[];
+  debtEnvelopeLeft?: number | null;
+  debtCategoryExists?: boolean;
 }) {
   if (state.kind === "missing") {
     return (
@@ -70,16 +90,20 @@ export default function BudgetSection({
     incomeCategories,
     templates,
     hasPets: petsCategoryId !== null,
+    accounts,
   };
 
   if (state.kind === "empty") {
     const initial: SetupInitial = {
       startDate: today,
       percent: "10",
-      counted: incomeCategories.filter((c) => /gig|freelance|salary/i.test(c.name)).map((c) => c.id),
+      counted: incomeCategories.filter((c) => /gig|freelance|salary|lv\.?parts|teaching/i.test(c.name)).map((c) => c.id),
       openingSpending: "0",
       openingSavings: "0",
       names: ["Savings", "Fixed costs", "Spending money"],
+      savingsAccountId: "",
+      planIncome: "0",
+      cushionTarget: "0",
     };
     return (
       <section className="space-y-3">
@@ -93,17 +117,34 @@ export default function BudgetSection({
     );
   }
 
-  const { settings: s, txns, skipped } = state;
+  const { settings: s, txns, skipped, v2, corrections, debts } = state;
   const counted = txns.filter((t) => t.localDate >= s.start_date && t.localDate <= today);
+  // Percentage envelopes take their share of the work pay (the income that gets the savings %)
+  const ctx = { workPayIds: new Set(s.counted_category_ids), planIncome: v2.planIncome };
   // "Just watch" envelopes hold no money: their payments stay in Fixed costs / spending
   const envInputs: EnvelopeInput[] = envelopes.filter(holdsMoney).map((e) => ({
     id: e.id,
     name: envelopeName(e, (id) => catName[id]),
     categoryIds: categoriesOf(e),
     monthly: e.limit_amount,
-    charge: envelopeCharge(e, counted, today, envelopeChanges, s.start_date),
+    charge: envelopeCharge(e, counted, today, envelopeChanges, s.start_date, ctx),
   }));
-  const r = computeBudget({ settings: s, envelopes: envInputs, txns, skipped: new Set(skipped), petsCategoryId, today });
+  const r = computeBudget({
+    settings: s,
+    envelopes: envInputs,
+    txns,
+    skipped: new Set(skipped),
+    petsCategoryId,
+    today,
+    adjustmentIds: new Set(adjustmentIds),
+    corrections,
+    billsDue: billsDue.total,
+    accountsTotal,
+    savingsAccountBalance: savingsAccount ? savingsAccount.balance : null,
+    planIncome: v2.planIncome,
+    cushionTarget: v2.cushionTarget,
+  });
+  const started = today >= s.start_date;
   const afford = affordNext(purchases, r.spendingMoney);
   const initial: SetupInitial = {
     startDate: s.start_date,
@@ -112,6 +153,9 @@ export default function BudgetSection({
     openingSpending: String(s.opening_spending),
     openingSavings: String(s.opening_savings),
     names: [s.savings_name, s.fixed_name, s.spending_name],
+    savingsAccountId: v2.savingsAccountId ?? "",
+    planIncome: String(v2.planIncome),
+    cushionTarget: String(v2.cushionTarget),
   };
 
   return (
@@ -124,13 +168,66 @@ export default function BudgetSection({
           <p className="text-sm opacity-70">{s.spending_name}</p>
           <p className={`font-display text-3xl font-bold tabular-nums tracking-tight ${r.spendingMoney < 0 ? "text-danger" : ""}`}>{r.spendingMoney < 0 ? `${usd(r.spendingMoney)} over` : usd(r.spendingMoney)}</p>
           <p className="text-xs opacity-70">what is left to spend</p>
+          {billsDue.count > 0 && (
+            <p className="mt-1 text-xs tabular-nums opacity-80">
+              {r.afterBills < 0 ? `${usd(r.afterBills)} over` : usd(r.afterBills)} after {billsDue.count} bill{billsDue.count > 1 ? "s" : ""} still due this month ({usd(r.billsDue)})
+            </p>
+          )}
         </div>
         <div className="rounded-2xl bg-subtle px-5 py-4">
           <p className="text-sm text-muted">{s.savings_name}</p>
           <p className="font-display text-3xl font-bold tabular-nums tracking-tight">{usd(r.savingsTotal)}</p>
           <p className="text-xs text-muted">set aside since {s.start_date}</p>
+          {savingsAccount && (
+            <p className="mt-1 text-xs tabular-nums text-muted">
+              in {savingsAccount.name} {usd(savingsAccount.balance)}
+              {r.toMove > 0 && <span className="font-medium text-warning"> · to move {usd(r.toMove)}</span>}
+            </p>
+          )}
+          {r.cushion && (
+            <div className="mt-1.5 space-y-0.5">
+              <div className="h-1.5 overflow-hidden rounded-full bg-subtle-2">
+                <div className="h-1.5 rounded-full bg-success-solid" style={{ width: `${r.cushion.pct}%` }} />
+              </div>
+              <p className="text-xs tabular-nums text-muted">
+                {r.cushion.left === 0 ? `Cushion of ${usd(r.cushion.target)} reached ✓` : `${r.cushion.pct}% of the ${usd(r.cushion.target)} cushion · ${usd(r.cushion.left)} to go`}
+              </p>
+            </div>
+          )}
         </div>
       </div>
+
+      {!started && (
+        <p className="rounded-lg border border-line bg-subtle p-3 text-sm text-muted">
+          This budget starts on {s.start_date}. Until then only the starting money shows. Set your real balances the night before, then put them in Budget settings → Starting money.
+        </p>
+      )}
+
+      {savingsAccount && r.toMove > 0 && (
+        <p className="rounded-lg border border-warning/40 bg-warning-soft p-3 text-sm text-warning">
+          Move {usd(r.toMove)} to {savingsAccount.name}: your {s.savings_name} is {usd(r.savingsTotal)} on paper, but only {usd(savingsAccount.balance)} is there. Log it as a transfer
+          and this line goes away.
+        </p>
+      )}
+
+      {r.goodMonth && savingsAccount && (
+        <p className="rounded-lg border border-success/30 bg-success-soft p-3 text-sm text-success">
+          You earned {usd(r.goodMonth.extra)} over your {usd(v2.planIncome)} plan this month. Move {usd(r.goodMonth.suggest)} to {savingsAccount.name}? (Only a suggestion: nothing is moved
+          for you.)
+        </p>
+      )}
+
+      {r.gap !== null && r.accountsTotal !== null && started && (
+        <RealMoneyCheck
+          budgetTotal={r.budgetTotal}
+          accountsTotal={r.accountsTotal}
+          gap={r.gap}
+          stale={staleAccounts}
+          spendingName={s.spending_name}
+          savingsName={s.savings_name}
+          hasCorrections={corrections.length > 0}
+        />
+      )}
 
       <div className="space-y-3">
         <div className="space-y-1 rounded-lg border border-line bg-surface p-3 shadow-card">
@@ -138,12 +235,26 @@ export default function BudgetSection({
             <p className="font-medium">{s.spending_name}</p>
             <p className="text-sm tabular-nums">{money(r.spendingMoney)}</p>
           </div>
-          <p className="text-xs text-muted">What is left of your counted income after saving, fixed costs and everything else you spent.</p>
+          <p className="text-xs text-muted">What is left of all your income after saving, fixed costs, envelopes and everything else you spent. Balance adjustments count both ways.</p>
           <p className="break-words text-xs tabular-nums">{r.math.spending}</p>
           <details>
             <summary className="cursor-pointer text-xs text-accent">See what you spent</summary>
             <TxnList rows={r.spentRows} catName={catName} />
           </details>
+          {r.otherIncomeRows.length > 0 && (
+            <details>
+              <summary className="cursor-pointer text-xs text-accent">See other income ({usd(r.otherIncome)})</summary>
+              <TxnList rows={r.otherIncomeRows} catName={catName} />
+            </details>
+          )}
+          {r.adjRows.length > 0 && (
+            <details>
+              <summary className="cursor-pointer text-xs text-accent">
+                See balance adjustments (+{usd(r.adjIn)} / −{usd(r.adjOut)})
+              </summary>
+              <TxnList rows={r.adjRows} catName={catName} />
+            </details>
+          )}
         </div>
 
         <div className="space-y-1 rounded-lg border border-line bg-surface p-3 shadow-card">
@@ -151,12 +262,12 @@ export default function BudgetSection({
             <p className="font-medium">{s.savings_name}</p>
             <p className="text-sm tabular-nums">{usd(r.savingsTotal)}</p>
           </div>
-          <p className="text-xs text-muted">{s.savings_percent}% of each payment from your counted income categories. You can skip it on one payment.</p>
+          <p className="text-xs text-muted">{s.savings_percent}% of each work payment (the income categories you picked). Other income is not split. You can skip it on one payment.</p>
           <p className="break-words text-xs tabular-nums">{r.math.savings}</p>
           <details>
             <summary className="cursor-pointer text-xs text-accent">See each payment</summary>
             {r.incomeRows.length === 0 ? (
-              <p className="px-1 py-2 text-xs text-faint">No counted payments since the start date.</p>
+              <p className="px-1 py-2 text-xs text-faint">No work payments since the start date.</p>
             ) : (
               <ul className="divide-y divide-line text-sm">
                 {r.incomeRows.map((row) => (
@@ -210,6 +321,8 @@ export default function BudgetSection({
             <TxnList rows={r.envelopeRows} catName={catName} />
           </details>
         </div>
+
+        {debts !== null && <DebtsCard debts={debts} accounts={accounts} today={today} hasCategory={debtCategoryExists} envelopeLeft={debtEnvelopeLeft} />}
       </div>
 
       <div className="space-y-1.5">

@@ -1,6 +1,7 @@
 "use client";
 // Budget setup (BL-117). The first time: one short step at a time. After that, "Budget settings" opens every
 // answer on one screen so any one of them can be changed directly (27 Nov 2026). Envelopes are edited in their own list.
+// BL-124: the savings account, the low month the plan is sized on and the cushion goal live in "How much to save".
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveBudgetSetup } from "@/app/budget-actions";
@@ -14,12 +15,15 @@ export type SetupInitial = {
   openingSpending: string;
   openingSavings: string;
   names: [string, string, string];
+  savingsAccountId: string;
+  planIncome: string;
+  cushionTarget: string;
 };
 
 const input = "rounded-md border border-line-strong px-3 py-2 text-sm";
 const btn = "rounded-md border border-edge px-3 py-1.5 text-sm transition-colors hover:bg-subtle disabled:opacity-40";
 const primary = "rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg shadow-sm transition-colors hover:bg-accent-hover disabled:opacity-50";
-const STEPS = ["Income that counts", "How much to save", "Fixed costs", "Starting money", "Names"];
+const STEPS = ["Work pay", "How much to save", "Fixed costs", "Starting money", "Names"];
 
 export default function BudgetSetup({
   initial,
@@ -27,12 +31,14 @@ export default function BudgetSetup({
   templates,
   hasPets,
   hasSettings,
+  accounts = [],
 }: {
   initial: SetupInitial;
   incomeCategories: Cat[];
   templates: Tpl[];
   hasPets: boolean;
   hasSettings: boolean;
+  accounts?: Cat[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(!hasSettings);
@@ -45,6 +51,9 @@ export default function BudgetSetup({
   const [openSpend, setOpenSpend] = useState(initial.openingSpending);
   const [openSave, setOpenSave] = useState(initial.openingSavings);
   const [names, setNames] = useState<[string, string, string]>(initial.names);
+  const [savingsAccountId, setSavingsAccountId] = useState(initial.savingsAccountId);
+  const [planIncome, setPlanIncome] = useState(initial.planIncome);
+  const [cushionTarget, setCushionTarget] = useState(initial.cushionTarget);
   // Settings mode: every answer on one screen (no steps)
   const all = hasSettings;
   const show = (i: number) => all || step === i;
@@ -63,6 +72,9 @@ export default function BudgetSetup({
         opening_spending: openSpend,
         opening_savings: openSave,
         names,
+        savings_account_id: savingsAccountId,
+        plan_income: planIncome,
+        cushion_target: cushionTarget,
       });
       if (r.error) return setError(r.error);
       setOpen(false);
@@ -93,7 +105,7 @@ export default function BudgetSetup({
       {show(0) && (
         <div className="space-y-2">
           <Title i={0} />
-          <p className="text-sm text-muted">Which income categories are money you can budget with? Other income is ignored and nothing is set aside from it.</p>
+          <p className="text-sm text-muted">Which income categories are your work pay? The saving percentage and percentage envelopes (like Fun 12%) are taken from these. All other income (tips, cashback, money you find) still counts and goes straight to {names[2]}.</p>
           {incomeCategories.length === 0 && <p className="text-sm text-faint">You have no income categories yet. Add one in Categories first.</p>}
           {incomeCategories.map((c) => (
             <label key={c.id} className="flex items-center gap-2 text-sm">
@@ -112,6 +124,25 @@ export default function BudgetSetup({
             <input value={percent} onChange={(e) => setPercent(e.target.value)} inputMode="decimal" aria-label="Saving percentage" className={`${input} w-24`} /> %
           </label>
           {example && <p className="text-xs text-muted">{example}</p>}
+          <label className="block space-y-1">
+            <span className="text-xs text-muted">Account where the savings really live (the budget tells you what is left to move there)</span>
+            <select value={savingsAccountId} onChange={(e) => setSavingsAccountId(e.target.value)} className={`${input} w-56`}>
+              <option value="">No savings account</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs text-muted">Your low month: the work pay you plan on (0 = no plan). A month above it gets a suggestion to save part of the extra.</span>
+            <input value={planIncome} onChange={(e) => setPlanIncome(e.target.value)} inputMode="decimal" className={`${input} w-32`} />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs text-muted">First savings goal, a safety cushion (0 = none)</span>
+            <input value={cushionTarget} onChange={(e) => setCushionTarget(e.target.value)} inputMode="decimal" className={`${input} w-32`} />
+          </label>
         </div>
       )}
 

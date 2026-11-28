@@ -323,9 +323,32 @@ async function recordLimit(supabase: Sb, budgetId: string, limit: number, start:
  * Create or edit an envelope (migration 0077): a name, a monthly amount and zero or more expense categories.
  * A category can be in one envelope only. A new amount counts for the whole current month.
  */
-export async function saveEnvelope(input: { id?: string | null; name: string; amount: string; categoryIds: string[]; mode?: string }): Promise<Done> {
+export async function saveEnvelope(input: {
+  id?: string | null;
+  name: string;
+  amount: string;
+  categoryIds: string[];
+  mode?: string;
+  /** BL-124: a % of each month's work pay ("" or missing = a fixed monthly amount). */
+  percent?: string;
+  /** BL-124: a goal (both "" = no goal). */
+  targetAmount?: string;
+  targetDate?: string;
+}): Promise<Done> {
   const mode = input.mode === "watch" ? "watch" : "set_aside";
   const amount = money(input.amount);
+  const percent = input.percent === undefined || String(input.percent).trim() === "" ? null : money(input.percent);
+  const target = input.targetAmount === undefined || String(input.targetAmount).trim() === "" ? null : money(input.targetAmount);
+  const targetDate = String(input.targetDate ?? "").trim() || null;
+  const v2 = input.percent !== undefined || input.targetAmount !== undefined || input.targetDate !== undefined;
+  if (input.percent !== undefined && String(input.percent).trim() !== "" && percent === null) return { error: "The percentage must be a number." };
+  if (percent !== null && (!Number.isFinite(percent) || percent <= 0 || percent > 100)) return { error: "The percentage must be more than 0 and at most 100." };
+  if (percent !== null && mode === "watch") return { error: "A percentage envelope holds money, so it can't be \"Just watch\"." };
+  if (input.targetAmount && target === null) return { error: "The goal must be a number." };
+  if (target !== null && target <= 0) return { error: "The goal must be more than 0." };
+  if (targetDate && !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) return { error: "Pick a valid goal date." };
+  if (targetDate && target === null) return { error: "Add the goal amount too, or clear the date." };
+  if (target !== null && mode === "watch") return { error: "A goal holds money, so it can't be \"Just watch\"." };
   const name = String(input.name ?? "").trim();
   const ids = [...new Set((input.categoryIds ?? []).map(String).filter(Boolean))];
   if (amount === null || amount <= 0) return { error: "Enter a monthly amount greater than 0." };
@@ -354,7 +377,12 @@ export async function saveEnvelope(input: { id?: string | null; name: string; am
   if (id) {
     const { data: cur } = await supabase.from("budgets").select("id,limit_amount").eq("id", id).is("deleted_at", null).maybeSingle();
     if (!cur) return { error: "That envelope is gone. Reload the page." };
-    const { error } = await supabase.from("budgets").update({ name: name || null, limit_amount: amount, category_id: ids[0] ?? null, mode }).eq("id", id);
+    const { data: curR } = await supabase.from("budgets").select("rollover,rollover_since").eq("id", id).maybeSingle();
+    const extra = v2 ? { percent, target_amount: target, target_date: targetDate } : {};
+    // A percentage envelope always carries over (BL-124 decision 3), and so does a goal (it has to grow)
+    const carry = (percent !== null || target !== null) && !curR?.rollover ? { rollover: true, rollover_since: start } : {};
+    const { error } = await supabase.from("budgets").update({ name: name || null, limit_amount: amount, category_id: ids[0] ?? null, mode, ...extra, ...carry }).eq("id", id);
+    if (error && /percent|target_/.test(error.message)) return { error: "Percentages and goals need migration 0079 (MIGRACION-0079-budget-v2.sql)." };
     if (error) return { error: /budgets_uq/.test(error.message) ? "A category you picked is already in another envelope." : error.message };
     await supabase.from("budget_categories").delete().eq("budget_id", id);
     if (Number(cur.limit_amount) !== amount) await recordLimit(supabase, id, amount, start);
@@ -362,10 +390,20 @@ export async function saveEnvelope(input: { id?: string | null; name: string; am
     const { data: last } = await supabase.from("budgets").select("position").is("deleted_at", null).order("position", { ascending: false }).limit(1).maybeSingle();
     const { data: row, error } = await supabase
       .from("budgets")
-      .insert({ name: name || null, category_id: ids[0] ?? null, limit_amount: amount, period: "monthly", started_on: start, position: Number(last?.position ?? 0) + 1, mode })
+      .insert({
+        name: name || null,
+        category_id: ids[0] ?? null,
+        limit_amount: amount,
+        period: "monthly",
+        started_on: start,
+        position: Number(last?.position ?? 0) + 1,
+        mode,
+        ...(v2 ? { percent, target_amount: target, target_date: targetDate } : {}),
+        ...(percent !== null || target !== null ? { rollover: true, rollover_since: start } : {}),
+      })
       .select("id")
       .single();
-    if (error) return { error: /budgets_uq/.test(error.message) ? "A category you picked is already in another envelope." : error.message };
+    if (error) return { error: /percent|target_/.test(error.message) ? "Percentages and goals need migration 0079 (MIGRACION-0079-budget-v2.sql)." : /budgets_uq/.test(error.message) ? "A category you picked is already in another envelope." : error.message };
     id = row.id as string;
     await recordLimit(supabase, id, amount, start);
   }

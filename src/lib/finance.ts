@@ -55,18 +55,33 @@ export async function getFinance(supabase: Supabase, tz: string) {
 export async function loadBudgets(supabase: Supabase): Promise<{ budgets: BudgetRow[]; changes: LimitChange[] }> {
   const full = await supabase
     .from("budgets")
-    .select("id,category_id,limit_amount,period,rollover,rollover_since,started_on,name,position,mode,created_at,budget_categories(category_id)")
+    .select("id,category_id,limit_amount,period,rollover,rollover_since,started_on,name,position,mode,percent,target_amount,target_date,created_at,budget_categories(category_id)")
     .is("deleted_at", null)
     .order("position")
     .order("created_at");
   if (full.error) {
+    // Before migration 0079: the same list without the percentage and goal columns
+    const v1 = await supabase
+      .from("budgets")
+      .select("id,category_id,limit_amount,period,rollover,rollover_since,started_on,name,position,mode,created_at,budget_categories(category_id)")
+      .is("deleted_at", null)
+      .order("position")
+      .order("created_at");
+    if (!v1.error) return finishBudgets(supabase, v1.data ?? []);
     const { data } = await supabase.from("budgets").select("id,category_id,limit_amount,period").is("deleted_at", null);
     return { budgets: ((data ?? []) as BudgetRow[]).map((b) => ({ ...b, limit_amount: Number(b.limit_amount) })), changes: [] };
   }
+  return finishBudgets(supabase, full.data ?? []);
+}
+
+/** Envelope rows to BudgetRow (numbers as numbers, the category list) + their limit history. */
+async function finishBudgets(supabase: Supabase, rows: unknown[]): Promise<{ budgets: BudgetRow[]; changes: LimitChange[] }> {
   type Row = BudgetRow & { budget_categories?: { category_id: string }[] | null };
-  const budgets = ((full.data ?? []) as Row[]).map(({ budget_categories, ...b }) => ({
+  const budgets = (rows as Row[]).map(({ budget_categories, ...b }) => ({
     ...b,
     limit_amount: Number(b.limit_amount),
+    percent: b.percent === null || b.percent === undefined ? null : Number(b.percent),
+    target_amount: b.target_amount === null || b.target_amount === undefined ? null : Number(b.target_amount),
     category_ids: (budget_categories ?? []).map((x) => x.category_id),
   }));
   if (!budgets.length) return { budgets, changes: [] };

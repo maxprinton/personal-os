@@ -2,7 +2,11 @@
 // A missing table (migration 0074 not run yet) is reported, never thrown, so the page keeps working.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { utcToLocal } from "@/lib/time";
-import type { BudgetSettings, BudgetTxn } from "@/lib/budget/calc";
+import type { BudgetSettings, BudgetTxn, Correction } from "@/lib/budget/calc";
+
+/** BL-124 (migration 0079): the settings beyond BL-117. All optional: without 0079 they read as "not set". */
+export type BudgetV2 = { savingsAccountId: string | null; planIncome: number; cushionTarget: number };
+export type Debt = { id: string; person: string; amount: number; note: string | null; paid: number; left: number };
 
 export const MISSING_BUDGET = "The budget needs migration 0074. Run MIGRACION-0074-budget-buckets.sql in Supabase.";
 
@@ -15,7 +19,7 @@ export type BudgetState =
   | { kind: "missing" }
   | { kind: "error"; message: string }
   | { kind: "empty" }
-  | { kind: "ready"; settings: BudgetSettings; txns: BudgetTxn[]; skipped: string[] };
+  | { kind: "ready"; settings: BudgetSettings; txns: BudgetTxn[]; skipped: string[]; v2: BudgetV2; corrections: Correction[]; debts: Debt[] | null };
 
 const num = (v: unknown) => Number(v ?? 0);
 
@@ -48,6 +52,29 @@ export async function loadBudget(sb: SupabaseClient, userId: string, tz: string)
       .order("occurred_at", { ascending: false })
       .limit(2000),
   ]);
+  // BL-124: fixes and debts (quietly empty / null when migration 0079 is not run)
+  const [cr, db, dp] = await Promise.all([
+    sb.from("budget_corrections").select("amount,target").eq("user_id", userId).is("deleted_at", null).limit(2000),
+    sb.from("debts").select("id,person,amount,note").eq("user_id", userId).is("deleted_at", null).order("created_at"),
+    sb.from("transactions").select("debt_id,amount").eq("user_id", userId).is("deleted_at", null).not("debt_id", "is", null).limit(2000),
+  ]);
+  const corrections: Correction[] = cr.error
+    ? []
+    : ((cr.data ?? []) as { amount: number | string; target: string }[]).map((c) => ({ amount: num(c.amount), target: c.target === "savings" ? "savings" : "spending" }));
+  let debts: Debt[] | null = null;
+  if (!db.error) {
+    const paidBy = new Map<string, number>();
+    for (const p of (dp.error ? [] : dp.data ?? []) as { debt_id: string; amount: number | string }[]) paidBy.set(p.debt_id, (paidBy.get(p.debt_id) ?? 0) + num(p.amount));
+    debts = ((db.data ?? []) as { id: string; person: string; amount: number | string; note: string | null }[]).map((d) => {
+      const paid = Math.round((paidBy.get(d.id) ?? 0) * 100) / 100;
+      return { id: d.id, person: d.person, amount: num(d.amount), note: d.note, paid, left: Math.max(0, Math.round((num(d.amount) - paid) * 100) / 100) };
+    });
+  }
+  const v2: BudgetV2 = {
+    savingsAccountId: typeof row.savings_account_id === "string" ? row.savings_account_id : null,
+    planIncome: num(row.plan_income),
+    cushionTarget: num(row.cushion_target),
+  };
   const err = k.error ?? t.error;
   if (err) return isMissingBudget(err) ? { kind: "missing" } : { kind: "error", message: err.message };
   const txns = ((t.data ?? []) as { id: string; type: "income" | "expense"; amount: number | string; category_id: string | null; description: string | null; occurred_at: string; payment_template_id: string | null }[])
@@ -61,5 +88,5 @@ export async function loadBudget(sb: SupabaseClient, userId: string, tz: string)
       payment_template_id: x.payment_template_id,
     }))
     .filter((x) => x.localDate >= settings.start_date);
-  return { kind: "ready", settings, txns, skipped: ((k.data ?? []) as { transaction_id: string }[]).map((x) => x.transaction_id) };
+  return { kind: "ready", settings, txns, skipped: ((k.data ?? []) as { transaction_id: string }[]).map((x) => x.transaction_id), v2, corrections, debts };
 }

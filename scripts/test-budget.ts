@@ -1,6 +1,6 @@
 // Tests of the budget math (BL-117): src/lib/budget/calc.ts (pure). Run: npm run test:budget
 import assert from "node:assert/strict";
-import { affordNext, checkSetup, computeBudget, r2, isFixed, monthsSince, savingPart, usd, type BudgetSettings, type BudgetTxn, type EnvelopeInput } from "@/lib/budget/calc";
+import { affordNext, billsDueThisMonth, checkSetup, computeBudget, r2, isFixed, monthsSince, savingPart, usd, type BudgetInput, type BudgetSettings, type BudgetTxn, type EnvelopeInput } from "@/lib/budget/calc";
 import { envelopeCharge, holdsMoney, type BudgetRow } from "@/lib/budget-rollover";
 
 let passed = 0;
@@ -44,11 +44,13 @@ test("saving is the percentage of each counted payment: 10% of 50 = 5", () => {
   assert.equal(r.spendingMoney, 45);
 });
 
-test("only the chosen income categories count; other income is ignored, no saving taken", () => {
+test("BL-124: all income counts; the saving is taken only from work pay", () => {
   const r = run([tx("income", 100, "2026-11-21", OTHER), tx("income", 40, "2026-11-22", GIGS)]);
   assert.equal(r.income, 40);
+  assert.equal(r.otherIncome, 100);
   assert.equal(r.saved, 4);
-  assert.equal(r.spendingMoney, 36);
+  assert.equal(r.spendingMoney, 136);
+  assert.match(r.math.spending, /\+ \$100 other income/);
 });
 
 test("a skipped payment sets nothing aside and can be seen as skipped", () => {
@@ -205,6 +207,98 @@ test("setup checks: percentage range, dates, names, duplicates, amounts", () => 
   assert.ok(checkSetup({ ...ok, buckets: [{ name: "savings", monthly_amount: 5 }] }));
   assert.ok(checkSetup({ ...ok, buckets: [{ name: "Trip", monthly_amount: -5 }] }));
   assert.equal(checkSetup({ ...ok, savings_percent: 0 }), null);
+});
+
+// ---- Budget v2 (BL-124) ----
+const ADJ_IN = "cat-adj-in";
+const ADJ_OUT = "cat-adj-out";
+const v2 = (txns: BudgetTxn[], extra: Partial<BudgetInput> = {}, over: Partial<BudgetSettings> = {}, envelopes: EnvelopeInput[] = [], today = "2026-12-20") =>
+  computeBudget({
+    settings: { ...base, start_date: "2026-12-01", savings_percent: 20, ...over },
+    envelopes,
+    txns,
+    skipped: new Set(),
+    petsCategoryId: PETS,
+    today,
+    adjustmentIds: new Set([ADJ_IN, ADJ_OUT]),
+    ...extra,
+  });
+
+test("BL-124: 20% of a $93 week is $18.60", () => {
+  const r = v2([tx("income", 93, "2026-12-05", GIGS)]);
+  assert.equal(r.saved, 18.6);
+  assert.equal(r.spendingMoney, 74.4);
+});
+
+test("BL-124: adjustments count both ways and are not spending", () => {
+  const r = v2([tx("income", 93, "2026-12-05", GIGS), tx("income", 10, "2026-12-06", ADJ_IN), tx("expense", 4, "2026-12-07", ADJ_OUT)]);
+  assert.equal(r.adjIn, 10);
+  assert.equal(r.adjOut, 4);
+  assert.equal(r.spent, 0);
+  assert.equal(r.spendingMoney, r2(93 - 18.6 + 10 - 4));
+  assert.ok(r.math.spending.endsWith(`= ${usd(r.spendingMoney)}`));
+  assert.match(r.math.spending, /found \(adjustments\)/);
+  assert.match(r.math.spending, /lost \(adjustments\)/);
+});
+
+test("BL-124: an adjustment in an envelope's category still counts as an adjustment, not envelope spending", () => {
+  const r = v2([tx("expense", 4, "2026-12-07", ADJ_OUT)], {}, {}, [{ id: "e", name: "X", categoryIds: [ADJ_OUT], monthly: 10, charge: 10 }]);
+  assert.equal(r.envelopeRows.length, 0);
+  assert.equal(r.adjOut, 4);
+});
+
+test("BL-124: Fix corrections go to Spending money or Savings and show in the math", () => {
+  const r = v2([tx("income", 100, "2026-12-05", GIGS)], { corrections: [{ amount: -3.46, target: "spending" }, { amount: 5, target: "savings" }] });
+  assert.equal(r.corrSpending, -3.46);
+  assert.equal(r.spendingMoney, r2(100 - 20 - 3.46));
+  assert.equal(r.savingsTotal, 25);
+  assert.match(r.math.spending, /− \$3\.46 fixes/);
+  assert.ok(r.math.savings.endsWith("= $25"));
+});
+
+test("BL-124: real-money check = accounts − (Spending money + Savings + what envelopes hold)", () => {
+  const FUN = "cat-fun";
+  const envs = [{ id: "e", name: "Fun", categoryIds: [FUN], monthly: 38, charge: 12 }];
+  const r = v2([tx("income", 100, "2026-12-05", GIGS), tx("expense", 5, "2026-12-06", FUN)], { accountsTotal: 100 }, { opening_spending: 0 }, envs);
+  // Spending 100 − 20 − 12 = 68; Savings 20; Fun holds 12 − 5 = 7; total 95; the accounts hold 100 − 5 = 95 in reality
+  assert.equal(r.envelopesHeld, 7);
+  assert.equal(r.budgetTotal, 95);
+  assert.equal(r.gap, 5);
+  assert.equal(v2([], {}).gap, null);
+});
+
+test("BL-124: savings vs the savings account: what still has to be moved", () => {
+  const r = v2([tx("income", 93, "2026-12-05", GIGS)], { savingsAccountBalance: 10 });
+  assert.equal(r.toMove, 8.6);
+  assert.equal(r.inSavingsAccount, 10);
+  assert.equal(v2([tx("income", 93, "2026-12-05", GIGS)], { savingsAccountBalance: 30 }).toMove, 0);
+  assert.equal(v2([tx("income", 93, "2026-12-05", GIGS)]).toMove, 0);
+});
+
+test("BL-124: after bills, good month and cushion", () => {
+  const r = v2([tx("income", 400, "2026-12-05", GIGS)], { billsDue: 54.98, planIncome: 320, cushionTarget: 250 });
+  assert.equal(r.afterBills, r2(r.spendingMoney - 54.98));
+  assert.deepEqual(r.goodMonth, { extra: 80, suggest: 40 });
+  assert.deepEqual(r.cushion, { target: 250, have: 80, left: 170, pct: 32 });
+  assert.equal(v2([tx("income", 300, "2026-12-05", GIGS)], { planIncome: 320 }).goodMonth, null);
+  assert.equal(v2([tx("income", 400, "2026-11-05", GIGS)], { planIncome: 320 }, { start_date: "2026-11-01" }).goodMonth, null); // last month's pay
+});
+
+test("BL-124: bills due this month: unpaid, this month only (overdue included), skips income and envelope-held ones", () => {
+  const tpl = (o: Partial<{ type: string; expected_amount: number | null; category_id: string | null }> = {}) => ({ type: "expense", expected_amount: 9, category_id: null, ...o });
+  const b = billsDueThisMonth(
+    [
+      { event_date: "2026-12-02", payment_status: null, payment_expected_amount: null, template: tpl({ expected_amount: 4.99 }) },
+      { event_date: "2026-12-13", payment_status: null, payment_expected_amount: 24, template: tpl() },
+      { event_date: "2026-12-11", payment_status: "paid", payment_expected_amount: null, template: tpl() },
+      { event_date: "2027-01-02", payment_status: null, payment_expected_amount: null, template: tpl() },
+      { event_date: "2026-12-20", payment_status: null, payment_expected_amount: null, template: tpl({ type: "income" }) },
+      { event_date: "2026-12-21", payment_status: null, payment_expected_amount: null, template: tpl({ category_id: "held" }) },
+    ],
+    "2026-12-10",
+    new Set(["held"])
+  );
+  assert.deepEqual(b, { total: 28.99, count: 2 });
 });
 
 console.log(`${passed} passed, ${failed} failed`);

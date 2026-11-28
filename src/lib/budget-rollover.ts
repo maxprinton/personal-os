@@ -23,7 +23,30 @@ export type BudgetRow = Budget & {
   started_on?: string | null;
   /** set_aside (default): holds its money from Spending money. watch: only tracks spending against the limit (0078). */
   mode?: "set_aside" | "watch" | null;
+  /** BL-124 (0079): a percentage of each month's work pay instead of a fixed monthly amount (Fun 12%). */
+  percent?: number | null;
+  /** BL-124 (0079): a goal. The envelope never holds more than this (it replaces the double-the-amount cap). */
+  target_amount?: number | null;
+  target_date?: string | null;
 };
+
+/**
+ * What a percentage envelope needs to know (BL-124): which income is work pay and the low-month plan.
+ * Without it (Today, Telegram), a percentage envelope falls back to its typed monthly amount.
+ */
+export type EnvelopeCtx = { workPayIds: ReadonlySet<string>; planIncome: number };
+
+const isPercent = (b: BudgetRow) => typeof b.percent === "number" && b.percent > 0;
+const hasTarget = (b: BudgetRow) => typeof b.target_amount === "number" && b.target_amount > 0;
+
+/** Work pay logged in a period (income in the work-pay categories). */
+function workPayIn(txns: MoneyTxn[], ids: ReadonlySet<string>, range: { start: string; end: string }) {
+  return round2(
+    txns
+      .filter((t) => t.type === "income" && t.category_id !== null && ids.has(t.category_id) && t.localDate >= range.start && t.localDate < range.end)
+      .reduce((s, t) => s + t.amount, 0)
+  );
+}
 export type LimitChange = { budget_id: string; limit_amount: number; effective_from: string };
 /** The few fields of a transaction the math needs (finance Txn and budget BudgetTxn both fit). */
 export type MoneyTxn = { type: "income" | "expense"; amount: number; category_id: string | null; localDate: string };
@@ -101,19 +124,33 @@ function starts(period: Budget["period"], from: string, today: string) {
 }
 
 /** The chain of periods from `from` to today, oldest first, carrying as the rules say. */
-function chain(budget: BudgetRow, txns: MoneyTxn[], today: string, changes: LimitChange[], from: string): PeriodLine[] {
-  const since = budget.rollover && budget.rollover_since ? periodRange(budget.rollover_since, budget.period).start : null;
+/** The month a rollover starts counting: the switch, or (always on) for percentage envelopes, the envelope's first month. */
+function rolloverSince(budget: BudgetRow, ctx?: EnvelopeCtx) {
+  if (isPercent(budget) && ctx) return periodRange(budget.rollover_since ?? budget.started_on ?? "1970-01-01", budget.period).start;
+  return budget.rollover && budget.rollover_since ? periodRange(budget.rollover_since, budget.period).start : null;
+}
+
+function chain(budget: BudgetRow, txns: MoneyTxn[], today: string, changes: LimitChange[], from: string, ctx?: EnvelopeCtx): PeriodLine[] {
+  const since = rolloverSince(budget, ctx);
   const cats = new Set(categoriesOf(budget));
+  const pct = isPercent(budget) && ctx ? Number(budget.percent) : null;
   const lines: PeriodLine[] = [];
   let carry = 0;
   for (const start of starts(budget.period, from, today)) {
     const range = periodRange(start, budget.period);
-    const limit = limitFor(budget, changes, start);
+    // A percentage envelope gets its share of the work pay logged this month (decision 2 of BL-124)
+    const limit = pct !== null ? round2((pct / 100) * workPayIn(txns, ctx!.workPayIds, range)) : limitFor(budget, changes, start);
     const on = !!since && start >= since;
     const carriedIn = on ? round2(carry) : 0;
     const raw = round2(limit + carriedIn);
-    const cap = round2(limit * 2);
-    const available = on ? Math.min(raw, cap) : limit;
+    // Cap: a goal's target; a percentage envelope's double of its share of the planned month (or of this month's
+    // share, if bigger); otherwise double the monthly amount. A cap of 0 (nothing planned or paid yet) caps nothing.
+    const cap = hasTarget(budget)
+      ? Number(budget.target_amount)
+      : pct !== null
+        ? round2(2 * Math.max(limit, (pct / 100) * (ctx!.planIncome || 0))) || Number.POSITIVE_INFINITY
+        : round2(limit * 2);
+    const available = on ? Math.min(raw, cap) : hasTarget(budget) ? Math.min(limit, cap) : limit;
     const returned = on && raw > cap ? round2(raw - cap) : 0;
     const spent = spentIn(cats, txns, range);
     const left = round2(available - spent);
@@ -127,26 +164,26 @@ function chain(budget: BudgetRow, txns: MoneyTxn[], today: string, changes: Limi
  * The periods shown for an envelope, oldest first: the last `count` ones (never before it started) and, with
  * rollover on, enough earlier ones to carry correctly from the month it was turned on.
  */
-export function budgetPeriods(budget: BudgetRow, txns: MoneyTxn[], today: string, changes: LimitChange[] = [], count = 6): PeriodLine[] {
+export function budgetPeriods(budget: BudgetRow, txns: MoneyTxn[], today: string, changes: LimitChange[] = [], count = 6, ctx?: EnvelopeCtx): PeriodLine[] {
   const current = periodRange(today, budget.period).start;
   const all = starts(budget.period, budget.started_on ?? current, today);
   const windowStart = all[Math.max(0, all.length - count)] ?? current;
-  const since = budget.rollover && budget.rollover_since ? periodRange(budget.rollover_since, budget.period).start : null;
+  const since = rolloverSince(budget, ctx);
   const from = since && since < windowStart ? since : windowStart;
-  return chain(budget, txns, today, changes, from).filter((l) => l.start >= windowStart);
+  return chain(budget, txns, today, changes, from, ctx).filter((l) => l.start >= windowStart);
 }
 
 /** The current period of an envelope: what is available, spent and left, and the % used (100+ = over). */
-export function budgetStatus(budget: BudgetRow, txns: MoneyTxn[], today: string, changes: LimitChange[] = []): BudgetStatus {
-  const lines = budgetPeriods(budget, txns, today, changes, 1);
+export function budgetStatus(budget: BudgetRow, txns: MoneyTxn[], today: string, changes: LimitChange[] = [], ctx?: EnvelopeCtx): BudgetStatus {
+  const lines = budgetPeriods(budget, txns, today, changes, 1, ctx);
   const cur = lines[lines.length - 1];
   const pct = cur.available > 0 ? Math.round((cur.spent / cur.available) * 100) : cur.spent > 0 || cur.available < 0 ? 100 : 0;
   return { ...cur, pct, range: { start: cur.start, end: cur.end } };
 }
 
 /** The last `count` periods, newest first (for the history under each envelope). */
-export function budgetHistory(budget: BudgetRow, txns: MoneyTxn[], today: string, changes: LimitChange[] = [], count = 6) {
-  return budgetPeriods(budget, txns, today, changes, count).reverse();
+export function budgetHistory(budget: BudgetRow, txns: MoneyTxn[], today: string, changes: LimitChange[] = [], count = 6, ctx?: EnvelopeCtx) {
+  return budgetPeriods(budget, txns, today, changes, count, ctx).reverse();
 }
 
 /**
@@ -157,10 +194,10 @@ export function budgetHistory(budget: BudgetRow, txns: MoneyTxn[], today: string
  *     the envelope has not paid back yet (that money is gone already).
  * So Spending money + every envelope's balance always add up to the real money.
  */
-export function envelopeCharge(budget: BudgetRow, txns: MoneyTxn[], today: string, changes: LimitChange[], budgetStart: string): number {
+export function envelopeCharge(budget: BudgetRow, txns: MoneyTxn[], today: string, changes: LimitChange[], budgetStart: string, ctx?: EnvelopeCtx): number {
   if (today < budgetStart) return 0;
   const startedOn = budget.started_on && budget.started_on > budgetStart ? budget.started_on : budgetStart;
-  const lines = chain(budget, txns, today, changes, startedOn);
+  const lines = chain(budget, txns, today, changes, startedOn, ctx);
   let charge = 0;
   lines.forEach((l, i) => {
     const current = i === lines.length - 1;
@@ -170,6 +207,25 @@ export function envelopeCharge(budget: BudgetRow, txns: MoneyTxn[], today: strin
   const last = lines[lines.length - 1];
   if (last?.rollover && last.left < 0) charge += -last.left;
   return round2(charge);
+}
+
+/**
+ * A goal envelope (BL-124): how far along it is and the monthly amount that reaches the target by its date
+ * (what is left / months left, this month included). Null when the envelope has no target.
+ */
+export function goalProgress(budget: BudgetRow, status: { available: number; spent: number }, today: string) {
+  if (!hasTarget(budget)) return null;
+  const target = Number(budget.target_amount);
+  const have = round2(Math.max(0, status.available - status.spent));
+  const left = round2(Math.max(0, target - have));
+  let monthsLeft: number | null = null;
+  if (budget.target_date && budget.target_date >= today) {
+    const [ty, tm] = budget.target_date.split("-").map(Number);
+    const [y, m] = today.split("-").map(Number);
+    monthsLeft = (ty - y) * 12 + (tm - m) + 1;
+  }
+  const perMonth = monthsLeft ? round2(left / monthsLeft) : null;
+  return { target, have, left, monthsLeft, perMonth, done: left === 0, pct: Math.min(100, Math.round((have / target) * 100)) };
 }
 
 /** First day of the period containing `today`: where a newly turned-on rollover, a new amount or a new envelope starts. */

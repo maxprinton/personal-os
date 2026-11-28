@@ -1,7 +1,7 @@
 // Tests of category budgets with rollover and their history: src/lib/budget-rollover.ts (pure).
 // Run: npm run test:budget-rollover
 import assert from "node:assert/strict";
-import { budgetHistory, budgetPeriods, budgetStatus, categoriesOf, envelopeCharge, envelopeName, limitFor, type BudgetRow, type LimitChange } from "@/lib/budget-rollover";
+import { budgetHistory, budgetPeriods, budgetStatus, categoriesOf, envelopeCharge, envelopeName, goalProgress, limitFor, type BudgetRow, type LimitChange } from "@/lib/budget-rollover";
 import type { Txn } from "@/lib/money";
 
 let passed = 0;
@@ -17,6 +17,7 @@ function test(name: string, fn: () => void) {
 }
 
 const FOOD = "cat-food";
+const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 let n = 0;
 const spend = (date: string, amount: number, category = FOOD, type: Txn["type"] = "expense"): Txn => ({
   id: `t${++n}`,
@@ -192,6 +193,63 @@ test("charge, rollover on and overspent: the money already gone is taken too", (
 test("charge: nothing before the budget's start date, and an envelope newer than the budget starts in its own month", () => {
   assert.equal(envelopeCharge(food({ rollover: false }), [], "2026-01-20", [], "2026-02-01"), 0);
   assert.equal(envelopeCharge(food({ rollover: false, started_on: "2026-03-01" }), [], "2026-03-10", [], "2026-01-01"), 200);
+});
+
+// ---- Budget v2 (BL-124): percentage envelopes and goals ----
+const WORK = "cat-work";
+const FUN = "cat-fun";
+const ctx = { workPayIds: new Set([WORK]), planIncome: 320 };
+const funEnv = (over: Partial<BudgetRow> = {}): BudgetRow => ({
+  id: "fun", category_id: FUN, category_ids: [FUN], limit_amount: 38, period: "monthly", rollover: true, rollover_since: "2026-12-01", started_on: "2026-12-01", percent: 12, ...over,
+});
+
+test("percentage envelope: 12% of each payment logged this month", () => {
+  const tx = [spend("2026-12-05", 93, WORK, "income"), spend("2026-12-12", 93, WORK, "income"), spend("2026-12-13", 20, FUN)];
+  const s = budgetStatus(funEnv(), tx, "2026-12-20", [], ctx);
+  assert.equal(s.limit, 22.32);
+  assert.equal(s.available, 22.32);
+  assert.equal(s.left, 2.32);
+});
+
+test("percentage envelope: unused carries over, capped at double 12% of the $320 plan ($76.80)", () => {
+  const tx = [spend("2026-12-05", 400, WORK, "income"), spend("2027-01-05", 400, WORK, "income")];
+  const s = budgetStatus(funEnv(), tx, "2027-01-20", [], ctx);
+  // Dec 48 kept; Jan 48 + 48 = 96 → capped at 96? the cap is 2 × max(48, 38.40) = 96
+  assert.equal(s.available, 96);
+  const low = [spend("2026-12-05", 100, WORK, "income"), spend("2027-01-05", 100, WORK, "income"), spend("2027-02-05", 300, WORK, "income")];
+  // Dec 12, Jan 24, Feb 24 + 36 = 60 (cap 2 × max(36, 38.40) = 76.80): no cap yet
+  assert.equal(budgetStatus(funEnv(), low, "2027-02-20", [], ctx).available, 60);
+});
+
+test("percentage envelope: an overspent month is refilled first by the next payments", () => {
+  const tx = [spend("2026-12-05", 93, WORK, "income"), spend("2026-12-06", 30, FUN), spend("2027-01-05", 93, WORK, "income")];
+  const dec = budgetStatus(funEnv(), tx, "2026-12-20", [], ctx);
+  assert.equal(dec.left, r2(11.16 - 30));
+  const jan = budgetStatus(funEnv(), tx, "2027-01-10", [], ctx);
+  assert.equal(jan.available, r2(11.16 + 11.16 - 30)); // still behind
+  assert.ok(jan.available < 0);
+});
+
+test("percentage envelope: rollover is always on, even with the switch off; no ctx falls back to the typed amount", () => {
+  const tx = [spend("2026-12-05", 100, WORK, "income"), spend("2027-01-05", 100, WORK, "income")];
+  assert.equal(budgetStatus(funEnv({ rollover: false, rollover_since: null }), tx, "2027-01-10", [], ctx).available, 24);
+  assert.equal(budgetStatus(funEnv(), tx, "2026-12-10").available, 38);
+});
+
+test("percentage envelope charge = the shares that came in (what Spending money gives it)", () => {
+  const tx = [spend("2026-12-05", 93, WORK, "income"), spend("2026-12-12", 93, WORK, "income"), spend("2026-12-13", 5, FUN)];
+  assert.equal(envelopeCharge(funEnv(), tx, "2026-12-20", [], "2026-12-01", ctx), 22.32);
+});
+
+test("goal envelope: grows past double, stops at the target, the rest goes back", () => {
+  const goal: BudgetRow = { id: "g", category_id: null, category_ids: [], limit_amount: 37, period: "monthly", rollover: true, rollover_since: "2026-12-01", started_on: "2026-12-01", target_amount: 220, target_date: "2027-05-31" };
+  assert.equal(budgetStatus(goal, [], "2027-02-10").available, 111); // 3 × 37, past the old $74 cap
+  const june = budgetStatus(goal, [], "2027-06-10");
+  assert.equal(june.available, 220);
+  assert.equal(envelopeCharge(goal, [], "2027-06-10", [], "2026-12-01"), 220);
+  const p = goalProgress(goal, budgetStatus(goal, [], "2026-12-10"), "2026-12-10");
+  assert.deepEqual(p, { target: 220, have: 37, left: 183, monthsLeft: 6, perMonth: 30.5, done: false, pct: 17 });
+  assert.equal(goalProgress({ ...goal, target_amount: null }, june, "2027-06-10"), null);
 });
 
 console.log(`budget rollover: ${passed} passed, ${failed} failed`);

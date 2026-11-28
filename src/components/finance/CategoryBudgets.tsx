@@ -2,6 +2,7 @@
 // Envelopes on the Finance page (27 Nov 2026): each one with its rollover switch in view, Edit (name, monthly
 // amount, categories, Set aside / Just watch), Remove, and its last 6 months when you tap its name; plus "+ New envelope".
 // Numbers come from lib/budget-rollover.ts; what envelopes take out of Spending money is shown in the Budget section.
+// BL-124: an envelope can take a % of each month's work pay (always carries over) and can have a goal (amount + date).
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { deleteBudget, saveEnvelope, setBudgetRollover } from "@/app/finance-actions";
@@ -14,6 +15,8 @@ export type CategoryBudgetView = {
   typedName: string;
   period: "weekly" | "monthly";
   limit: number;
+  /** The typed monthly amount (for a % envelope, its "about $ a month"). */
+  typedLimit: number;
   rollover: boolean;
   /** set_aside: holds its money from Spending money. watch: only tracks spending against the limit. */
   mode: "set_aside" | "watch";
@@ -22,6 +25,11 @@ export type CategoryBudgetView = {
   status: PeriodLine & { pct: number };
   /** Newest first. */
   history: PeriodLine[];
+  /** BL-124 */
+  percent: number | null;
+  targetAmount: number | null;
+  targetDate: string | null;
+  goal: { target: number; have: number; left: number; monthsLeft: number | null; perMonth: number | null; done: boolean; pct: number } | null;
 };
 export type EnvelopeCategory = { id: string; name: string; envelopeId: string | null };
 
@@ -62,7 +70,7 @@ function EnvelopeForm({
   categories,
   onDone,
 }: {
-  initial: { id: string | null; name: string; amount: string; categoryIds: string[]; mode: "set_aside" | "watch" };
+  initial: { id: string | null; name: string; amount: string; categoryIds: string[]; mode: "set_aside" | "watch"; percent: string; targetAmount: string; targetDate: string };
   categories: EnvelopeCategory[];
   onDone: () => void;
 }) {
@@ -72,6 +80,11 @@ function EnvelopeForm({
   const [amount, setAmount] = useState(initial.amount);
   const [ids, setIds] = useState<string[]>(initial.categoryIds);
   const [mode, setMode] = useState(initial.mode);
+  const [byPercent, setByPercent] = useState(initial.percent !== "");
+  const [percent, setPercent] = useState(initial.percent);
+  const [hasGoal, setHasGoal] = useState(initial.targetAmount !== "");
+  const [targetAmount, setTargetAmount] = useState(initial.targetAmount);
+  const [targetDate, setTargetDate] = useState(initial.targetDate);
   const [error, setError] = useState<string | null>(null);
   const toggle = (id: string) => setIds((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
 
@@ -82,7 +95,16 @@ function EnvelopeForm({
         e.preventDefault();
         start(async () => {
           setError(null);
-          const r = await saveEnvelope({ id: initial.id, name, amount, categoryIds: ids, mode }).catch((err: unknown) => ({ error: err instanceof Error ? err.message : "Could not save it." }));
+          const r = await saveEnvelope({
+            id: initial.id,
+            name,
+            amount,
+            categoryIds: ids,
+            mode,
+            percent: mode === "set_aside" && byPercent ? percent : "",
+            targetAmount: mode === "set_aside" && hasGoal ? targetAmount : "",
+            targetDate: mode === "set_aside" && hasGoal ? targetDate : "",
+          }).catch((err: unknown) => ({ error: err instanceof Error ? err.message : "Could not save it." }));
           if (r.error) return setError(r.error);
           onDone();
           router.refresh();
@@ -91,11 +113,41 @@ function EnvelopeForm({
     >
       <div className="flex flex-wrap items-center gap-2">
         <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} placeholder="Name (optional with a category)" className={`${input} w-56`} />
+        {mode === "set_aside" && byPercent && (
+          <label className="flex items-center gap-1 text-xs text-muted">
+            <input value={percent} onChange={(e) => setPercent(e.target.value)} inputMode="decimal" aria-label="Percent of work pay" className={`${input} w-20`} />% of each work payment
+          </label>
+        )}
         <label className="flex items-center gap-1 text-xs text-muted">
-          $ per month
+          {mode === "set_aside" && byPercent ? "about $ a month (shown on Today and Telegram)" : "$ per month"}
           <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" className={`${input} w-24`} />
         </label>
       </div>
+      {mode === "set_aside" && (
+        <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
+          <label className="flex items-center gap-1.5">
+            <input type="checkbox" checked={byPercent} onChange={(e) => setByPercent(e.target.checked)} />
+            Take a % of each work payment instead of a fixed amount (always carries over; overspending is refilled first)
+          </label>
+          <label className="flex items-center gap-1.5">
+            <input type="checkbox" checked={hasGoal} onChange={(e) => setHasGoal(e.target.checked)} />
+            It&apos;s a goal
+          </label>
+          {hasGoal && (
+            <>
+              <label className="flex items-center gap-1">
+                target $
+                <input value={targetAmount} onChange={(e) => setTargetAmount(e.target.value)} inputMode="decimal" className={`${input} w-24`} />
+              </label>
+              <label className="flex items-center gap-1">
+                by
+                <input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className={`${input} w-40`} />
+              </label>
+              <span className="text-faint">It grows until the target, then stops taking money.</span>
+            </>
+          )}
+        </div>
+      )}
       <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Kind of envelope">
         {(
           [
@@ -185,6 +237,8 @@ function EnvelopeCard({ b, categories }: { b: CategoryBudgetView; categories: En
           <span className="font-medium">{b.name}</span> <span className="text-xs text-faint">{open ? "▾" : "▸"}</span>
           <span className="block text-xs text-muted">
             {b.mode === "watch" ? "👁 Just watching · " : ""}
+            {b.percent !== null ? `${b.percent}% of work pay · ` : ""}
+            {b.goal ? `Goal ${usd(b.goal.target)}${b.targetDate ? ` by ${b.targetDate}` : ""} · ` : ""}
             {pot ? "Pot: money set aside, no categories" : b.categoryNames.join(", ")}
           </span>
         </button>
@@ -200,12 +254,24 @@ function EnvelopeCard({ b, categories }: { b: CategoryBudgetView; categories: En
           />
         </div>
       )}
+      {b.goal && (
+        <div className="space-y-0.5">
+          <div className="h-1.5 overflow-hidden rounded-full bg-subtle-2">
+            <div className="h-1.5 rounded-full bg-success-solid" style={{ width: `${b.goal.pct}%` }} />
+          </div>
+          <p className="text-xs tabular-nums text-muted">
+            {b.goal.done
+              ? `Goal reached ✓ It no longer takes money.`
+              : `${usd(b.goal.have)} of ${usd(b.goal.target)} · ${usd(b.goal.left)} to go${b.goal.perMonth !== null ? ` · ${usd(b.goal.perMonth)} a month gets you there by ${b.targetDate}` : ""}${b.goal.perMonth !== null && b.goal.perMonth > b.limit ? " (more than you set aside now)" : ""}`}
+          </p>
+        </div>
+      )}
       <p className="text-xs text-muted">
-        {usd(s.limit)} {b.mode === "watch" ? "limit" : "set aside"} a {unit}
+        {b.percent !== null ? `${usd(s.limit)} came in this ${unit} (${b.percent}% of work pay)` : `${usd(s.limit)} ${b.mode === "watch" ? "limit" : "set aside"} a ${unit}`}
         {s.rollover ? ` ${signedUsd(s.carriedIn)} carried from last ${unit}` : ""}
-        {s.capped ? ` (capped at ${usd(s.limit * 2)}${b.mode === "watch" ? "" : `; ${usd(s.returned)} went back to Spending money`})` : ""}
+        {s.capped ? ` (capped${b.goal ? " at the goal" : b.percent === null ? ` at ${usd(s.limit * 2)}` : ""}${b.mode === "watch" ? "" : `; ${usd(s.returned)} went back to Spending money`})` : ""}
         {s.available < 0 ? ` · you start this ${unit} behind` : ""}
-        {pot && !s.rollover ? ` · turn Rollover on to let it grow (up to ${usd(s.limit * 2)})` : ""}
+        {pot && !s.rollover && !b.goal ? ` · turn Rollover on to let it grow (up to ${usd(s.limit * 2)})` : ""}
         {b.mode === "watch" ? " · no money held: payments count as usual" : ""}
       </p>
 
@@ -232,7 +298,16 @@ function EnvelopeCard({ b, categories }: { b: CategoryBudgetView; categories: En
 
       {editing && (
         <EnvelopeForm
-          initial={{ id: b.id, name: b.typedName, amount: String(b.limit), categoryIds: b.categoryIds, mode: b.mode }}
+          initial={{
+            id: b.id,
+            name: b.typedName,
+            amount: String(b.typedLimit),
+            categoryIds: b.categoryIds,
+            mode: b.mode,
+            percent: b.percent === null ? "" : String(b.percent),
+            targetAmount: b.targetAmount === null ? "" : String(b.targetAmount),
+            targetDate: b.targetDate ?? "",
+          }}
           categories={categories}
           onDone={() => setEditing(false)}
         />
@@ -284,7 +359,11 @@ export default function CategoryBudgets({ budgets, categories }: { budgets: Cate
       {adding ? (
         <div className="rounded-lg border border-line bg-surface p-3 shadow-card">
           <p className="text-sm font-medium">New envelope</p>
-          <EnvelopeForm initial={{ id: null, name: "", amount: "", categoryIds: [], mode: "set_aside" }} categories={categories} onDone={() => setAdding(false)} />
+          <EnvelopeForm
+            initial={{ id: null, name: "", amount: "", categoryIds: [], mode: "set_aside", percent: "", targetAmount: "", targetDate: "" }}
+            categories={categories}
+            onDone={() => setAdding(false)}
+          />
         </div>
       ) : (
         <button type="button" className={btn} onClick={() => setAdding(true)}>
