@@ -122,6 +122,7 @@ export default async function FinancePage() {
     period: b.period,
     limit: b.limit_amount,
     rollover: !!b.rollover,
+    mode: b.mode === "watch" ? "watch" : "set_aside",
     categoryIds: categoriesOf(b),
     categoryNames: categoriesOf(b).map((id) => budgetCatName[id] ?? "Category"),
     status: budgetStatus(b, txns, today, budgetChanges),
@@ -464,7 +465,7 @@ export default async function FinancePage() {
           <section className="space-y-3" id="envelopes">
             <div>
               <h2 className="section-title">Envelopes</h2>
-              <p className="text-xs text-muted">Money set aside each month from Spending money. Spending in an envelope&apos;s categories comes out of the envelope.</p>
+              <p className="text-xs text-muted">Set aside: money held each month from Spending money; spending in its categories comes out of it. Just watch: no money held; it only tracks spending against its limit and warns you.</p>
             </div>
             <CategoryBudgets budgets={categoryBudgets} categories={envelopeCats} />
           </section>

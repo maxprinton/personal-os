@@ -8,6 +8,8 @@
 //     carried in, never more than DOUBLE the amount (anything above goes back to Spending money); it can go
 //     below zero. The carry starts in the month the switch was turned on (rollover_since).
 //   · Each month uses the amount it had (budget_limit_changes); a change applies to its whole month.
+//   · A "Just watch" envelope (mode watch, 0078) holds no money: its payments count where they normally would
+//     (recurring ones in Fixed costs), subtracted when paid; it only measures them against its limit.
 import { addDays } from "@/lib/time";
 import { monthRange, weekRange, type Budget } from "@/lib/money";
 
@@ -19,6 +21,8 @@ export type BudgetRow = Budget & {
   rollover?: boolean | null;
   rollover_since?: string | null;
   started_on?: string | null;
+  /** set_aside (default): holds its money from Spending money. watch: only tracks spending against the limit (0078). */
+  mode?: "set_aside" | "watch" | null;
 };
 export type LimitChange = { budget_id: string; limit_amount: number; effective_from: string };
 /** The few fields of a transaction the math needs (finance Txn and budget BudgetTxn both fit). */
@@ -53,6 +57,11 @@ export function periodRange(date: string, period: Budget["period"]) {
 export function categoriesOf(b: BudgetRow): string[] {
   if (Array.isArray(b.category_ids)) return b.category_ids;
   return b.category_id ? [b.category_id] : [];
+}
+
+/** Does this envelope hold money from Spending money? ("Just watch" envelopes do not: their payments count as usual.) */
+export function holdsMoney(b: BudgetRow) {
+  return b.mode !== "watch";
 }
 
 /** The name shown: the typed one, else the categories' names, else "Envelope". */

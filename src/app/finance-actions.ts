@@ -323,13 +323,15 @@ async function recordLimit(supabase: Sb, budgetId: string, limit: number, start:
  * Create or edit an envelope (migration 0077): a name, a monthly amount and zero or more expense categories.
  * A category can be in one envelope only. A new amount counts for the whole current month.
  */
-export async function saveEnvelope(input: { id?: string | null; name: string; amount: string; categoryIds: string[] }): Promise<Done> {
+export async function saveEnvelope(input: { id?: string | null; name: string; amount: string; categoryIds: string[]; mode?: string }): Promise<Done> {
+  const mode = input.mode === "watch" ? "watch" : "set_aside";
   const amount = money(input.amount);
   const name = String(input.name ?? "").trim();
   const ids = [...new Set((input.categoryIds ?? []).map(String).filter(Boolean))];
   if (amount === null || amount <= 0) return { error: "Enter a monthly amount greater than 0." };
   if (name.length > 40) return { error: "Keep the name to 40 characters." };
   if (!name && !ids.length) return { error: "Give the envelope a name or pick at least one category." };
+  if (mode === "watch" && !ids.length) return { error: "A \"Just watch\" envelope needs at least one category to watch." };
 
   const supabase = await createClient();
   const userId = (await supabase.auth.getUser()).data.user?.id;
@@ -352,7 +354,7 @@ export async function saveEnvelope(input: { id?: string | null; name: string; am
   if (id) {
     const { data: cur } = await supabase.from("budgets").select("id,limit_amount").eq("id", id).is("deleted_at", null).maybeSingle();
     if (!cur) return { error: "That envelope is gone. Reload the page." };
-    const { error } = await supabase.from("budgets").update({ name: name || null, limit_amount: amount, category_id: ids[0] ?? null }).eq("id", id);
+    const { error } = await supabase.from("budgets").update({ name: name || null, limit_amount: amount, category_id: ids[0] ?? null, mode }).eq("id", id);
     if (error) return { error: /budgets_uq/.test(error.message) ? "A category you picked is already in another envelope." : error.message };
     await supabase.from("budget_categories").delete().eq("budget_id", id);
     if (Number(cur.limit_amount) !== amount) await recordLimit(supabase, id, amount, start);
@@ -360,7 +362,7 @@ export async function saveEnvelope(input: { id?: string | null; name: string; am
     const { data: last } = await supabase.from("budgets").select("position").is("deleted_at", null).order("position", { ascending: false }).limit(1).maybeSingle();
     const { data: row, error } = await supabase
       .from("budgets")
-      .insert({ name: name || null, category_id: ids[0] ?? null, limit_amount: amount, period: "monthly", started_on: start, position: Number(last?.position ?? 0) + 1 })
+      .insert({ name: name || null, category_id: ids[0] ?? null, limit_amount: amount, period: "monthly", started_on: start, position: Number(last?.position ?? 0) + 1, mode })
       .select("id")
       .single();
     if (error) return { error: /budgets_uq/.test(error.message) ? "A category you picked is already in another envelope." : error.message };

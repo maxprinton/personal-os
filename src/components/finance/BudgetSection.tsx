@@ -3,7 +3,7 @@
 import { setSavingSkip } from "@/app/budget-actions";
 import { MISSING_BUDGET, type BudgetState } from "@/lib/budget/data";
 import { affordNext, computeBudget, usd, type AffordItem, type BudgetTxn, type EnvelopeInput } from "@/lib/budget/calc";
-import { categoriesOf, envelopeCharge, envelopeName, type BudgetRow, type LimitChange } from "@/lib/budget-rollover";
+import { categoriesOf, envelopeCharge, envelopeName, holdsMoney, type BudgetRow, type LimitChange } from "@/lib/budget-rollover";
 import BudgetSetup, { type SetupInitial } from "@/components/finance/BudgetSetup";
 
 type Cat = { id: string; name: string };
@@ -95,7 +95,8 @@ export default function BudgetSection({
 
   const { settings: s, txns, skipped } = state;
   const counted = txns.filter((t) => t.localDate >= s.start_date && t.localDate <= today);
-  const envInputs: EnvelopeInput[] = envelopes.map((e) => ({
+  // "Just watch" envelopes hold no money: their payments stay in Fixed costs / spending
+  const envInputs: EnvelopeInput[] = envelopes.filter(holdsMoney).map((e) => ({
     id: e.id,
     name: envelopeName(e, (id) => catName[id]),
     categoryIds: categoriesOf(e),

@@ -1,6 +1,6 @@
 "use client";
 // Envelopes on the Finance page (27 Nov 2026): each one with its rollover switch in view, Edit (name, monthly
-// amount, categories), Remove, and its last 6 months when you tap its name; plus "+ New envelope".
+// amount, categories, Set aside / Just watch), Remove, and its last 6 months when you tap its name; plus "+ New envelope".
 // Numbers come from lib/budget-rollover.ts; what envelopes take out of Spending money is shown in the Budget section.
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -15,6 +15,8 @@ export type CategoryBudgetView = {
   period: "weekly" | "monthly";
   limit: number;
   rollover: boolean;
+  /** set_aside: holds its money from Spending money. watch: only tracks spending against the limit. */
+  mode: "set_aside" | "watch";
   categoryIds: string[];
   categoryNames: string[];
   status: PeriodLine & { pct: number };
@@ -60,7 +62,7 @@ function EnvelopeForm({
   categories,
   onDone,
 }: {
-  initial: { id: string | null; name: string; amount: string; categoryIds: string[] };
+  initial: { id: string | null; name: string; amount: string; categoryIds: string[]; mode: "set_aside" | "watch" };
   categories: EnvelopeCategory[];
   onDone: () => void;
 }) {
@@ -69,6 +71,7 @@ function EnvelopeForm({
   const [name, setName] = useState(initial.name);
   const [amount, setAmount] = useState(initial.amount);
   const [ids, setIds] = useState<string[]>(initial.categoryIds);
+  const [mode, setMode] = useState(initial.mode);
   const [error, setError] = useState<string | null>(null);
   const toggle = (id: string) => setIds((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
 
@@ -79,7 +82,7 @@ function EnvelopeForm({
         e.preventDefault();
         start(async () => {
           setError(null);
-          const r = await saveEnvelope({ id: initial.id, name, amount, categoryIds: ids }).catch((err: unknown) => ({ error: err instanceof Error ? err.message : "Could not save it." }));
+          const r = await saveEnvelope({ id: initial.id, name, amount, categoryIds: ids, mode }).catch((err: unknown) => ({ error: err instanceof Error ? err.message : "Could not save it." }));
           if (r.error) return setError(r.error);
           onDone();
           router.refresh();
@@ -93,8 +96,33 @@ function EnvelopeForm({
           <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" className={`${input} w-24`} />
         </label>
       </div>
+      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Kind of envelope">
+        {(
+          [
+            ["set_aside", "Set aside money", "Holds this amount from Spending money every month; spending in its categories comes out of it."],
+            ["watch", "Just watch", "Holds no money: its payments count as usual (recurring ones in Fixed costs). It only warns you at 80% and 100%."],
+          ] as const
+        ).map(([v, label, hint]) => (
+          <button
+            key={v}
+            type="button"
+            role="radio"
+            aria-checked={mode === v}
+            title={hint}
+            onClick={() => setMode(v)}
+            className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${mode === v ? "border-accent bg-accent-soft text-fg" : "border-line text-muted hover:bg-subtle"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-faint">
+        {mode === "watch"
+          ? "Just watch: no money is held. Its payments stay in Fixed costs or spending, subtracted when paid; you get a warning at 80% and 100% of the limit."
+          : "Set aside: this amount is held from Spending money every month; spending in its categories comes out of the envelope."}
+      </p>
       <div className="space-y-1">
-        <p className="text-xs text-muted">Categories that spend from it (none = a pot that only sets money aside)</p>
+        <p className="text-xs text-muted">Categories that spend from it {mode === "watch" ? "(pick at least one)" : "(none = a pot that only sets money aside)"}</p>
         <div className="flex flex-wrap gap-1.5">
           {categories.map((c) => {
             const elsewhere = c.envelopeId !== null && c.envelopeId !== initial.id;
@@ -155,7 +183,10 @@ function EnvelopeCard({ b, categories }: { b: CategoryBudgetView; categories: En
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <button type="button" onClick={() => setOpen((o) => !o)} className="min-w-0 text-left" aria-expanded={open} title="Show the last months">
           <span className="font-medium">{b.name}</span> <span className="text-xs text-faint">{open ? "▾" : "▸"}</span>
-          <span className="block text-xs text-muted">{pot ? "Pot: money set aside, no categories" : b.categoryNames.join(", ")}</span>
+          <span className="block text-xs text-muted">
+            {b.mode === "watch" ? "👁 Just watching · " : ""}
+            {pot ? "Pot: money set aside, no categories" : b.categoryNames.join(", ")}
+          </span>
         </button>
         <p className={`text-sm tabular-nums ${over ? "text-danger" : "text-muted"}`}>
           {pot ? `${usd(s.available)} set aside` : `${usd(s.spent)} / ${usd(s.available)} · ${over ? `${usd(-s.left)} over` : `${usd(s.left)} left`}`}
@@ -170,11 +201,12 @@ function EnvelopeCard({ b, categories }: { b: CategoryBudgetView; categories: En
         </div>
       )}
       <p className="text-xs text-muted">
-        {usd(s.limit)} a {unit}
+        {usd(s.limit)} {b.mode === "watch" ? "limit" : "set aside"} a {unit}
         {s.rollover ? ` ${signedUsd(s.carriedIn)} carried from last ${unit}` : ""}
-        {s.capped ? ` (capped at ${usd(s.limit * 2)}; ${usd(s.returned)} went back to Spending money)` : ""}
+        {s.capped ? ` (capped at ${usd(s.limit * 2)}${b.mode === "watch" ? "" : `; ${usd(s.returned)} went back to Spending money`})` : ""}
         {s.available < 0 ? ` · you start this ${unit} behind` : ""}
         {pot && !s.rollover ? ` · turn Rollover on to let it grow (up to ${usd(s.limit * 2)})` : ""}
+        {b.mode === "watch" ? " · no money held: payments count as usual" : ""}
       </p>
 
       <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
@@ -188,7 +220,7 @@ function EnvelopeCard({ b, categories }: { b: CategoryBudgetView; categories: En
           <form
             action={deleteBudget}
             onSubmit={(e) => {
-              if (!window.confirm(`Remove the “${b.name}” envelope? Its money goes back to Spending money.`)) e.preventDefault();
+              if (!window.confirm(`Remove the “${b.name}” envelope?${b.mode === "watch" ? "" : " Its money goes back to Spending money."}`)) e.preventDefault();
             }}
           >
             <input type="hidden" name="id" value={b.id} />
@@ -200,7 +232,7 @@ function EnvelopeCard({ b, categories }: { b: CategoryBudgetView; categories: En
 
       {editing && (
         <EnvelopeForm
-          initial={{ id: b.id, name: b.typedName, amount: String(b.limit), categoryIds: b.categoryIds }}
+          initial={{ id: b.id, name: b.typedName, amount: String(b.limit), categoryIds: b.categoryIds, mode: b.mode }}
           categories={categories}
           onDone={() => setEditing(false)}
         />
@@ -252,7 +284,7 @@ export default function CategoryBudgets({ budgets, categories }: { budgets: Cate
       {adding ? (
         <div className="rounded-lg border border-line bg-surface p-3 shadow-card">
           <p className="text-sm font-medium">New envelope</p>
-          <EnvelopeForm initial={{ id: null, name: "", amount: "", categoryIds: [] }} categories={categories} onDone={() => setAdding(false)} />
+          <EnvelopeForm initial={{ id: null, name: "", amount: "", categoryIds: [], mode: "set_aside" }} categories={categories} onDone={() => setAdding(false)} />
         </div>
       ) : (
         <button type="button" className={btn} onClick={() => setAdding(true)}>

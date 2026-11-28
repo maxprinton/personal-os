@@ -1,7 +1,7 @@
 // Tests of the budget math (BL-117): src/lib/budget/calc.ts (pure). Run: npm run test:budget
 import assert from "node:assert/strict";
-import { affordNext, checkSetup, computeBudget, isFixed, monthsSince, savingPart, usd, type BudgetSettings, type BudgetTxn, type EnvelopeInput } from "@/lib/budget/calc";
-import { envelopeCharge, type BudgetRow } from "@/lib/budget-rollover";
+import { affordNext, checkSetup, computeBudget, r2, isFixed, monthsSince, savingPart, usd, type BudgetSettings, type BudgetTxn, type EnvelopeInput } from "@/lib/budget/calc";
+import { envelopeCharge, holdsMoney, type BudgetRow } from "@/lib/budget-rollover";
 
 let passed = 0;
 let failed = 0;
@@ -163,6 +163,21 @@ test("Spending money + envelope balance = the real money (rollover off, settles 
   assert.equal(charge, 90);
   const r = run(txns, {}, [], [{ id: "e1", name: "Food", categoryIds: [FOOD], monthly: 50, charge }], "2026-12-10");
   assert.equal(r.spendingMoney, 300 - 30 - 90);
+});
+
+test("a \"Just watch\" envelope holds no money: its recurring payments stay in Fixed costs", () => {
+  const BILLS = "cat-bills";
+  const watch: BudgetRow = { id: "e1", category_id: null, category_ids: [BILLS], limit_amount: 60, period: "monthly", mode: "watch", started_on: "2026-11-01" };
+  const setAside: BudgetRow = { ...watch, id: "e2", mode: "set_aside" };
+  assert.equal(holdsMoney(watch), false);
+  assert.equal(holdsMoney(setAside), true);
+  assert.equal(holdsMoney({ ...watch, mode: undefined }), true); // rows from before 0078
+  const sub = tx("expense", 47.8, "2026-11-22", BILLS, "tpl-subs");
+  const envs = [watch].filter(holdsMoney).map((e) => ({ id: e.id, name: "Bills", categoryIds: [BILLS], monthly: 60, charge: 60 }));
+  const r = run([tx("income", 100, "2026-11-21", GIGS), sub], {}, [], envs);
+  assert.equal(r.fixed, 47.8);
+  assert.equal(r.customTotal, 0);
+  assert.equal(r.spendingMoney, r2(100 - 10 - 47.8));
 });
 
 test("afford-next: each item on its own against the money left; a cheaper want can be covered while a need is short", () => {

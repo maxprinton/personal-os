@@ -55,7 +55,7 @@ export async function getFinance(supabase: Supabase, tz: string) {
 export async function loadBudgets(supabase: Supabase): Promise<{ budgets: BudgetRow[]; changes: LimitChange[] }> {
   const full = await supabase
     .from("budgets")
-    .select("id,category_id,limit_amount,period,rollover,rollover_since,started_on,name,position,created_at,budget_categories(category_id)")
+    .select("id,category_id,limit_amount,period,rollover,rollover_since,started_on,name,position,mode,created_at,budget_categories(category_id)")
     .is("deleted_at", null)
     .order("position")
     .order("created_at");

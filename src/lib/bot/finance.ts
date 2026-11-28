@@ -116,7 +116,7 @@ async function budgetData(c: Ctx) {
   const [full, { data: cats }] = await Promise.all([
     c.admin
       .from("budgets")
-      .select("id,category_id,limit_amount,period,rollover,rollover_since,started_on,name,position,budget_categories(category_id)")
+      .select("id,category_id,limit_amount,period,rollover,rollover_since,started_on,name,position,mode,budget_categories(category_id)")
       .eq("user_id", c.userId)
       .is("deleted_at", null)
       .order("position"),
@@ -185,7 +185,7 @@ export async function budgetView(c: Ctx): Promise<Reply> {
     .map(({ b, u }) => {
       const flag = u.pct >= 100 || u.left < 0 ? "🔴" : u.pct >= 80 ? "🟠" : "🟢";
       const carried = u.rollover && u.carriedIn !== 0 ? ` (${u.carriedIn > 0 ? "+" : "−"}${usd(Math.abs(u.carriedIn))} carried)` : "";
-      return `${flag} ${envelopeName(b, (id) => names.get(id))} (${b.period}${u.rollover ? ", rollover" : ""})\n${bar(u.pct)} ${u.pct}% · ${usd(u.spent)} of ${usd(u.available)}${carried} · ${u.left >= 0 ? `${usd(u.left)} left` : `${usd(-u.left)} over`}`;
+      return `${flag} ${envelopeName(b, (id) => names.get(id))} (${b.mode === "watch" ? "watching" : b.period}${u.rollover ? ", rollover" : ""})\n${bar(u.pct)} ${u.pct}% · ${usd(u.spent)} of ${usd(u.available)}${carried} · ${u.left >= 0 ? `${usd(u.left)} left` : `${usd(-u.left)} over`}`;
     });
   const merma = await mermaThisMonth(c);
   if (!lines.length) lines.push("Your envelopes only set money aside (no categories), so there is no spending to track.");

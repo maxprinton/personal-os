@@ -22,7 +22,7 @@ export const DEFAULTS: Record<string, Record<string, unknown>> = {
   budget_limit_changes: {"id":"$uuid","created_at":"$now"},
   budget_saving_skips: {"created_at":"$now"},
   budget_settings: {"savings_percent":10,"counted_category_ids":"{}","opening_spending":0,"opening_savings":0,"savings_name":"Savings","fixed_name":"Fixed costs","spending_name":"Spending money","created_at":"$now","updated_at":"$now"},
-  budgets: {"id":"$uuid","period":"monthly","created_at":"$now","updated_at":"$now","rollover":false,"position":0},
+  budgets: {"id":"$uuid","period":"monthly","created_at":"$now","updated_at":"$now","rollover":false,"position":0,"mode":"set_aside"},
   categories: {"id":"$uuid","created_at":"$now","updated_at":"$now"},
   category_proposals: {"id":"$uuid","tx_ids":"{}","status":"pending","created_at":"$now"},
   cron_secrets: {"created_at":"$now"},
