@@ -21,7 +21,7 @@ import {
 import TxnAccountSelect from "@/components/TxnAccountSelect";
 import TransactionList from "@/components/TransactionList";
 import CategoryChip from "@/components/CategoryChip";
-import { AccountForm, BudgetForm, CategoryForm, TransactionForm, TransferForm } from "@/components/FinanceForms";
+import { AccountForm, CategoryForm, TransactionForm, TransferForm } from "@/components/FinanceForms";
 import { EditPaymentButton, PaymentDraft, PaymentForm, StopPaymentButton, PaymentRow, TemplateAccountSelect } from "@/components/PaymentForms";
 import { currentUserId } from "@/lib/calendar/model";
 import { getDuePayments, getPaymentTemplates } from "@/lib/calendar/payments";
@@ -35,8 +35,8 @@ import MonthlySummary from "@/components/MonthlySummary";
 import PurchasesSection from "@/components/finance/PurchasesSection";
 import { listPurchases } from "@/lib/purchases/data";
 import ExportForm from "@/components/finance/ExportForm";
-import CategoryBudgets, { type CategoryBudgetView } from "@/components/finance/CategoryBudgets";
-import { budgetHistory, budgetStatus } from "@/lib/budget-rollover";
+import CategoryBudgets, { type CategoryBudgetView, type EnvelopeCategory } from "@/components/finance/CategoryBudgets";
+import { budgetHistory, budgetStatus, categoriesOf, envelopeName } from "@/lib/budget-rollover";
 import BudgetSection from "@/components/finance/BudgetSection";
 import { loadBudget, type BudgetState } from "@/lib/budget/data";
 
@@ -114,16 +114,23 @@ export default async function FinancePage() {
     ? await loadBudget(supabase, userId, timezone).catch((e): BudgetState => ({ kind: "error", message: e instanceof Error ? e.message : "Could not load the budget." }))
     : { kind: "empty" };
   const budgetCatName = Object.fromEntries(categories.map((c) => [c.id, c.name]));
-  // Category budgets: what is available now (with rollover when it is on) and the last 6 periods
+  // Envelopes: what is available now (with rollover when it is on) and the last 6 months
   const categoryBudgets: CategoryBudgetView[] = budgets.map((b) => ({
     id: b.id,
-    name: budgetCatName[b.category_id] ?? "Category",
+    name: envelopeName(b, (id) => budgetCatName[id]),
+    typedName: b.name ?? "",
     period: b.period,
     limit: b.limit_amount,
     rollover: !!b.rollover,
+    categoryIds: categoriesOf(b),
+    categoryNames: categoriesOf(b).map((id) => budgetCatName[id] ?? "Category"),
     status: budgetStatus(b, txns, today, budgetChanges),
     history: budgetHistory(b, txns, today, budgetChanges),
   }));
+  const envelopeOf = new Map(budgets.flatMap((b) => categoriesOf(b).map((c) => [c, b.id] as const)));
+  const envelopeCats: EnvelopeCategory[] = categories
+    .filter((c) => c.kind === "expense")
+    .map((c) => ({ id: c.id, name: c.name, envelopeId: envelopeOf.get(c.id) ?? null }));
   const petsCategoryId = categories.find((c) => c.kind === "expense" && c.name.trim().toLowerCase() === "pets")?.id ?? null;
   const incomeCategories = categories.filter((c) => c.kind === "income").map((c) => ({ id: c.id, name: c.name }));
   const budgetTemplates = templates.filter((t) => t.type !== "income").map((t) => ({ name: t.name, expected: t.expected_amount ? Number(t.expected_amount) : null }));
@@ -450,7 +457,17 @@ export default async function FinancePage() {
             petsCategoryId={petsCategoryId}
             templates={budgetTemplates}
             purchases={affordItems}
+            envelopes={budgets}
+            envelopeChanges={budgetChanges}
           />
+
+          <section className="space-y-3" id="envelopes">
+            <div>
+              <h2 className="section-title">Envelopes</h2>
+              <p className="text-xs text-muted">Money set aside each month from Spending money. Spending in an envelope&apos;s categories comes out of the envelope.</p>
+            </div>
+            <CategoryBudgets budgets={categoryBudgets} categories={envelopeCats} />
+          </section>
 
           <PurchasesSection
             items={purchases.items}
@@ -460,12 +477,6 @@ export default async function FinancePage() {
             accounts={accountOpts}
             today={today}
           />
-
-          <section className="space-y-3">
-            <h2 className="section-title">Budgets</h2>
-            <CategoryBudgets budgets={categoryBudgets} />
-            {expenseCats.length > 0 && <BudgetForm categories={expenseCats.map((c) => ({ id: c.id, name: c.name }))} />}
-          </section>
 
           <section className="space-y-2">
             <h2 className="section-title">{monthName} spending by category</h2>

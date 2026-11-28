@@ -1,6 +1,7 @@
 // Tests of the budget math (BL-117): src/lib/budget/calc.ts (pure). Run: npm run test:budget
 import assert from "node:assert/strict";
-import { affordNext, checkSetup, computeBudget, isFixed, monthsSince, savingPart, usd, type BudgetSettings, type BudgetTxn } from "@/lib/budget/calc";
+import { affordNext, checkSetup, computeBudget, isFixed, monthsSince, savingPart, usd, type BudgetSettings, type BudgetTxn, type EnvelopeInput } from "@/lib/budget/calc";
+import { envelopeCharge, type BudgetRow } from "@/lib/budget-rollover";
 
 let passed = 0;
 let failed = 0;
@@ -32,8 +33,8 @@ let n = 0;
 const tx = (type: "income" | "expense", amount: number, localDate: string, category_id: string | null, payment_template_id: string | null = null): BudgetTxn => ({
   id: `t${++n}`, type, amount, category_id, description: null, localDate, payment_template_id,
 });
-const run = (txns: BudgetTxn[], over: Partial<BudgetSettings> = {}, skipped: string[] = [], buckets: { id: string; name: string; monthly_amount: number }[] = [], today = "2026-11-25") =>
-  computeBudget({ settings: { ...base, ...over }, buckets, txns, skipped: new Set(skipped), petsCategoryId: PETS, today });
+const run = (txns: BudgetTxn[], over: Partial<BudgetSettings> = {}, skipped: string[] = [], envelopes: EnvelopeInput[] = [], today = "2026-11-25") =>
+  computeBudget({ settings: { ...base, ...over }, envelopes, txns, skipped: new Set(skipped), petsCategoryId: PETS, today });
 
 test("saving is the percentage of each counted payment: 10% of 50 = 5", () => {
   assert.equal(savingPart(50, 10), 5);
@@ -122,14 +123,46 @@ test("leftover carries over: one running total, no monthly reset", () => {
   assert.equal(dec.spendingMoney, 100 - 10 - 20);
 });
 
-test("custom buckets set their typed amount aside every month since the start", () => {
+test("months counted since the start", () => {
   assert.equal(monthsSince("2026-11-20", "2026-11-25"), 1);
   assert.equal(monthsSince("2026-11-20", "2027-01-02"), 3);
   assert.equal(monthsSince("2026-11-20", "2026-11-19"), 0);
-  const r = run([tx("income", 100, "2026-11-21", GIGS)], {}, [], [{ id: "b1", name: "Trip", monthly_amount: 15 }], "2026-12-05");
+});
+
+test("an envelope's charge comes out of Spending money and shows in the math line", () => {
+  const r = run([tx("income", 100, "2026-11-21", GIGS)], {}, [], [{ id: "e1", name: "Trip", categoryIds: [], monthly: 15, charge: 30 }], "2026-12-05");
   assert.equal(r.customTotal, 30);
   assert.equal(r.spendingMoney, 100 - 10 - 30);
   assert.match(r.math.spending, /− \$30 Trip/);
+});
+
+test("spending in an envelope's categories is not counted again as spending", () => {
+  const food = tx("expense", 20, "2026-11-22", FOOD);
+  const r = run([tx("income", 100, "2026-11-21", GIGS), food], {}, [], [{ id: "e1", name: "Food", categoryIds: [FOOD], monthly: 50, charge: 50 }]);
+  assert.equal(r.spent, 0);
+  assert.deepEqual(r.envelopeRows.map((t) => t.id), [food.id]);
+  assert.equal(r.spendingMoney, 100 - 10 - 50);
+});
+
+test("an envelope wins over Fixed costs for a recurring payment in its category", () => {
+  const BILLS = "cat-bills";
+  const sub = tx("expense", 9, "2026-11-22", BILLS, "tpl-youtube");
+  const other = tx("expense", 4, "2026-11-22", null, "tpl-haircut");
+  const r = run([tx("income", 100, "2026-11-21", GIGS), sub, other], {}, [], [{ id: "e1", name: "Bills & subs", categoryIds: [BILLS], monthly: 60, charge: 60 }]);
+  assert.equal(r.fixed, 4);
+  assert.deepEqual(r.fixedRows.map((t) => t.id), [other.id]);
+  assert.deepEqual(r.envelopeRows.map((t) => t.id), [sub.id]);
+  assert.equal(r.spendingMoney, 100 - 10 - 4 - 60);
+});
+
+test("Spending money + envelope balance = the real money (rollover off, settles each month)", () => {
+  const env: BudgetRow = { id: "e1", category_id: null, category_ids: [FOOD], limit_amount: 50, period: "monthly", rollover: false, started_on: "2026-11-01" };
+  const txns = [tx("income", 300, "2026-11-21", GIGS), tx("expense", 20, "2026-11-22", FOOD), tx("expense", 70, "2026-12-03", FOOD)];
+  // November is over: it took only the $20 spent. December holds its $50, but $70 was spent: it takes $70.
+  const charge = envelopeCharge(env, txns, "2026-12-10", [], "2026-11-20");
+  assert.equal(charge, 90);
+  const r = run(txns, {}, [], [{ id: "e1", name: "Food", categoryIds: [FOOD], monthly: 50, charge }], "2026-12-10");
+  assert.equal(r.spendingMoney, 300 - 30 - 90);
 });
 
 test("afford-next: each item on its own against the money left; a cheaper want can be covered while a need is short", () => {

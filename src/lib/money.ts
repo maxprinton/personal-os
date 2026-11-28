@@ -22,7 +22,7 @@ export type Transfer = {
   localDate: string;
 };
 export type Snapshot = { id: string; account_id: string; amount: number; recorded_at: string };
-export type Budget = { id: string; category_id: string; limit_amount: number; period: "weekly" | "monthly" };
+export type Budget = { id: string; category_id: string | null; limit_amount: number; period: "weekly" | "monthly" };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 

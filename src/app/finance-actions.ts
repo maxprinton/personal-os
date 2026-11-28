@@ -309,42 +309,10 @@ export async function addStarterCategories() {
   refresh();
 }
 
-export async function setBudget(_prev: ActionState, form: FormData): Promise<ActionState> {
-  const categoryId = String(form.get("category_id") ?? "");
-  const limit = money(form.get("limit_amount"));
-  const period = String(form.get("period") ?? "monthly") === "weekly" ? "weekly" : "monthly";
-  if (!categoryId) return { error: "Pick a category." };
-  if (limit === null || limit <= 0) return { error: "Enter a limit greater than 0." };
-
-  const supabase = await createClient();
-  const start = currentPeriodStart(localNow((await getSettings(supabase)).timezone).date, period);
-  const { data: existing } = await supabase
-    .from("budgets")
-    .select("id")
-    .eq("category_id", categoryId)
-    .eq("period", period)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (existing) {
-    const { error } = await supabase.from("budgets").update({ limit_amount: limit }).eq("id", existing.id);
-    if (error) return { error: error.message };
-    await recordLimit(supabase, existing.id as string, limit, start);
-  } else {
-    const first = await supabase.from("budgets").insert({ category_id: categoryId, limit_amount: limit, period, started_on: start }).select("id").single();
-    // Without migration 0076 there is no started_on column: save it the old way
-    const res = first.error && /started_on/.test(first.error.message)
-      ? await supabase.from("budgets").insert({ category_id: categoryId, limit_amount: limit, period }).select("id").single()
-      : first;
-    if (res.error) return { error: res.error.message };
-    await recordLimit(supabase, res.data.id as string, limit, start);
-  }
-  refresh();
-  return { ok: true, at: Date.now() };
-}
-
 type Sb = Awaited<ReturnType<typeof createClient>>;
+type Done = { ok?: boolean; error?: string };
 
-/** The limit a period starts with (one row per budget and period; a second change in the same period replaces it). */
+/** The amount a month starts with (one row per envelope and month; a second change in the same month replaces it). */
 async function recordLimit(supabase: Sb, budgetId: string, limit: number, start: string) {
   await supabase
     .from("budget_limit_changes")
@@ -352,53 +320,66 @@ async function recordLimit(supabase: Sb, budgetId: string, limit: number, start:
 }
 
 /**
- * Edit a category budget: its limit and its period. A new limit applies to the whole current period.
- * Changing weekly <-> monthly starts the budget's history (and its rollover, if on) again from this period.
+ * Create or edit an envelope (migration 0077): a name, a monthly amount and zero or more expense categories.
+ * A category can be in one envelope only. A new amount counts for the whole current month.
  */
-export async function updateBudget(input: { id: string; limit: string; period: string }): Promise<{ ok?: boolean; error?: string }> {
-  const limit = money(input.limit);
-  const period = input.period === "weekly" ? "weekly" : "monthly";
-  if (!input.id) return { error: "That budget is gone. Reload the page." };
-  if (limit === null || limit <= 0) return { error: "Enter a limit greater than 0." };
+export async function saveEnvelope(input: { id?: string | null; name: string; amount: string; categoryIds: string[] }): Promise<Done> {
+  const amount = money(input.amount);
+  const name = String(input.name ?? "").trim();
+  const ids = [...new Set((input.categoryIds ?? []).map(String).filter(Boolean))];
+  if (amount === null || amount <= 0) return { error: "Enter a monthly amount greater than 0." };
+  if (name.length > 40) return { error: "Keep the name to 40 characters." };
+  if (!name && !ids.length) return { error: "Give the envelope a name or pick at least one category." };
+
   const supabase = await createClient();
-  const { data: b } = await supabase
-    .from("budgets")
-    .select("id,category_id,period,rollover")
-    .eq("id", input.id)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (!b) return { error: "That budget is gone. Reload the page." };
-  const today = localNow((await getSettings(supabase)).timezone).date;
-  const start = currentPeriodStart(today, period);
-  const patch: Record<string, unknown> = { limit_amount: limit };
-  if (b.period !== period) {
-    const { data: clash } = await supabase
-      .from("budgets")
-      .select("id")
-      .eq("category_id", b.category_id)
-      .eq("period", period)
-      .is("deleted_at", null)
-      .neq("id", b.id)
-      .maybeSingle();
-    if (clash) return { error: `This category already has a ${period} budget. Edit or remove that one instead.` };
-    patch.period = period;
-    patch.started_on = start;
-    if (b.rollover) patch.rollover_since = start;
-    // The old limits were per week or per month of the other period: they no longer apply
-    await supabase.from("budget_limit_changes").delete().eq("budget_id", b.id);
+  const userId = (await supabase.auth.getUser()).data.user?.id;
+  if (!userId) return { error: "You are signed out. Sign in again." };
+  const start = currentPeriodStart(localNow((await getSettings(supabase)).timezone).date, "monthly");
+
+  if (ids.length) {
+    const { data: cats } = await supabase.from("categories").select("id").eq("kind", "expense").is("deleted_at", null).in("id", ids);
+    if ((cats ?? []).length !== ids.length) return { error: "One of those categories no longer exists. Reload the page." };
+    const { data: taken } = await supabase
+      .from("budget_categories")
+      .select("budget_id,category_id,budgets!inner(id,deleted_at)")
+      .in("category_id", ids)
+      .is("budgets.deleted_at", null);
+    const clash = ((taken ?? []) as { budget_id: string }[]).find((t) => t.budget_id !== input.id);
+    if (clash) return { error: "A category you picked is already in another envelope. Take it out of that one first." };
   }
-  const { error } = await supabase.from("budgets").update(patch).eq("id", b.id);
-  if (error) return { error: error.message };
-  await recordLimit(supabase, b.id as string, limit, start);
+
+  let id = input.id ?? null;
+  if (id) {
+    const { data: cur } = await supabase.from("budgets").select("id,limit_amount").eq("id", id).is("deleted_at", null).maybeSingle();
+    if (!cur) return { error: "That envelope is gone. Reload the page." };
+    const { error } = await supabase.from("budgets").update({ name: name || null, limit_amount: amount, category_id: ids[0] ?? null }).eq("id", id);
+    if (error) return { error: /budgets_uq/.test(error.message) ? "A category you picked is already in another envelope." : error.message };
+    await supabase.from("budget_categories").delete().eq("budget_id", id);
+    if (Number(cur.limit_amount) !== amount) await recordLimit(supabase, id, amount, start);
+  } else {
+    const { data: last } = await supabase.from("budgets").select("position").is("deleted_at", null).order("position", { ascending: false }).limit(1).maybeSingle();
+    const { data: row, error } = await supabase
+      .from("budgets")
+      .insert({ name: name || null, category_id: ids[0] ?? null, limit_amount: amount, period: "monthly", started_on: start, position: Number(last?.position ?? 0) + 1 })
+      .select("id")
+      .single();
+    if (error) return { error: /budgets_uq/.test(error.message) ? "A category you picked is already in another envelope." : error.message };
+    id = row.id as string;
+    await recordLimit(supabase, id, amount, start);
+  }
+  if (ids.length) {
+    const { error } = await supabase.from("budget_categories").insert(ids.map((category_id) => ({ budget_id: id, category_id, user_id: userId })));
+    if (error) return { error: /one_envelope/.test(error.message) ? "A category you picked is already in another envelope." : error.message };
+  }
   refresh();
   return { ok: true };
 }
 
-/** The rollover switch of a budget. On: counting starts with the current period. Off: the carry is forgotten. */
-export async function setBudgetRollover(id: string, on: boolean): Promise<{ ok?: boolean; error?: string }> {
+/** The rollover switch of an envelope. On: counting starts with the current month. Off: the carry is forgotten. */
+export async function setBudgetRollover(id: string, on: boolean): Promise<Done> {
   const supabase = await createClient();
   const { data: b } = await supabase.from("budgets").select("id,period").eq("id", id).is("deleted_at", null).maybeSingle();
-  if (!b) return { error: "That budget is gone. Reload the page." };
+  if (!b) return { error: "That envelope is gone. Reload the page." };
   const start = currentPeriodStart(localNow((await getSettings(supabase)).timezone).date, b.period as "weekly" | "monthly");
   const { error } = await supabase
     .from("budgets")
@@ -409,11 +390,13 @@ export async function setBudgetRollover(id: string, on: boolean): Promise<{ ok?:
   return { ok: true };
 }
 
+/** Remove an envelope: its money goes back to Spending money and its categories are free again. */
 export async function deleteBudget(form: FormData) {
   const id = String(form.get("id") ?? "");
   if (!id) return;
   const supabase = await createClient();
   await supabase.from("budgets").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+  await supabase.from("budget_categories").delete().eq("budget_id", id);
   refresh();
 }
 
@@ -422,6 +405,17 @@ export async function deleteCategory(form: FormData) {
   if (!id) return;
   const supabase = await createClient();
   const now = new Date().toISOString();
+  // Envelopes lose this category; one left with no category and no typed name was only this category's budget
+  const { data: links } = await supabase.from("budget_categories").select("budget_id").eq("category_id", id);
+  await supabase.from("budget_categories").delete().eq("category_id", id);
+  for (const l of (links ?? []) as { budget_id: string }[]) {
+    const [{ data: env }, { count }] = await Promise.all([
+      supabase.from("budgets").select("id,name").eq("id", l.budget_id).maybeSingle(),
+      supabase.from("budget_categories").select("category_id", { count: "exact", head: true }).eq("budget_id", l.budget_id),
+    ]);
+    if (env && !env.name && !count) await supabase.from("budgets").update({ deleted_at: now }).eq("id", l.budget_id);
+    else await supabase.from("budgets").update({ category_id: null }).eq("id", l.budget_id).eq("category_id", id);
+  }
   await supabase.from("budgets").update({ deleted_at: now }).eq("category_id", id).is("deleted_at", null);
   await supabase.from("transactions").update({ category_id: null }).eq("category_id", id);
   await supabase.from("categories").update({ deleted_at: now }).eq("id", id);

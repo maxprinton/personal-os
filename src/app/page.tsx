@@ -25,7 +25,8 @@ import QuickCapture from "@/components/QuickCapture";
 import FocusPanel from "@/components/FocusPanel";
 import { markInsightRead } from "@/app/settings-actions";
 import { getFinance } from "@/lib/finance";
-import { budgetUsage, formatUSD, inRange, monthRange, totals } from "@/lib/money";
+import { formatUSD, inRange, monthRange, totals } from "@/lib/money";
+import { budgetStatus } from "@/lib/budget-rollover";
 import { alpha } from "@/components/calendar/util";
 import Icon from "@/components/ui/Icon";
 import Section from "@/components/ui/Section";
@@ -119,9 +120,10 @@ export default async function CommandCenter() {
   const insights = (insightData ?? []) as { id: string; insight_type: string; message: string }[];
   const finance = await getFinance(supabase, timezone);
   const monthSums = totals(finance.txns.filter((t) => inRange(t, monthRange(now.date))));
-  const monthlyBudgets = finance.budgets.filter((b) => b.period === "monthly");
-  const budgetTotal = monthlyBudgets.reduce((s, b) => s + b.limit_amount, 0);
-  const budgetSpent = monthlyBudgets.reduce((s, b) => s + budgetUsage(b, finance.txns, now.date).spent, 0);
+  // Envelopes this month: what is available (rollover included) and what was spent from them
+  const monthlyBudgets = finance.budgets.filter((b) => b.period === "monthly").map((b) => budgetStatus(b, finance.txns, now.date, finance.budgetChanges));
+  const budgetTotal = monthlyBudgets.reduce((s, b) => s + b.available, 0);
+  const budgetSpent = monthlyBudgets.reduce((s, b) => s + b.spent, 0);
 
   let headline = "Free time";
   let detail = next ? `Next: ${next.title} at ${formatMinutes(next.start)}` : "Nothing else scheduled today.";

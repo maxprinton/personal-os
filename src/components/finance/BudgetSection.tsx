@@ -1,8 +1,9 @@
-// Budget with buckets on the Finance page (BL-117): summary on top, the buckets each with their math,
+// Budget with buckets on the Finance page (BL-117): settings button and summary on top, the buckets each with their math (envelopes as one line),
 // and what the Needs & Wants list can afford next. One screen, top to bottom. Every number has a way to see where it comes from.
 import { setSavingSkip } from "@/app/budget-actions";
 import { MISSING_BUDGET, type BudgetState } from "@/lib/budget/data";
-import { affordNext, computeBudget, usd, type AffordItem, type BudgetTxn } from "@/lib/budget/calc";
+import { affordNext, computeBudget, usd, type AffordItem, type BudgetTxn, type EnvelopeInput } from "@/lib/budget/calc";
+import { categoriesOf, envelopeCharge, envelopeName, type BudgetRow, type LimitChange } from "@/lib/budget-rollover";
 import BudgetSetup, { type SetupInitial } from "@/components/finance/BudgetSetup";
 
 type Cat = { id: string; name: string };
@@ -34,6 +35,8 @@ export default function BudgetSection({
   petsCategoryId,
   templates,
   purchases,
+  envelopes,
+  envelopeChanges,
 }: {
   state: BudgetState;
   today: string;
@@ -42,6 +45,9 @@ export default function BudgetSection({
   petsCategoryId: string | null;
   templates: Tpl[];
   purchases: AffordItem[];
+  /** The Envelopes list (migration 0077): what each one takes out of Spending money is worked out here. */
+  envelopes: BudgetRow[];
+  envelopeChanges: LimitChange[];
 }) {
   if (state.kind === "missing") {
     return (
@@ -74,7 +80,6 @@ export default function BudgetSection({
       openingSpending: "0",
       openingSavings: "0",
       names: ["Savings", "Fixed costs", "Spending money"],
-      buckets: [],
     };
     return (
       <section className="space-y-3">
@@ -88,8 +93,16 @@ export default function BudgetSection({
     );
   }
 
-  const { settings: s, buckets, txns, skipped } = state;
-  const r = computeBudget({ settings: s, buckets, txns, skipped: new Set(skipped), petsCategoryId, today });
+  const { settings: s, txns, skipped } = state;
+  const counted = txns.filter((t) => t.localDate >= s.start_date && t.localDate <= today);
+  const envInputs: EnvelopeInput[] = envelopes.map((e) => ({
+    id: e.id,
+    name: envelopeName(e, (id) => catName[id]),
+    categoryIds: categoriesOf(e),
+    monthly: e.limit_amount,
+    charge: envelopeCharge(e, counted, today, envelopeChanges, s.start_date),
+  }));
+  const r = computeBudget({ settings: s, envelopes: envInputs, txns, skipped: new Set(skipped), petsCategoryId, today });
   const afford = affordNext(purchases, r.spendingMoney);
   const initial: SetupInitial = {
     startDate: s.start_date,
@@ -98,12 +111,12 @@ export default function BudgetSection({
     openingSpending: String(s.opening_spending),
     openingSavings: String(s.opening_savings),
     names: [s.savings_name, s.fixed_name, s.spending_name],
-    buckets: buckets.map((b) => ({ name: b.name, amount: String(b.monthly_amount) })),
   };
 
   return (
     <section className="space-y-4">
       <h2 className="section-title">Budget</h2>
+      <BudgetSetup initial={initial} hasSettings {...setupBase} />
 
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-2xl bg-fg px-5 py-4 text-app">
@@ -177,18 +190,25 @@ export default function BudgetSection({
           </details>
         </div>
 
-        {r.custom.map((c) => (
-          <div key={c.id} className="space-y-1 rounded-lg border border-line bg-surface p-3 shadow-card">
-            <div className="flex items-baseline justify-between gap-2">
-              <p className="font-medium">{c.name}</p>
-              <p className="text-sm tabular-nums">{usd(c.total)}</p>
-            </div>
-            <p className="text-xs text-muted">A typed amount set aside every month from the start date, out of {s.spending_name}.</p>
-            <p className="break-words text-xs tabular-nums">
-              {c.name} = {usd(c.monthly)} × {r.monthsCounted} month{r.monthsCounted === 1 ? "" : "s"} = {usd(c.total)}
-            </p>
+        <div className="space-y-1 rounded-lg border border-line bg-surface p-3 shadow-card">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="font-medium">Envelopes</p>
+            <p className="text-sm tabular-nums">{usd(r.customTotal)}</p>
           </div>
-        ))}
+          <p className="text-xs text-muted">
+            What your envelopes took out of {s.spending_name} since {s.start_date}: each month&apos;s amount, settled at the end of the month (or kept, with rollover).{" "}
+            <a href="#envelopes" className="text-accent hover:underline">Edit envelopes</a>
+          </p>
+          {r.custom.length === 0 ? (
+            <p className="text-xs text-faint">No envelopes yet.</p>
+          ) : (
+            <p className="break-words text-xs tabular-nums">{r.custom.map((c) => `${c.name} ${usd(c.total)}`).join(" + ")} = {usd(r.customTotal)}</p>
+          )}
+          <details>
+            <summary className="cursor-pointer text-xs text-accent">See what you spent from envelopes</summary>
+            <TxnList rows={r.envelopeRows} catName={catName} />
+          </details>
+        </div>
       </div>
 
       <div className="space-y-1.5">
@@ -213,7 +233,6 @@ export default function BudgetSection({
         <p className="text-xs text-muted">Each item is checked on its own against {s.spending_name}. It never blocks anything.</p>
       </div>
 
-      <BudgetSetup initial={initial} hasSettings {...setupBase} />
     </section>
   );
 }

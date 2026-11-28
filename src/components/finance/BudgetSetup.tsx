@@ -1,5 +1,6 @@
 "use client";
-// Budget guided setup (BL-117): one short step at a time. It can be redone any time from "Edit budget".
+// Budget setup (BL-117). The first time: one short step at a time. After that, "Budget settings" opens every
+// answer on one screen so any one of them can be changed directly (27 Nov 2026). Envelopes are edited in their own list.
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveBudgetSetup } from "@/app/budget-actions";
@@ -13,13 +14,12 @@ export type SetupInitial = {
   openingSpending: string;
   openingSavings: string;
   names: [string, string, string];
-  buckets: { name: string; amount: string }[];
 };
 
 const input = "rounded-md border border-line-strong px-3 py-2 text-sm";
 const btn = "rounded-md border border-edge px-3 py-1.5 text-sm transition-colors hover:bg-subtle disabled:opacity-40";
 const primary = "rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg shadow-sm transition-colors hover:bg-accent-hover disabled:opacity-50";
-const STEPS = ["Income that counts", "How much to save", "Fixed costs", "Starting money", "Buckets"];
+const STEPS = ["Income that counts", "How much to save", "Fixed costs", "Starting money", "Names"];
 
 export default function BudgetSetup({
   initial,
@@ -45,7 +45,10 @@ export default function BudgetSetup({
   const [openSpend, setOpenSpend] = useState(initial.openingSpending);
   const [openSave, setOpenSave] = useState(initial.openingSavings);
   const [names, setNames] = useState<[string, string, string]>(initial.names);
-  const [buckets, setBuckets] = useState(initial.buckets);
+  // Settings mode: every answer on one screen (no steps)
+  const all = hasSettings;
+  const show = (i: number) => all || step === i;
+  const Title = ({ i }: { i: number }) => (all ? <p className="text-sm font-medium">{STEPS[i]}</p> : null);
 
   const p = Number(percent.replace(",", "."));
   const example = Number.isFinite(p) && p >= 0 && p <= 100 ? `Of every $100 you earn, $${(p).toFixed(p % 1 ? 2 : 0)} is set aside.` : "";
@@ -60,7 +63,6 @@ export default function BudgetSetup({
         opening_spending: openSpend,
         opening_savings: openSave,
         names,
-        buckets: buckets.map((b) => ({ name: b.name, monthly_amount: b.amount })),
       });
       if (r.error) return setError(r.error);
       setOpen(false);
@@ -72,7 +74,7 @@ export default function BudgetSetup({
   if (!open) {
     return (
       <button type="button" onClick={() => setOpen(true)} className={btn}>
-        Edit budget
+        ⚙ Budget settings
       </button>
     );
   }
@@ -80,14 +82,17 @@ export default function BudgetSetup({
   return (
     <div className="space-y-4 rounded-lg border border-line bg-surface p-4 shadow-card">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="font-medium">{hasSettings ? "Edit budget" : "Set up your budget"}</h3>
-        <span className="text-xs text-muted">
-          Step {step + 1} of {STEPS.length}: {STEPS[step]}
-        </span>
+        <h3 className="font-medium">{hasSettings ? "Budget settings" : "Set up your budget"}</h3>
+        {!all && (
+          <span className="text-xs text-muted">
+            Step {step + 1} of {STEPS.length}: {STEPS[step]}
+          </span>
+        )}
       </div>
 
-      {step === 0 && (
+      {show(0) && (
         <div className="space-y-2">
+          <Title i={0} />
           <p className="text-sm text-muted">Which income categories are money you can budget with? Other income is ignored and nothing is set aside from it.</p>
           {incomeCategories.length === 0 && <p className="text-sm text-faint">You have no income categories yet. Add one in Categories first.</p>}
           {incomeCategories.map((c) => (
@@ -99,8 +104,9 @@ export default function BudgetSetup({
         </div>
       )}
 
-      {step === 1 && (
+      {show(1) && (
         <div className="space-y-2">
+          <Title i={1} />
           <p className="text-sm text-muted">The part of every counted payment that goes to {names[0]}. You can skip it on a single payment when you log it.</p>
           <label className="flex items-center gap-2 text-sm">
             <input value={percent} onChange={(e) => setPercent(e.target.value)} inputMode="decimal" aria-label="Saving percentage" className={`${input} w-24`} /> %
@@ -109,9 +115,10 @@ export default function BudgetSetup({
         </div>
       )}
 
-      {step === 2 && (
+      {show(2) && (
         <div className="space-y-2 text-sm">
-          <p className="text-muted">Fixed costs are added up for you from payments you already log. Nothing to type here.</p>
+          <Title i={2} />
+          <p className="text-muted">Fixed costs are added up for you from payments you already log. Nothing to type here. A recurring payment whose category is in an envelope counts in that envelope instead.</p>
           <p className="font-medium">Subscriptions and recurring payments</p>
           {templates.length === 0 ? (
             <p className="text-faint">No scheduled payments yet. Add them under Scheduled payments and they count here.</p>
@@ -130,8 +137,9 @@ export default function BudgetSetup({
         </div>
       )}
 
-      {step === 3 && (
+      {show(3) && (
         <div className="space-y-3 text-sm">
+          <Title i={3} />
           <p className="text-muted">Where you start. Only income and spending after the start date change these.</p>
           <label className="block space-y-1">
             <span className="text-xs text-muted">Starting amount for {names[2]}</span>
@@ -148,53 +156,33 @@ export default function BudgetSetup({
         </div>
       )}
 
-      {step === 4 && (
+      {show(4) && (
         <div className="space-y-3 text-sm">
-          <p className="text-muted">Rename the three buckets, and add your own. An extra bucket sets a typed amount aside every month from the start date, out of {names[2]}.</p>
+          <Title i={4} />
+          <p className="text-muted">Rename the three buckets. To set money aside for something, add an envelope in the Envelopes list.</p>
           {(["Saving", "Fixed costs", "What is left to spend"] as const).map((label, i) => (
             <label key={label} className="block space-y-1">
               <span className="text-xs text-muted">{label}</span>
               <input value={names[i]} maxLength={40} onChange={(e) => setNames((n) => n.map((x, j) => (j === i ? e.target.value : x)) as [string, string, string])} className={`${input} w-64`} />
             </label>
           ))}
-          <p className="font-medium">Extra buckets</p>
-          {buckets.map((b, i) => (
-            <div key={i} className="flex flex-wrap items-center gap-2">
-              <input value={b.name} maxLength={40} placeholder="Name" onChange={(e) => setBuckets((l) => l.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} className={`${input} w-44`} />
-              <input value={b.amount} inputMode="decimal" placeholder="$ per month" onChange={(e) => setBuckets((l) => l.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} className={`${input} w-28`} />
-              <button
-                type="button"
-                className="text-xs text-faint hover:text-danger"
-                onClick={() => {
-                  if (window.confirm(`Remove “${b.name || "this bucket"}”? Its money goes back to ${names[2]}.`)) setBuckets((l) => l.filter((_, j) => j !== i));
-                }}
-              >
-                Remove
-              </button>
-            </div>
-          ))}
-          {buckets.length < 10 && (
-            <button type="button" className={btn} onClick={() => setBuckets((l) => [...l, { name: "", amount: "" }])}>
-              + Add a bucket
-            </button>
-          )}
         </div>
       )}
 
       {error && <p className="text-sm text-danger">{error}</p>}
       <div className="flex flex-wrap items-center gap-2">
-        {step > 0 && (
+        {!all && step > 0 && (
           <button type="button" className={btn} onClick={() => setStep(step - 1)}>
             Back
           </button>
         )}
-        {step < STEPS.length - 1 ? (
+        {!all && step < STEPS.length - 1 ? (
           <button type="button" className={primary} onClick={() => setStep(step + 1)}>
             Next
           </button>
         ) : (
           <button type="button" className={primary} disabled={pending} onClick={save}>
-            {pending ? "Saving..." : "Save budget"}
+            {pending ? "Saving..." : all ? "Save settings" : "Save budget"}
           </button>
         )}
         {hasSettings && (

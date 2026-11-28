@@ -2,7 +2,7 @@
 // budgets (view + alerts at 80 % and 100 %), the latest movements (delete · account · receipt photo).
 import { addDays, utcToLocal } from "@/lib/time";
 import { accountBalance, type Snapshot, type Transfer, type Txn } from "@/lib/money";
-import { budgetStatus, type BudgetRow, type LimitChange } from "@/lib/budget-rollover";
+import { budgetStatus, categoriesOf, envelopeName, type BudgetRow, type LimitChange } from "@/lib/budget-rollover";
 import { claim } from "@/lib/reminders";
 import type { Ctx } from "@/lib/bot/core";
 import { fetchAll, usd } from "@/lib/bot/core";
@@ -116,16 +116,22 @@ async function budgetData(c: Ctx) {
   const [full, { data: cats }] = await Promise.all([
     c.admin
       .from("budgets")
-      .select("id,category_id,limit_amount,period,rollover,rollover_since,started_on")
+      .select("id,category_id,limit_amount,period,rollover,rollover_since,started_on,name,position,budget_categories(category_id)")
       .eq("user_id", c.userId)
-      .is("deleted_at", null),
+      .is("deleted_at", null)
+      .order("position"),
     c.admin.from("categories").select("id,name").eq("user_id", c.userId),
   ]);
-  // Without migration 0076: the old columns, no rollover
+  // Without migrations 0076/0077: the old columns, one category, no rollover
   const rows = full.error
     ? (await c.admin.from("budgets").select("id,category_id,limit_amount,period").eq("user_id", c.userId).is("deleted_at", null)).data
     : full.data;
-  const budgets = ((rows ?? []) as BudgetRow[]).map((x) => ({ ...x, limit_amount: Number(x.limit_amount) }));
+  type Row = BudgetRow & { budget_categories?: { category_id: string }[] | null };
+  const budgets: BudgetRow[] = ((rows ?? []) as Row[]).map(({ budget_categories, ...x }) => ({
+    ...x,
+    limit_amount: Number(x.limit_amount),
+    ...(budget_categories ? { category_ids: budget_categories.map((l) => l.category_id) } : {}),
+  }));
   let changes: LimitChange[] = [];
   if (!full.error && budgets.length) {
     const ch = await c.admin.from("budget_limit_changes").select("budget_id,limit_amount,effective_from").eq("user_id", c.userId);
@@ -164,23 +170,25 @@ const bar = (pct: number) => {
   return "▓".repeat(full) + "░".repeat(10 - full);
 };
 
-/** /budget: each budget with what's spent, what's left and a bar. */
+/** /budget: each envelope with what's spent, what's left and a bar. */
 export async function budgetView(c: Ctx): Promise<Reply> {
   const { budgets, names, changes } = await budgetData(c);
   if (!budgets.length) {
     const merma = await mermaThisMonth(c);
     return { text: `No budgets yet. Set them in Personal OS → Finance.${merma ? `\n\n🫥 Merma this month: ${usd(merma)} (balance adjustments)` : ""}`, kb: [] };
   }
-  const txns = await periodTxns(c, budgets.map((b) => b.category_id), txnsSince(c, budgets));
+  const txns = await periodTxns(c, budgets.flatMap(categoriesOf), txnsSince(c, budgets));
   const lines = budgets
+    .filter((b) => categoriesOf(b).length > 0) // pots (no category) only set money aside: nothing to track here
     .map((b) => ({ b, u: budgetStatus(b, txns, c.today, changes) }))
     .sort((x, y) => y.u.pct - x.u.pct)
     .map(({ b, u }) => {
       const flag = u.pct >= 100 || u.left < 0 ? "🔴" : u.pct >= 80 ? "🟠" : "🟢";
       const carried = u.rollover && u.carriedIn !== 0 ? ` (${u.carriedIn > 0 ? "+" : "−"}${usd(Math.abs(u.carriedIn))} carried)` : "";
-      return `${flag} ${names.get(b.category_id) ?? "Category"} (${b.period}${u.rollover ? ", rollover" : ""})\n${bar(u.pct)} ${u.pct}% · ${usd(u.spent)} of ${usd(u.available)}${carried} · ${u.left >= 0 ? `${usd(u.left)} left` : `${usd(-u.left)} over`}`;
+      return `${flag} ${envelopeName(b, (id) => names.get(id))} (${b.period}${u.rollover ? ", rollover" : ""})\n${bar(u.pct)} ${u.pct}% · ${usd(u.spent)} of ${usd(u.available)}${carried} · ${u.left >= 0 ? `${usd(u.left)} left` : `${usd(-u.left)} over`}`;
     });
   const merma = await mermaThisMonth(c);
+  if (!lines.length) lines.push("Your envelopes only set money aside (no categories), so there is no spending to track.");
   return { text: ["📊 Budgets", "", ...lines, ...(merma ? ["", `🫥 Merma this month: ${usd(merma)} (balance adjustments, outside budgets)`] : [])].join("\n"), kb: [] };
 }
 
@@ -213,9 +221,9 @@ export async function budgetAlert(c: Ctx, txnId: string): Promise<string | null>
     .maybeSingle();
   if (!t || t.type !== "expense" || !t.category_id) return null;
   const { budgets, names, changes } = await budgetData(c);
-  const mine = budgets.filter((b) => b.category_id === t.category_id);
+  const mine = budgets.filter((b) => categoriesOf(b).includes(t.category_id as string));
   if (!mine.length) return null;
-  const txns = await periodTxns(c, [t.category_id as string], txnsSince(c, mine));
+  const txns = await periodTxns(c, mine.flatMap(categoriesOf), txnsSince(c, mine));
   const out: string[] = [];
   for (const b of mine) {
     // With rollover on, the % is of what is available this period (limit + what carried in)
@@ -227,7 +235,7 @@ export async function budgetAlert(c: Ctx, txnId: string): Promise<string | null>
     const th = u.pct >= 100 && before < 100 ? 100 : u.pct >= 80 && before < 80 ? 80 : null;
     if (!th) continue;
     if (!(await claim(c.admin, c.userId, "budget", `${b.id}:${u.range.start}:${th}`))) continue;
-    const name = names.get(b.category_id) ?? "Category";
+    const name = envelopeName(b, (id) => names.get(id));
     out.push(
       th === 100
         ? `🔴 ${name}: budget passed — ${usd(u.spent)} of ${usd(u.available)} this ${b.period === "weekly" ? "week" : "month"} (${u.pct}%).`

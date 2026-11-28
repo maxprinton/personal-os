@@ -1,5 +1,8 @@
 // Budget with buckets (BL-117): every number on the screen comes from here, and so does the math line under it.
 // Pure: no database. Savings, Fixed costs and Spending money are CALCULATED from transactions, never stored.
+// Envelopes (27 Nov 2026, migration 0077) replace the old typed "extra buckets": each one takes its charge out of
+// Spending money (worked out in lib/budget-rollover.ts), and spending in its categories is NOT counted again as
+// Fixed costs or as spending (an envelope wins over Fixed costs).
 
 export type BudgetSettings = {
   start_date: string; // YYYY-MM-DD, the day the budget was set up; earlier transactions do not count
@@ -12,7 +15,8 @@ export type BudgetSettings = {
   spending_name: string;
 };
 
-export type CustomBucket = { id: string; name: string; monthly_amount: number };
+/** An envelope as the budget sees it: its categories and what it takes out of Spending money (envelopeCharge). */
+export type EnvelopeInput = { id: string; name: string; categoryIds: string[]; monthly: number; charge: number };
 
 export type BudgetTxn = {
   id: string;
@@ -26,7 +30,7 @@ export type BudgetTxn = {
 
 export type BudgetInput = {
   settings: BudgetSettings;
-  buckets: CustomBucket[];
+  envelopes: EnvelopeInput[];
   txns: BudgetTxn[];
   skipped: ReadonlySet<string>;
   petsCategoryId: string | null;
@@ -43,8 +47,11 @@ export type BudgetResult = {
   fixedFromPayments: number;
   fixedFromPets: number;
   spent: number;
+  /** One line per envelope: its monthly amount and what it took out of Spending money (`total`). */
   custom: { id: string; name: string; monthly: number; total: number }[];
   customTotal: number;
+  /** Spending since the start date that came out of an envelope (not counted as fixed or spent). */
+  envelopeRows: BudgetTxn[];
   spendingMoney: number;
   savingsTotal: number;
   incomeRows: SavingRow[];
@@ -81,7 +88,9 @@ export function isFixed(t: BudgetTxn, petsCategoryId: string | null): boolean {
 }
 
 export function computeBudget(input: BudgetInput): BudgetResult {
-  const { settings: s, buckets, txns, skipped, petsCategoryId, today } = input;
+  const { settings: s, envelopes, txns, skipped, petsCategoryId, today } = input;
+  const inEnvelope = new Set(envelopes.flatMap((e) => e.categoryIds));
+  const enveloped = (t: BudgetTxn) => t.type === "expense" && t.category_id !== null && inEnvelope.has(t.category_id);
   const counted = new Set(s.counted_category_ids);
   const since = txns.filter((t) => t.localDate >= s.start_date && t.localDate <= today);
 
@@ -95,15 +104,16 @@ export function computeBudget(input: BudgetInput): BudgetResult {
   const saved = r2(incomeRows.reduce((n, r) => n + r.part, 0));
   const skippedCount = incomeRows.filter((r) => r.skipped).length;
 
-  const fixedRows = since.filter((t) => isFixed(t, petsCategoryId));
+  const envelopeRows = since.filter(enveloped);
+  const fixedRows = since.filter((t) => !enveloped(t) && isFixed(t, petsCategoryId));
   const fixedFromPayments = r2(fixedRows.filter((t) => t.payment_template_id !== null).reduce((n, t) => n + t.amount, 0));
   const fixedFromPets = r2(fixedRows.filter((t) => t.payment_template_id === null).reduce((n, t) => n + t.amount, 0));
   const fixed = r2(fixedFromPayments + fixedFromPets);
-  const spentRows = since.filter((t) => t.type === "expense" && !isFixed(t, petsCategoryId));
+  const spentRows = since.filter((t) => t.type === "expense" && !enveloped(t) && !isFixed(t, petsCategoryId));
   const spent = r2(spentRows.reduce((n, t) => n + t.amount, 0));
 
   const months = monthsSince(s.start_date, today);
-  const custom = buckets.map((b) => ({ id: b.id, name: b.name, monthly: b.monthly_amount, total: r2(b.monthly_amount * months) }));
+  const custom = envelopes.map((e) => ({ id: e.id, name: e.name, monthly: e.monthly, total: r2(e.charge) }));
   const customTotal = r2(custom.reduce((n, c) => n + c.total, 0));
 
   const spendingMoney = r2(s.opening_spending + income - saved - fixed - spent - customTotal);
@@ -140,6 +150,7 @@ export function computeBudget(input: BudgetInput): BudgetResult {
     spent,
     custom,
     customTotal,
+    envelopeRows,
     spendingMoney,
     savingsTotal,
     incomeRows,
@@ -169,19 +180,21 @@ export function checkSetup(i: {
   opening_spending: number;
   opening_savings: number;
   names: [string, string, string];
-  buckets: { name: string; monthly_amount: number }[];
+  /** Old extra buckets (now envelopes); still checked when given. */
+  buckets?: { name: string; monthly_amount: number }[];
 }): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(i.start_date) || Number.isNaN(Date.parse(`${i.start_date}T12:00:00Z`))) return "Pick a valid start date.";
   if (!Number.isFinite(i.savings_percent) || i.savings_percent < 0 || i.savings_percent > 100) return "The saving percentage must be between 0 and 100.";
   if (!Number.isFinite(i.opening_spending) || !Number.isFinite(i.opening_savings)) return "Starting money must be a number.";
   if (Math.abs(i.opening_spending) > 1e9 || Math.abs(i.opening_savings) > 1e9) return "Starting money is too large.";
   for (const n of i.names) if (!n.trim() || n.trim().length > 40) return "Bucket names need 1 to 40 characters.";
-  if (i.buckets.length > 10) return "Up to 10 extra buckets.";
-  for (const b of i.buckets) {
+  const extra = i.buckets ?? [];
+  if (extra.length > 10) return "Up to 10 extra buckets.";
+  for (const b of extra) {
     if (!b.name.trim() || b.name.trim().length > 40) return "Bucket names need 1 to 40 characters.";
     if (!Number.isFinite(b.monthly_amount) || b.monthly_amount < 0 || b.monthly_amount > 1e9) return "A bucket amount must be 0 or more.";
   }
-  const all = [...i.names, ...i.buckets.map((b) => b.name)].map((n) => n.trim().toLowerCase());
+  const all = [...i.names, ...extra.map((b) => b.name)].map((n) => n.trim().toLowerCase());
   if (new Set(all).size !== all.length) return "Two buckets have the same name.";
   return null;
 }

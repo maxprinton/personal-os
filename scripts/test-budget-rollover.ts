@@ -1,7 +1,7 @@
 // Tests of category budgets with rollover and their history: src/lib/budget-rollover.ts (pure).
 // Run: npm run test:budget-rollover
 import assert from "node:assert/strict";
-import { budgetHistory, budgetPeriods, budgetStatus, limitFor, type BudgetRow, type LimitChange } from "@/lib/budget-rollover";
+import { budgetHistory, budgetPeriods, budgetStatus, categoriesOf, envelopeCharge, envelopeName, limitFor, type BudgetRow, type LimitChange } from "@/lib/budget-rollover";
 import type { Txn } from "@/lib/money";
 
 let passed = 0;
@@ -150,6 +150,48 @@ test("a budget started this month has one period", () => {
 test("pct: 0 with nothing spent, rounded with spending", () => {
   assert.equal(budgetStatus(food({ rollover: false }), [], "2026-01-10").pct, 0);
   assert.equal(budgetStatus(food({ rollover: false }), [spend("2026-01-02", 50)], "2026-01-10").pct, 25);
+});
+
+test("an envelope spends from all of its categories", () => {
+  const e = food({ rollover: false, category_ids: [FOOD, "cat-fun"] });
+  const tx = [spend("2026-01-05", 40), spend("2026-01-06", 10, "cat-fun"), spend("2026-01-07", 99, "cat-other")];
+  assert.equal(budgetStatus(e, tx, "2026-01-20").spent, 50);
+  assert.deepEqual(categoriesOf(food({ category_ids: [] })), []); // a plain pot
+  assert.deepEqual(categoriesOf(food()), [FOOD]); // old single category
+});
+
+test("envelope name: typed, else its categories, else Envelope", () => {
+  const names: Record<string, string> = { [FOOD]: "Food", "cat-fun": "Fun" };
+  assert.equal(envelopeName(food({ name: " Trip " }), (id) => names[id]), "Trip");
+  assert.equal(envelopeName(food({ category_ids: [FOOD, "cat-fun"] }), (id) => names[id]), "Food + Fun");
+  assert.equal(envelopeName(food({ category_ids: [] }), (id) => names[id]), "Envelope");
+});
+
+test("charge, rollover off: past months take what was spent, this month holds its amount (or more if overspent)", () => {
+  const e = food({ rollover: false });
+  const tx = [spend("2026-01-05", 50), spend("2026-02-05", 260)];
+  assert.equal(envelopeCharge(e, tx, "2026-01-20", [], "2026-01-01"), 200);
+  assert.equal(envelopeCharge(e, tx, "2026-02-20", [], "2026-01-01"), 50 + 260);
+  assert.equal(envelopeCharge(e, tx, "2026-03-02", [], "2026-01-01"), 50 + 260 + 200);
+});
+
+test("charge, rollover on: the amounts, minus what went back above the cap", () => {
+  const tx = [spend("2026-01-05", 50), spend("2026-02-05", 50), spend("2026-03-05", 50)];
+  // Jan 200 + Feb 200 + Mar (200 − 100 returned above the $400 cap) = 500 = $150 spent + $350 still in the envelope
+  assert.equal(envelopeCharge(food(), tx, "2026-03-20", [], "2026-01-01"), 500);
+  assert.equal(budgetStatus(food(), tx, "2026-03-20").left, 350);
+});
+
+test("charge, rollover on and overspent: the money already gone is taken too", () => {
+  const tx = [spend("2026-01-12", 500)];
+  assert.equal(envelopeCharge(food(), tx, "2026-01-20", [], "2026-01-01"), 500);
+  assert.equal(envelopeCharge(food(), tx, "2026-02-10", [], "2026-01-01"), 500); // Feb's $200 pays back; still −$100
+  assert.equal(envelopeCharge(food(), tx, "2026-03-10", [], "2026-01-01"), 600); // back to +$100 in the envelope
+});
+
+test("charge: nothing before the budget's start date, and an envelope newer than the budget starts in its own month", () => {
+  assert.equal(envelopeCharge(food({ rollover: false }), [], "2026-01-20", [], "2026-02-01"), 0);
+  assert.equal(envelopeCharge(food({ rollover: false, started_on: "2026-03-01" }), [], "2026-03-10", [], "2026-01-01"), 200);
 });
 
 console.log(`budget rollover: ${passed} passed, ${failed} failed`);

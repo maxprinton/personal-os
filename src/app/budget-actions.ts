@@ -34,7 +34,6 @@ export type SetupInput = {
   opening_spending: string;
   opening_savings: string;
   names: [string, string, string];
-  buckets: { name: string; monthly_amount: string }[];
 };
 
 export async function saveBudgetSetup(input: SetupInput): Promise<BudgetResult> {
@@ -43,7 +42,6 @@ export async function saveBudgetSetup(input: SetupInput): Promise<BudgetResult> 
     const { timezone } = await getSettings(c.sb);
     const today = localNow(timezone).date;
     const percent = parseMoney(input.savings_percent);
-    const buckets = (input.buckets ?? []).map((b) => ({ name: String(b.name ?? "").trim(), monthly_amount: parseMoney(b.monthly_amount) }));
     const names = (input.names ?? ["", "", ""]).map((n) => String(n ?? "").trim()) as [string, string, string];
     const checked = {
       start_date: String(input.start_date || today),
@@ -51,7 +49,6 @@ export async function saveBudgetSetup(input: SetupInput): Promise<BudgetResult> 
       opening_spending: parseMoney(input.opening_spending),
       opening_savings: parseMoney(input.opening_savings),
       names,
-      buckets,
     };
     const problem = checkSetup(checked);
     if (problem) return { error: problem };
@@ -80,13 +77,7 @@ export async function saveBudgetSetup(input: SetupInput): Promise<BudgetResult> 
     );
     if (up.error) return { error: isMissingBudget(up.error) ? MISSING_BUDGET : up.error.message };
 
-    // The extra buckets are replaced by the list in the form (they hold no history, only a monthly amount)
-    const del = await c.sb.from("budget_buckets").delete().eq("user_id", c.userId);
-    if (del.error) return { error: del.error.message };
-    if (buckets.length) {
-      const ins = await c.sb.from("budget_buckets").insert(buckets.map((b, i) => ({ user_id: c.userId, name: b.name, monthly_amount: r2(b.monthly_amount), position: i })));
-      if (ins.error) return { error: ins.error.message };
-    }
+    // Extra buckets are envelopes now (migration 0077), edited in the Envelopes list, not here
     revalidatePath("/finance");
     return { ok: true };
   } catch (e) {

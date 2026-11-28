@@ -2,7 +2,7 @@
 // A missing table (migration 0074 not run yet) is reported, never thrown, so the page keeps working.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { utcToLocal } from "@/lib/time";
-import type { BudgetSettings, BudgetTxn, CustomBucket } from "@/lib/budget/calc";
+import type { BudgetSettings, BudgetTxn } from "@/lib/budget/calc";
 
 export const MISSING_BUDGET = "The budget needs migration 0074. Run MIGRACION-0074-budget-buckets.sql in Supabase.";
 
@@ -15,7 +15,7 @@ export type BudgetState =
   | { kind: "missing" }
   | { kind: "error"; message: string }
   | { kind: "empty" }
-  | { kind: "ready"; settings: BudgetSettings; buckets: CustomBucket[]; txns: BudgetTxn[]; skipped: string[] };
+  | { kind: "ready"; settings: BudgetSettings; txns: BudgetTxn[]; skipped: string[] };
 
 const num = (v: unknown) => Number(v ?? 0);
 
@@ -36,8 +36,8 @@ export async function loadBudget(sb: SupabaseClient, userId: string, tz: string)
   };
   // one day earlier than the start (UTC vs local day); the exact local day is filtered below
   const from = new Date(Date.parse(`${settings.start_date}T00:00:00Z`) - 86_400_000).toISOString();
-  const [b, k, t] = await Promise.all([
-    sb.from("budget_buckets").select("id,name,monthly_amount").eq("user_id", userId).is("deleted_at", null).order("position"),
+  // The old extra buckets are envelopes now (migration 0077): they come with the Finance page's envelopes
+  const [k, t] = await Promise.all([
     sb.from("budget_saving_skips").select("transaction_id").eq("user_id", userId).limit(2000),
     sb
       .from("transactions")
@@ -48,9 +48,8 @@ export async function loadBudget(sb: SupabaseClient, userId: string, tz: string)
       .order("occurred_at", { ascending: false })
       .limit(2000),
   ]);
-  const err = b.error ?? k.error ?? t.error;
+  const err = k.error ?? t.error;
   if (err) return isMissingBudget(err) ? { kind: "missing" } : { kind: "error", message: err.message };
-  const buckets = ((b.data ?? []) as { id: string; name: string; monthly_amount: number | string }[]).map((x) => ({ id: x.id, name: x.name, monthly_amount: num(x.monthly_amount) }));
   const txns = ((t.data ?? []) as { id: string; type: "income" | "expense"; amount: number | string; category_id: string | null; description: string | null; occurred_at: string; payment_template_id: string | null }[])
     .map((x) => ({
       id: x.id,
@@ -62,5 +61,5 @@ export async function loadBudget(sb: SupabaseClient, userId: string, tz: string)
       payment_template_id: x.payment_template_id,
     }))
     .filter((x) => x.localDate >= settings.start_date);
-  return { kind: "ready", settings, buckets, txns, skipped: ((k.data ?? []) as { transaction_id: string }[]).map((x) => x.transaction_id) };
+  return { kind: "ready", settings, txns, skipped: ((k.data ?? []) as { transaction_id: string }[]).map((x) => x.transaction_id) };
 }

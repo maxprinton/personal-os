@@ -49,19 +49,27 @@ export async function getFinance(supabase: Supabase, tz: string) {
 }
 
 /**
- * Category budgets with their rollover switch and limit history (migration 0076).
- * Without the migration it falls back to the old columns: no rollover, no history of limits.
+ * Envelopes (category budgets): rollover switch and limit history (migration 0076), name, order and several
+ * categories (0077). Without those migrations it falls back to the old columns: one category, no rollover.
  */
 export async function loadBudgets(supabase: Supabase): Promise<{ budgets: BudgetRow[]; changes: LimitChange[] }> {
   const full = await supabase
     .from("budgets")
-    .select("id,category_id,limit_amount,period,rollover,rollover_since,started_on")
-    .is("deleted_at", null);
-  const rows = full.error
-    ? (await supabase.from("budgets").select("id,category_id,limit_amount,period").is("deleted_at", null)).data
-    : full.data;
-  const budgets = ((rows ?? []) as BudgetRow[]).map((b) => ({ ...b, limit_amount: Number(b.limit_amount) }));
-  if (full.error || !budgets.length) return { budgets, changes: [] };
+    .select("id,category_id,limit_amount,period,rollover,rollover_since,started_on,name,position,created_at,budget_categories(category_id)")
+    .is("deleted_at", null)
+    .order("position")
+    .order("created_at");
+  if (full.error) {
+    const { data } = await supabase.from("budgets").select("id,category_id,limit_amount,period").is("deleted_at", null);
+    return { budgets: ((data ?? []) as BudgetRow[]).map((b) => ({ ...b, limit_amount: Number(b.limit_amount) })), changes: [] };
+  }
+  type Row = BudgetRow & { budget_categories?: { category_id: string }[] | null };
+  const budgets = ((full.data ?? []) as Row[]).map(({ budget_categories, ...b }) => ({
+    ...b,
+    limit_amount: Number(b.limit_amount),
+    category_ids: (budget_categories ?? []).map((x) => x.category_id),
+  }));
+  if (!budgets.length) return { budgets, changes: [] };
   const ch = await supabase
     .from("budget_limit_changes")
     .select("budget_id,limit_amount,effective_from")

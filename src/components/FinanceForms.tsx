@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { addAccount, addCategory, addTransaction, addTransfer, setBudget } from "@/app/finance-actions";
+import { addAccount, addCategory, addTransaction, addTransfer } from "@/app/finance-actions";
 import type { ActionState } from "@/app/actions";
 
 import { WritingInput } from "@/components/WritingField";
@@ -120,30 +120,6 @@ export function CategoryForm() {
         Add
       </button>
       <div className="w-full"><Feedback state={state} ok="Category added." /></div>
-    </form>
-  );
-}
-
-export function BudgetForm({ categories }: { categories: Opt[] }) {
-  const [state, action, pending] = useActionState<ActionState, FormData>(setBudget, {});
-  const ref = useResetOnOk(state);
-  return (
-    <form ref={ref} action={action} className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-      <select name="category_id" required defaultValue="" className={input}>
-        <option value="" disabled>Category</option>
-        {categories.map((c) => (
-          <option key={c.id} value={c.id}>{c.name}</option>
-        ))}
-      </select>
-      <input name="limit_amount" required inputMode="decimal" placeholder="Limit (USD)" className={input} />
-      <select name="period" defaultValue="monthly" className={input}>
-        <option value="monthly">Monthly</option>
-        <option value="weekly">Weekly</option>
-      </select>
-      <button disabled={pending} className="rounded-md border border-edge transition-colors hover:bg-subtle px-3 py-2 text-sm disabled:opacity-50">
-        Set budget
-      </button>
-      <div className="col-span-2 sm:col-span-4"><Feedback state={state} ok="Budget saved." /></div>
     </form>
   );
 }
