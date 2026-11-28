@@ -13,6 +13,7 @@
     "test:backlog": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-backlog.ts",
     "test:ask-web": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-ask-web.ts",
     "test:budget": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-budget.ts",
+    "test:budget-rollover": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-budget-rollover.ts",
     "test:icons": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-icons.ts",
     "test:bot-commands": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-bot-commands.ts",
     "test:backlog-scope": "node --no-warnings --experimental-transform-types --import ./scripts/alias-loader.mjs scripts/test-backlog-scope.ts",

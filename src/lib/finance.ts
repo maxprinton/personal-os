@@ -1,6 +1,7 @@
 import type { createClient } from "@/lib/supabase/server";
 import { utcToLocal } from "@/lib/time";
-import type { Budget, Snapshot, Transfer, Txn } from "@/lib/money";
+import type { Snapshot, Transfer, Txn } from "@/lib/money";
+import type { BudgetRow, LimitChange } from "@/lib/budget-rollover";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -12,7 +13,7 @@ export async function getFinance(supabase: Supabase, tz: string) {
   const [acc, cat, bud, snap, tx, tr] = await Promise.all([
     supabase.from("accounts").select("id,name,kind").is("deleted_at", null).order("created_at"),
     supabase.from("categories").select("id,name,kind,color").is("deleted_at", null).order("name"),
-    supabase.from("budgets").select("id,category_id,limit_amount,period").is("deleted_at", null),
+    loadBudgets(supabase),
     supabase.from("balance_snapshots").select("id,account_id,amount,recorded_at").is("deleted_at", null),
     supabase
       .from("transactions")
@@ -40,8 +41,31 @@ export async function getFinance(supabase: Supabase, tz: string) {
     transfers,
     accounts: (acc.data ?? []) as Account[],
     categories: (cat.data ?? []) as Category[],
-    budgets: ((bud.data ?? []) as Budget[]).map((b) => ({ ...b, limit_amount: Number(b.limit_amount) })),
+    budgets: bud.budgets,
+    budgetChanges: bud.changes,
     snapshots: ((snap.data ?? []) as Snapshot[]).map((s) => ({ ...s, amount: Number(s.amount) })),
     txns,
   };
+}
+
+/**
+ * Category budgets with their rollover switch and limit history (migration 0076).
+ * Without the migration it falls back to the old columns: no rollover, no history of limits.
+ */
+export async function loadBudgets(supabase: Supabase): Promise<{ budgets: BudgetRow[]; changes: LimitChange[] }> {
+  const full = await supabase
+    .from("budgets")
+    .select("id,category_id,limit_amount,period,rollover,rollover_since,started_on")
+    .is("deleted_at", null);
+  const rows = full.error
+    ? (await supabase.from("budgets").select("id,category_id,limit_amount,period").is("deleted_at", null)).data
+    : full.data;
+  const budgets = ((rows ?? []) as BudgetRow[]).map((b) => ({ ...b, limit_amount: Number(b.limit_amount) }));
+  if (full.error || !budgets.length) return { budgets, changes: [] };
+  const ch = await supabase
+    .from("budget_limit_changes")
+    .select("budget_id,limit_amount,effective_from")
+    .in("budget_id", budgets.map((b) => b.id));
+  const changes = ((ch.error ? [] : ch.data ?? []) as LimitChange[]).map((c) => ({ ...c, limit_amount: Number(c.limit_amount) }));
+  return { budgets, changes };
 }

@@ -4,7 +4,6 @@ import { getSettings } from "@/lib/agenda";
 import { getFinance } from "@/lib/finance";
 import {
   accountBalance,
-  budgetUsage,
   formatUSD,
   inRange,
   monthRange,
@@ -36,6 +35,8 @@ import MonthlySummary from "@/components/MonthlySummary";
 import PurchasesSection from "@/components/finance/PurchasesSection";
 import { listPurchases } from "@/lib/purchases/data";
 import ExportForm from "@/components/finance/ExportForm";
+import CategoryBudgets, { type CategoryBudgetView } from "@/components/finance/CategoryBudgets";
+import { budgetHistory, budgetStatus } from "@/lib/budget-rollover";
 import BudgetSection from "@/components/finance/BudgetSection";
 import { loadBudget, type BudgetState } from "@/lib/budget/data";
 
@@ -53,7 +54,7 @@ export default async function FinancePage() {
   const supabase = await createClient();
   const { timezone } = await getSettings(supabase);
   const today = localNow(timezone).date;
-  const { accounts, categories, budgets, snapshots, txns, transfers } = await getFinance(supabase, timezone);
+  const { accounts, categories, budgets, budgetChanges, snapshots, txns, transfers } = await getFinance(supabase, timezone);
   const userId = await currentUserId(supabase);
   const mobile = await isMobileRequest();
   const templates = userId ? await getPaymentTemplates(supabase, userId) : [];
@@ -113,6 +114,16 @@ export default async function FinancePage() {
     ? await loadBudget(supabase, userId, timezone).catch((e): BudgetState => ({ kind: "error", message: e instanceof Error ? e.message : "Could not load the budget." }))
     : { kind: "empty" };
   const budgetCatName = Object.fromEntries(categories.map((c) => [c.id, c.name]));
+  // Category budgets: what is available now (with rollover when it is on) and the last 6 periods
+  const categoryBudgets: CategoryBudgetView[] = budgets.map((b) => ({
+    id: b.id,
+    name: budgetCatName[b.category_id] ?? "Category",
+    period: b.period,
+    limit: b.limit_amount,
+    rollover: !!b.rollover,
+    status: budgetStatus(b, txns, today, budgetChanges),
+    history: budgetHistory(b, txns, today, budgetChanges),
+  }));
   const petsCategoryId = categories.find((c) => c.kind === "expense" && c.name.trim().toLowerCase() === "pets")?.id ?? null;
   const incomeCategories = categories.filter((c) => c.kind === "income").map((c) => ({ id: c.id, name: c.name }));
   const budgetTemplates = templates.filter((t) => t.type !== "income").map((t) => ({ name: t.name, expected: t.expected_amount ? Number(t.expected_amount) : null }));
@@ -452,36 +463,7 @@ export default async function FinancePage() {
 
           <section className="space-y-3">
             <h2 className="section-title">Budgets</h2>
-            <ul className="space-y-2">
-              {budgets.map((b) => {
-                const u = budgetUsage(b, txns, today);
-                const over = u.spent > u.limit;
-                return (
-                  <li key={b.id} className="space-y-1 rounded-lg border border-line p-3 bg-surface shadow-card">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="font-medium">
-                        {catName.get(b.category_id) ?? "Category"}{" "}
-                        <span className="text-xs font-normal text-muted">{b.period}</span>
-                      </p>
-                      <p className={`text-sm ${over ? "text-danger" : "text-muted"}`}>
-                        {formatUSD(u.spent)} / {formatUSD(u.limit)} · {over ? `${formatUSD(-u.left)} over` : `${formatUSD(u.left)} left`}
-                      </p>
-                    </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-subtle-2">
-                      <div
-                        className={`h-1.5 rounded-full ${over ? "bg-danger-solid" : u.pct > 80 ? "bg-warning-solid" : "bg-success-solid"}`}
-                        style={{ width: `${Math.min(100, u.pct)}%` }}
-                      />
-                    </div>
-                    <form action={deleteBudget} className="text-right">
-                      <input type="hidden" name="id" value={b.id} />
-                      <button className="text-xs text-faint hover:text-danger">Remove</button>
-                    </form>
-                  </li>
-                );
-              })}
-              {budgets.length === 0 && <p className="text-sm text-faint">No budgets yet.</p>}
-            </ul>
+            <CategoryBudgets budgets={categoryBudgets} />
             {expenseCats.length > 0 && <BudgetForm categories={expenseCats.map((c) => ({ id: c.id, name: c.name }))} />}
           </section>
 

@@ -119,7 +119,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <section className="card flex flex-wrap items-center justify-between gap-3 p-5">
           <div>
             <h2 className="font-medium">Appearance</h2>
-            <p className="text-sm text-muted">Auto follows your device&apos;s light or dark setting.</p>
+            <p className="text-sm text-muted">Auto follows your device&apos;s light or dark setting. Shortcut: press D (outside a text box) to switch between dark and light.</p>
           </div>
           <ThemeToggle />
         </section>

@@ -43,7 +43,46 @@ export function setThemePref(pref: ThemePref, { save = true } = {}) {
   remember(pref);
   applyTheme(pref);
   window.dispatchEvent(new CustomEvent<ThemePref>(CHANGED, { detail: pref }));
-  if (save) void saveThemePref(pref).catch(() => undefined);
+  if (save) pushToSettings(pref);
+}
+
+/** "This browser's pick has not reached your settings yet" (the save failed, or the page reloaded first). */
+const UNSAVED = "ui.theme.unsaved";
+
+function markUnsaved(on: boolean) {
+  try {
+    if (on) localStorage.setItem(UNSAVED, "1");
+    else localStorage.removeItem(UNSAVED);
+  } catch {
+    // nothing to mark
+  }
+}
+
+function isUnsaved() {
+  try {
+    return localStorage.getItem(UNSAVED) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Saves the pick in your settings. Until that works, opening the app never lets the older saved value win. */
+function pushToSettings(pref: ThemePref) {
+  markUnsaved(true);
+  void saveThemePref(pref)
+    .then((r) => r.ok && markUnsaved(false))
+    .catch(() => undefined);
+}
+
+/** Switches between dark and light (keyboard shortcut D). From Auto it goes to the opposite of what you see. */
+export function toggleTheme() {
+  setThemePref(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+}
+
+/** What <html data-theme> should be right now for your pick. */
+function expected(pref: ThemePref) {
+  const dark = pref === "dark" || (pref === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  return dark ? "dark" : "light";
 }
 
 /**
@@ -57,17 +96,28 @@ export function useSystemThemeSync() {
       if (readTheme() === "auto") applyTheme("auto");
     };
     mq.addEventListener("change", onChange);
+
+    // Guard: React wipes every attribute of <html> when it re-renders the page from scratch (after a
+    // small rendering error), and without data-theme the page falls back to light. Put it back at once.
+    const guard = new MutationObserver(() => {
+      const pref = readTheme();
+      if (document.documentElement.dataset.theme !== expected(pref)) applyTheme(pref);
+    });
+    guard.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
     let cancelled = false;
     void getThemePref()
       .then((server) => {
         if (cancelled) return;
         const local = readTheme();
-        if (server && server !== local) setThemePref(server, { save: false });
-        else if (!server) void saveThemePref(local).catch(() => undefined);
+        // A pick made here that never reached your settings wins over the older saved value.
+        if (isUnsaved() || !server) pushToSettings(local);
+        else if (server !== local) setThemePref(server, { save: false });
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
+      guard.disconnect();
       mq.removeEventListener("change", onChange);
     };
   }, []);
@@ -100,7 +150,7 @@ export default function ThemeToggle({ compact = false }: { compact?: boolean }) 
           type="button"
           role="radio"
           aria-checked={pref === o.value}
-          title={o.label}
+          title={o.value === "auto" ? o.label : `${o.label} (press D to switch dark/light)`}
           onClick={() => setThemePref(o.value)}
           className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
             pref === o.value ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"

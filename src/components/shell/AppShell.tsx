@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MobileTabs, NAV_ITEMS } from "@/components/Nav";
 import TopBar from "@/components/shell/TopBar";
 import CalendarPanel from "@/components/calendar/CalendarPanel";
-import { useSystemThemeSync } from "@/components/ui/ThemeToggle";
+import { toggleTheme, useSystemThemeSync } from "@/components/ui/ThemeToggle";
 import SearchPalette from "@/components/search/SearchPalette";
 import { useAddonFavorites } from "@/components/addons/useFavorites";
 import { ADDONS } from "@/lib/addons/registry";
@@ -20,7 +20,7 @@ function typing(e: KeyboardEvent) {
 
 /**
  * The app frame (Blocks design): top bar (desktop) or tab bar (phone), the page, and the calendar as a
- * slide-over you open from the top bar. Keyboard: "\" calendar, "g" + letter jumps to a section.
+ * slide-over you open from the top bar. Keyboard: "\" calendar, "g" + letter jumps to a section, "d" switches dark / light.
  */
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "/";
@@ -43,7 +43,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         gPressed.current = Date.now();
         return;
       }
-      if (Date.now() - gPressed.current < 1200) {
+      const afterG = Date.now() - gPressed.current < 1200;
+      // "d" on its own (not right after "g"): switch dark / light
+      if (e.key === "d" && !e.shiftKey && !afterG) return toggleTheme();
+      if (afterG) {
         const k = e.key.toLowerCase();
         // Sections first, then any add-on's own shortcut (pinned or not)
         const item = NAV_ITEMS.find((i) => i.key === k) ?? ADDONS.find((a) => a.key === k);

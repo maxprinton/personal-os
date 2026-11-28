@@ -7,6 +7,7 @@ import { localNow, utcToLocal, zonedToUtc } from "@/lib/time";
 import type { ActionState } from "@/app/actions";
 import { ADJUSTMENT_CATEGORY, setRealBalance } from "@/lib/balance-adjust";
 import { snapshotDeltas, type SnapshotPrompt } from "@/lib/finance-ledger";
+import { currentPeriodStart } from "@/lib/budget-rollover";
 
 const ACCOUNT_KINDS = ["checking", "savings", "credit_card", "cash", "other"];
 
@@ -316,6 +317,7 @@ export async function setBudget(_prev: ActionState, form: FormData): Promise<Act
   if (limit === null || limit <= 0) return { error: "Enter a limit greater than 0." };
 
   const supabase = await createClient();
+  const start = currentPeriodStart(localNow((await getSettings(supabase)).timezone).date, period);
   const { data: existing } = await supabase
     .from("budgets")
     .select("id")
@@ -323,12 +325,88 @@ export async function setBudget(_prev: ActionState, form: FormData): Promise<Act
     .eq("period", period)
     .is("deleted_at", null)
     .maybeSingle();
-  const { error } = existing
-    ? await supabase.from("budgets").update({ limit_amount: limit }).eq("id", existing.id)
-    : await supabase.from("budgets").insert({ category_id: categoryId, limit_amount: limit, period });
-  if (error) return { error: error.message };
+  if (existing) {
+    const { error } = await supabase.from("budgets").update({ limit_amount: limit }).eq("id", existing.id);
+    if (error) return { error: error.message };
+    await recordLimit(supabase, existing.id as string, limit, start);
+  } else {
+    const first = await supabase.from("budgets").insert({ category_id: categoryId, limit_amount: limit, period, started_on: start }).select("id").single();
+    // Without migration 0076 there is no started_on column: save it the old way
+    const res = first.error && /started_on/.test(first.error.message)
+      ? await supabase.from("budgets").insert({ category_id: categoryId, limit_amount: limit, period }).select("id").single()
+      : first;
+    if (res.error) return { error: res.error.message };
+    await recordLimit(supabase, res.data.id as string, limit, start);
+  }
   refresh();
   return { ok: true, at: Date.now() };
+}
+
+type Sb = Awaited<ReturnType<typeof createClient>>;
+
+/** The limit a period starts with (one row per budget and period; a second change in the same period replaces it). */
+async function recordLimit(supabase: Sb, budgetId: string, limit: number, start: string) {
+  await supabase
+    .from("budget_limit_changes")
+    .upsert({ budget_id: budgetId, limit_amount: limit, effective_from: start }, { onConflict: "budget_id,effective_from" });
+}
+
+/**
+ * Edit a category budget: its limit and its period. A new limit applies to the whole current period.
+ * Changing weekly <-> monthly starts the budget's history (and its rollover, if on) again from this period.
+ */
+export async function updateBudget(input: { id: string; limit: string; period: string }): Promise<{ ok?: boolean; error?: string }> {
+  const limit = money(input.limit);
+  const period = input.period === "weekly" ? "weekly" : "monthly";
+  if (!input.id) return { error: "That budget is gone. Reload the page." };
+  if (limit === null || limit <= 0) return { error: "Enter a limit greater than 0." };
+  const supabase = await createClient();
+  const { data: b } = await supabase
+    .from("budgets")
+    .select("id,category_id,period,rollover")
+    .eq("id", input.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!b) return { error: "That budget is gone. Reload the page." };
+  const today = localNow((await getSettings(supabase)).timezone).date;
+  const start = currentPeriodStart(today, period);
+  const patch: Record<string, unknown> = { limit_amount: limit };
+  if (b.period !== period) {
+    const { data: clash } = await supabase
+      .from("budgets")
+      .select("id")
+      .eq("category_id", b.category_id)
+      .eq("period", period)
+      .is("deleted_at", null)
+      .neq("id", b.id)
+      .maybeSingle();
+    if (clash) return { error: `This category already has a ${period} budget. Edit or remove that one instead.` };
+    patch.period = period;
+    patch.started_on = start;
+    if (b.rollover) patch.rollover_since = start;
+    // The old limits were per week or per month of the other period: they no longer apply
+    await supabase.from("budget_limit_changes").delete().eq("budget_id", b.id);
+  }
+  const { error } = await supabase.from("budgets").update(patch).eq("id", b.id);
+  if (error) return { error: error.message };
+  await recordLimit(supabase, b.id as string, limit, start);
+  refresh();
+  return { ok: true };
+}
+
+/** The rollover switch of a budget. On: counting starts with the current period. Off: the carry is forgotten. */
+export async function setBudgetRollover(id: string, on: boolean): Promise<{ ok?: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { data: b } = await supabase.from("budgets").select("id,period").eq("id", id).is("deleted_at", null).maybeSingle();
+  if (!b) return { error: "That budget is gone. Reload the page." };
+  const start = currentPeriodStart(localNow((await getSettings(supabase)).timezone).date, b.period as "weekly" | "monthly");
+  const { error } = await supabase
+    .from("budgets")
+    .update({ rollover: on, rollover_since: on ? start : null })
+    .eq("id", id);
+  if (error) return { error: /rollover/.test(error.message) ? "Rollover needs migration 0076 (MIGRACION-0076-budget-rollover.sql)." : error.message };
+  refresh();
+  return { ok: true };
 }
 
 export async function deleteBudget(form: FormData) {
